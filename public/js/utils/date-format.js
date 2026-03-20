@@ -5,6 +5,9 @@
  * BACKLOG-26: Extended with formatDateTime for timestamp formatting.
  * BACKLOG-27: Standardized to 'en-CA' locale.
  *
+ * OSS locale: Reads window.MERCHANT_LOCALE for multi-tenant / franchise
+ * support. Falls back to 'en-CA'.
+ *
  * @param {string} dateStr - ISO date string to format
  * @param {Object} [options] - Intl.DateTimeFormat options (default: year/month-short/day)
  * @returns {string} Formatted date string, or '-' on falsy/invalid input
@@ -12,13 +15,17 @@
 
 /* eslint-disable no-unused-vars */
 
-// LOGIC CHANGE: locale standardized from 'en-US' to 'en-CA' (BACKLOG-27)
+// LOGIC CHANGE: Read locale from merchant global with fallback (OSS locale)
+function _getDateLocale() {
+  return (typeof window !== 'undefined' && window.MERCHANT_LOCALE) || 'en-CA';
+}
+
 function formatDate(dateStr, options) {
   if (!dateStr) return '-';
   try {
     var date = new Date(dateStr);
     var opts = options || { year: 'numeric', month: 'short', day: 'numeric' };
-    return date.toLocaleDateString('en-CA', opts);
+    return date.toLocaleDateString(_getDateLocale(), opts);
   } catch (error) {
     return '-';
   }
@@ -37,7 +44,7 @@ function formatDateTime(dateStr, options) {
   try {
     var date = new Date(dateStr);
     var opts = options || { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
-    return date.toLocaleString('en-CA', opts);
+    return date.toLocaleString(_getDateLocale(), opts);
   } catch (error) {
     return '-';
   }

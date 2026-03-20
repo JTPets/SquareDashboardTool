@@ -366,7 +366,7 @@ describe('Auth Routes', () => {
             const res = await request(app).get('/api/auth/me');
 
             expect(res.status).toBe(401);
-            expect(res.body.authenticated).toBe(false);
+            expect(res.body.success).toBe(false);
         });
     });
 

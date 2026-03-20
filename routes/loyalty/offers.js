@@ -17,6 +17,7 @@ const { requireAuth, requireWriteAccess } = require('../../middleware/auth');
 const { requireMerchant } = require('../../middleware/merchant');
 const asyncHandler = require('../../middleware/async-handler');
 const validators = require('../../middleware/validators/loyalty');
+const { sendSuccess, sendError } = require('../../utils/response-helper');
 
 /**
  * GET /api/loyalty/offers
@@ -31,7 +32,7 @@ router.get('/offers', requireAuth, requireMerchant, validators.listOffers, async
         brandName
     });
 
-    res.json({ offers });
+    sendSuccess(res, { offers });
 }));
 
 /**
@@ -62,7 +63,7 @@ router.post('/offers', requireAuth, requireMerchant, requireWriteAccess, validat
         merchantId
     });
 
-    res.status(201).json({ offer });
+    sendSuccess(res, { offer }, 201);
 }));
 
 /**
@@ -74,13 +75,13 @@ router.get('/offers/:id', requireAuth, requireMerchant, validators.getOffer, asy
     const offer = await loyaltyService.getOfferById(req.params.id, merchantId);
 
     if (!offer) {
-        return res.status(404).json({ error: 'Offer not found' });
+        return sendError(res, 'Offer not found', 404);
     }
 
     // Get qualifying variations
     const variations = await loyaltyService.getQualifyingVariations(req.params.id, merchantId);
 
-    res.json({ offer, variations });
+    sendSuccess(res, { offer, variations });
 }));
 
 /**
@@ -107,7 +108,7 @@ router.patch('/offers/:id', requireAuth, requireMerchant, requireWriteAccess, va
         req.session.user.id
     );
 
-    res.json({ offer });
+    sendSuccess(res, { offer });
 }));
 
 /**
@@ -130,7 +131,7 @@ router.delete('/offers/:id', requireAuth, requireMerchant, requireWriteAccess, v
         merchantId
     });
 
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 module.exports = router;

@@ -17,6 +17,7 @@ const logger = require('../utils/logger');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/catalog-location-health');
+const { sendSuccess } = require('../utils/response-helper');
 const {
     checkAndRecordHealth,
     getMismatchHistory,
@@ -35,8 +36,7 @@ router.get('/', requireAuth, requireAdmin, validators.getHealth, asyncHandler(as
         getOpenMismatches(DEBUG_MERCHANT_ID)
     ]);
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         history,
         openMismatches
     });
@@ -53,10 +53,7 @@ router.post('/check', requireAuth, requireAdmin, validators.runCheck, asyncHandl
 
     const result = await checkAndRecordHealth(DEBUG_MERCHANT_ID);
 
-    res.json({
-        success: true,
-        ...result
-    });
+    sendSuccess(res, result);
 }));
 
 module.exports = router;

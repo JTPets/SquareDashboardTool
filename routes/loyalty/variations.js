@@ -16,6 +16,7 @@ const { requireAuth, requireWriteAccess } = require('../../middleware/auth');
 const { requireMerchant } = require('../../middleware/merchant');
 const asyncHandler = require('../../middleware/async-handler');
 const validators = require('../../middleware/validators/loyalty');
+const { sendSuccess, sendError } = require('../../utils/response-helper');
 
 /**
  * POST /api/loyalty/offers/:id/variations
@@ -38,7 +39,7 @@ router.post('/offers/:id/variations', requireAuth, requireMerchant, requireWrite
         merchantId
     });
 
-    res.json({ added });
+    sendSuccess(res, { added });
 }));
 
 /**
@@ -48,7 +49,7 @@ router.post('/offers/:id/variations', requireAuth, requireMerchant, requireWrite
 router.get('/offers/:id/variations', requireAuth, requireMerchant, validators.getOfferVariations, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const variations = await loyaltyService.getQualifyingVariations(req.params.id, merchantId);
-    res.json({ variations });
+    sendSuccess(res, { variations });
 }));
 
 /**
@@ -58,7 +59,7 @@ router.get('/offers/:id/variations', requireAuth, requireMerchant, validators.ge
 router.get('/variations/assignments', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const assignments = await loyaltyService.getVariationAssignments(merchantId);
-    res.json({ assignments });
+    sendSuccess(res, { assignments });
 }));
 
 /**
@@ -77,10 +78,10 @@ router.delete('/offers/:offerId/variations/:variationId', requireAuth, requireMe
     );
 
     if (!removed) {
-        return res.status(404).json({ error: 'Variation not found in offer' });
+        return sendError(res, 'Variation not found in offer', 404);
     }
 
-    res.json({ success: true });
+    sendSuccess(res, {});
 }));
 
 module.exports = router;

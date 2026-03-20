@@ -19,13 +19,14 @@ const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/bundles');
 const bundleService = require('../services/bundle-service');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 
 // ==================== LIST BUNDLES ====================
 
 router.get('/', requireAuth, requireMerchant, validators.getBundles, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const result = await bundleService.listBundles(merchantId, req.query);
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 // ==================== BUNDLE AVAILABILITY ====================
@@ -34,7 +35,7 @@ router.get('/', requireAuth, requireMerchant, validators.getBundles, asyncHandle
 router.get('/availability', requireAuth, requireMerchant, validators.getAvailability, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const result = await bundleService.calculateAvailability(merchantId, req.query);
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 // ==================== CREATE BUNDLE ====================
@@ -42,7 +43,7 @@ router.get('/availability', requireAuth, requireMerchant, validators.getAvailabi
 router.post('/', requireAuth, requireMerchant, validators.createBundle, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const result = await bundleService.createBundle(merchantId, req.body);
-    res.status(201).json({ success: true, bundle: result });
+    sendSuccess(res, { bundle: result }, 201);
 }));
 
 // ==================== UPDATE BUNDLE ====================
@@ -51,7 +52,7 @@ router.put('/:id', requireAuth, requireMerchant, validators.updateBundle, asyncH
     const merchantId = req.merchantContext.id;
     const bundleId = parseInt(req.params.id);
     const result = await bundleService.updateBundle(merchantId, bundleId, req.body);
-    res.json({ success: true, bundle: result });
+    sendSuccess(res, { bundle: result });
 }));
 
 // ==================== DELETE (SOFT) BUNDLE ====================
@@ -62,10 +63,10 @@ router.delete('/:id', requireAuth, requireMerchant, validators.deleteBundle, asy
     const result = await bundleService.deleteBundle(merchantId, bundleId);
 
     if (!result) {
-        return res.status(404).json({ success: false, error: 'Bundle not found' });
+        return sendError(res, 'Bundle not found', 404);
     }
 
-    res.json({ success: true, message: 'Bundle deactivated', bundle: result });
+    sendSuccess(res, { message: 'Bundle deactivated', bundle: result });
 }));
 
 module.exports = router;

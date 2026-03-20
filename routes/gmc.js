@@ -41,6 +41,7 @@ const { configureSensitiveOperationRateLimit } = require('../middleware/security
 const validators = require('../middleware/validators/gmc');
 const asyncHandler = require('../middleware/async-handler');
 const { getLocationById } = require('../services/catalog/location-service');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 
 // Rate limiter for sensitive operations (token regeneration)
 const sensitiveOperationRateLimit = configureSensitiveOperationRateLimit();
@@ -60,8 +61,7 @@ router.get('/feed', requireAuth, requireMerchant, validators.getFeed, asyncHandl
         merchantId
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         stats,
         settings,
         products
@@ -104,7 +104,7 @@ router.get('/feed.tsv', asyncHandler(async (req, res) => {
         );
         if (merchantResult.rows.length === 0) {
             res.setHeader('WWW-Authenticate', 'Basic realm="GMC Feed"');
-            return res.status(401).json({ error: 'Invalid or expired feed token' });
+            return sendError(res, 'Invalid or expired feed token', 401);
         }
         merchantId = merchantResult.rows[0].id;
     }
@@ -115,9 +115,7 @@ router.get('/feed.tsv', asyncHandler(async (req, res) => {
     // No auth provided - send Basic Auth challenge
     else {
         res.setHeader('WWW-Authenticate', 'Basic realm="GMC Feed"');
-        return res.status(401).json({
-            error: 'Authentication required. Use ?token=<feed_token> or HTTP Basic Auth.'
-        });
+        return sendError(res, 'Authentication required. Use ?token=<feed_token> or HTTP Basic Auth.', 401);
     }
 
     const { products } = await gmcFeed.generateFeedData({ locationId: location_id, merchantId });
@@ -141,15 +139,14 @@ router.get('/feed-url', requireAuth, requireMerchant, asyncHandler(async (req, r
     );
 
     if (result.rows.length === 0 || !result.rows[0].gmc_feed_token) {
-        return res.status(404).json({ error: 'Feed token not found. Please contact support.' });
+        return sendError(res, 'Feed token not found. Please contact support.', 404);
     }
 
     const token = result.rows[0].gmc_feed_token;
     const baseUrl = process.env.BASE_URL || `https://${req.get('host')}`;
     const feedUrl = `${baseUrl}/api/gmc/feed.tsv?token=${token}`;
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         feedUrl,
         token,
         instructions: 'Use this URL in Google Merchant Center as your product feed URL. Keep the token secret.'
@@ -175,8 +172,7 @@ router.post('/regenerate-token', sensitiveOperationRateLimit, requireAuth, requi
 
     logger.info('GMC feed token regenerated', { merchantId });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         feedUrl,
         token: newToken,
         warning: 'Your previous feed URL is now invalid. Update Google Merchant Center with the new URL.'
@@ -192,7 +188,7 @@ router.post('/regenerate-token', sensitiveOperationRateLimit, requireAuth, requi
 router.get('/settings', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const settings = await gmcFeed.getSettings(merchantId);
-    res.json({ settings });
+    sendSuccess(res, { settings });
 }));
 
 /**
@@ -214,7 +210,7 @@ router.put('/settings', requireAuth, requireMerchant, requireWriteAccess, valida
     }
 
     const updatedSettings = await gmcFeed.getSettings(merchantId);
-    res.json({ success: true, settings: updatedSettings });
+    sendSuccess(res, { settings: updatedSettings });
 }));
 
 // ==================== BRAND MANAGEMENT ====================
@@ -226,7 +222,7 @@ router.put('/settings', requireAuth, requireMerchant, requireWriteAccess, valida
 router.get('/brands', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const result = await db.query('SELECT * FROM brands WHERE merchant_id = $1 ORDER BY name', [merchantId]);
-    res.json({ count: result.rows.length, brands: result.rows });
+    sendSuccess(res, { count: result.rows.length, brands: result.rows });
 }));
 
 /**
@@ -238,7 +234,7 @@ router.post('/brands/import', requireAuth, requireMerchant, requireWriteAccess, 
     const merchantId = req.merchantContext.id;
 
     const imported = await gmcFeed.importBrands(brands, merchantId);
-    res.json({ success: true, imported });
+    sendSuccess(res, { imported });
 }));
 
 /**
@@ -254,10 +250,10 @@ router.post('/brands', requireAuth, requireMerchant, requireWriteAccess, validat
             'INSERT INTO brands (name, logo_url, website, merchant_id) VALUES ($1, $2, $3, $4) RETURNING *',
             [name, logo_url, website, merchantId]
         );
-        res.json({ success: true, brand: result.rows[0] });
+        sendSuccess(res, { brand: result.rows[0] });
     } catch (error) {
         if (error.code === '23505') {
-            return res.status(409).json({ error: 'Brand already exists' });
+            return sendError(res, 'Brand already exists', 409);
         }
         throw error;
     }
@@ -276,7 +272,7 @@ router.put('/items/:itemId/brand', requireAuth, requireMerchant, requireWriteAcc
     // Verify item belongs to this merchant
     const itemCheck = await db.query('SELECT id FROM items WHERE id = $1 AND merchant_id = $2', [itemId, merchantId]);
     if (itemCheck.rows.length === 0) {
-        return res.status(404).json({ error: 'Item not found' });
+        return sendError(res, 'Item not found', 404);
     }
 
     let squareSyncResult = null;
@@ -297,13 +293,13 @@ router.put('/items/:itemId/brand', requireAuth, requireMerchant, requireWriteAcc
             squareSyncResult = { success: false, error: syncError.message };
         }
 
-        return res.json({ success: true, message: 'Brand removed from item', square_sync: squareSyncResult });
+        return sendSuccess(res, { message: 'Brand removed from item', square_sync: squareSyncResult });
     }
 
     // Get brand name for Square sync
     const brandResult = await db.query('SELECT name FROM brands WHERE id = $1 AND merchant_id = $2', [brand_id, merchantId]);
     if (brandResult.rows.length === 0) {
-        return res.status(404).json({ error: 'Brand not found' });
+        return sendError(res, 'Brand not found', 404);
     }
     brandName = brandResult.rows[0].name;
 
@@ -325,7 +321,7 @@ router.put('/items/:itemId/brand', requireAuth, requireMerchant, requireWriteAcc
         squareSyncResult = { success: false, error: syncError.message };
     }
 
-    res.json({ success: true, brand_name: brandName, square_sync: squareSyncResult });
+    sendSuccess(res, { brand_name: brandName, square_sync: squareSyncResult });
 }));
 
 /**
@@ -342,7 +338,7 @@ router.post('/brands/auto-detect', requireAuth, requireMerchant, requireWriteAcc
         .map(b => b.trim());
 
     if (cleanedBrands.length === 0) {
-        return res.status(400).json({ error: 'No valid brand names provided' });
+        return sendError(res, 'No valid brand names provided', 400);
     }
 
     // Ensure all brands exist in our brands table for this merchant
@@ -414,8 +410,7 @@ router.post('/brands/auto-detect', requireAuth, requireMerchant, requireWriteAcc
         }
     }
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         master_brands_provided: cleanedBrands.length,
         total_items_without_brand: itemsResult.rows.length,
         detected_count: detectedMatches.length,
@@ -511,7 +506,7 @@ router.post('/brands/bulk-assign', requireAuth, requireMerchant, requireWriteAcc
         failed: results.failed
     });
 
-    res.json(results);
+    sendSuccess(res, results);
 }));
 
 // ==================== TAXONOMY MANAGEMENT ====================
@@ -538,7 +533,7 @@ router.get('/taxonomy', requireAuth, validators.listTaxonomy, asyncHandler(async
     }
 
     const result = await db.query(query, params);
-    res.json({ count: result.rows.length, taxonomy: result.rows });
+    sendSuccess(res, { count: result.rows.length, taxonomy: result.rows });
 }));
 
 /**
@@ -549,7 +544,7 @@ router.post('/taxonomy/import', requireAdmin, validators.importTaxonomy, asyncHa
     const { taxonomy } = req.body;
 
     const imported = await gmcFeed.importGoogleTaxonomy(taxonomy);
-    res.json({ success: true, imported });
+    sendSuccess(res, { imported });
 }));
 
 /**
@@ -589,7 +584,7 @@ router.get('/taxonomy/fetch-google', requireAdmin, asyncHandler(async (req, res)
     }
 
     logger.info(`Imported ${imported} Google taxonomy entries`);
-    res.json({ success: true, imported, message: `Imported ${imported} taxonomy entries` });
+    sendSuccess(res, { imported, message: `Imported ${imported} taxonomy entries` });
 }));
 
 /**
@@ -604,12 +599,12 @@ router.put('/categories/:categoryId/taxonomy', requireAuth, requireMerchant, req
     // Verify category belongs to this merchant
     const catCheck = await db.query('SELECT id FROM categories WHERE id = $1 AND merchant_id = $2', [categoryId, merchantId]);
     if (catCheck.rows.length === 0) {
-        return res.status(404).json({ error: 'Category not found' });
+        return sendError(res, 'Category not found', 404);
     }
 
     if (!google_taxonomy_id) {
         await db.query('DELETE FROM category_taxonomy_mapping WHERE category_id = $1 AND merchant_id = $2', [categoryId, merchantId]);
-        return res.json({ success: true, message: 'Taxonomy mapping removed' });
+        return sendSuccess(res, { message: 'Taxonomy mapping removed' });
     }
 
     await db.query(`
@@ -620,7 +615,7 @@ router.put('/categories/:categoryId/taxonomy', requireAuth, requireMerchant, req
             updated_at = CURRENT_TIMESTAMP
     `, [categoryId, google_taxonomy_id, merchantId]);
 
-    res.json({ success: true });
+    sendSuccess(res, {});
 }));
 
 /**
@@ -631,7 +626,7 @@ router.delete('/categories/:categoryId/taxonomy', requireAuth, requireMerchant, 
     const { categoryId } = req.params;
     const merchantId = req.merchantContext.id;
     await db.query('DELETE FROM category_taxonomy_mapping WHERE category_id = $1 AND merchant_id = $2', [categoryId, merchantId]);
-    res.json({ success: true, message: 'Taxonomy mapping removed' });
+    sendSuccess(res, { message: 'Taxonomy mapping removed' });
 }));
 
 /**
@@ -652,7 +647,7 @@ router.get('/category-mappings', requireAuth, requireMerchant, asyncHandler(asyn
         WHERE c.merchant_id = $1
         ORDER BY c.name
     `, [merchantId]);
-    res.json({ count: result.rows.length, mappings: result.rows });
+    sendSuccess(res, { count: result.rows.length, mappings: result.rows });
 }));
 
 /**
@@ -688,7 +683,7 @@ router.put('/category-taxonomy', requireAuth, requireMerchant, requireWriteAcces
             updated_at = CURRENT_TIMESTAMP
     `, [categoryId, google_taxonomy_id, merchantId]);
 
-    res.json({ success: true, category_id: categoryId });
+    sendSuccess(res, { category_id: categoryId });
 }));
 
 /**
@@ -705,13 +700,13 @@ router.delete('/category-taxonomy', requireAuth, requireMerchant, requireWriteAc
     );
 
     if (categoryResult.rows.length === 0) {
-        return res.status(404).json({ error: 'Category not found' });
+        return sendError(res, 'Category not found', 404);
     }
 
     const categoryId = categoryResult.rows[0].id;
     await db.query('DELETE FROM category_taxonomy_mapping WHERE category_id = $1 AND merchant_id = $2', [categoryId, merchantId]);
 
-    res.json({ success: true, message: 'Taxonomy mapping removed' });
+    sendSuccess(res, { message: 'Taxonomy mapping removed' });
 }));
 
 // ==================== LOCATION SETTINGS ====================
@@ -737,8 +732,7 @@ router.get('/location-settings', requireAuth, requireMerchant, asyncHandler(asyn
         ORDER BY l.name
     `, [merchantId]);
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         locations: result.rows
     });
 }));
@@ -755,7 +749,7 @@ router.put('/location-settings/:locationId', requireAuth, requireMerchant, requi
     // LOGIC CHANGE: using shared location-service (BACKLOG-25)
     const location = await getLocationById(merchantId, locationId);
     if (!location) {
-        return res.status(404).json({ error: 'Location not found' });
+        return sendError(res, 'Location not found', 404);
     }
 
     await gmcFeed.saveLocationSettings(merchantId, locationId, {
@@ -763,8 +757,7 @@ router.put('/location-settings/:locationId', requireAuth, requireMerchant, requi
         enabled
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         message: 'Location settings updated'
     });
 }));
@@ -784,15 +777,14 @@ router.get('/local-inventory-feed-url', requireAuth, requireMerchant, asyncHandl
     );
 
     if (result.rows.length === 0 || !result.rows[0].gmc_feed_token) {
-        return res.status(404).json({ error: 'Feed token not found. Please contact support.' });
+        return sendError(res, 'Feed token not found. Please contact support.', 404);
     }
 
     const token = result.rows[0].gmc_feed_token;
     const baseUrl = process.env.BASE_URL || `https://${req.get('host')}`;
     const feedUrl = `${baseUrl}/api/gmc/local-inventory-feed.tsv?token=${token}`;
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         feedUrl,
         token,
         instructions: 'Use this URL in Google Merchant Center for local inventory. Keep the token secret.'
@@ -810,7 +802,7 @@ router.get('/local-inventory-feed', requireAuth, requireMerchant, validators.get
     // LOGIC CHANGE: using shared location-service (BACKLOG-25)
     const locationRow = await getLocationById(merchantId, location_id);
     if (!locationRow) {
-        return res.status(404).json({ error: 'Location not found' });
+        return sendError(res, 'Location not found', 404);
     }
 
     const feedData = await gmcFeed.generateLocalInventoryFeed({
@@ -818,8 +810,7 @@ router.get('/local-inventory-feed', requireAuth, requireMerchant, validators.get
         locationId: location_id
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         items: feedData.items,
         location: feedData.location,
         stats: feedData.stats
@@ -858,7 +849,7 @@ router.get('/local-inventory-feed.tsv', asyncHandler(async (req, res) => {
         );
         if (merchantResult.rows.length === 0) {
             res.setHeader('WWW-Authenticate', 'Basic realm="GMC Feed"');
-            return res.status(401).json({ error: 'Invalid or expired feed token' });
+            return sendError(res, 'Invalid or expired feed token', 401);
         }
         merchantId = merchantResult.rows[0].id;
     }
@@ -869,9 +860,7 @@ router.get('/local-inventory-feed.tsv', asyncHandler(async (req, res) => {
     // No auth provided
     else {
         res.setHeader('WWW-Authenticate', 'Basic realm="GMC Feed"');
-        return res.status(401).json({
-            error: 'Authentication required. Use ?token=<feed_token> or HTTP Basic Auth.'
-        });
+        return sendError(res, 'Authentication required. Use ?token=<feed_token> or HTTP Basic Auth.', 401);
     }
 
     // Get all enabled locations for this merchant
@@ -882,9 +871,7 @@ router.get('/local-inventory-feed.tsv', asyncHandler(async (req, res) => {
     `, [merchantId]);
 
     if (locationsResult.rows.length === 0) {
-        return res.status(400).json({
-            error: 'No enabled locations with store codes found. Configure location settings first.'
-        });
+        return sendError(res, 'No enabled locations with store codes found. Configure location settings first.', 400);
     }
 
     // Generate combined feed for all locations
@@ -917,7 +904,7 @@ router.get('/local-inventory-feed.tsv', asyncHandler(async (req, res) => {
 router.get('/api-settings', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const settings = await gmcApi.getGmcApiSettings(merchantId);
-    res.json({ success: true, settings });
+    sendSuccess(res, { settings });
 }));
 
 /**
@@ -929,7 +916,7 @@ router.put('/api-settings', requireAuth, requireMerchant, requireWriteAccess, va
     const { settings } = req.body;
 
     await gmcApi.saveGmcApiSettings(merchantId, settings);
-    res.json({ success: true, message: 'GMC API settings saved' });
+    sendSuccess(res, { message: 'GMC API settings saved' });
 }));
 
 /**
@@ -939,7 +926,7 @@ router.put('/api-settings', requireAuth, requireMerchant, requireWriteAccess, va
 router.post('/api/test-connection', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const result = await gmcApi.testConnection(merchantId);
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -951,10 +938,7 @@ router.get('/api/data-source-info', requireAuth, requireMerchant, asyncHandler(a
     const settings = await gmcApi.getGmcApiSettings(merchantId);
 
     if (!settings.gmc_merchant_id || !settings.gmc_data_source_id) {
-        return res.status(400).json({
-            success: false,
-            error: 'GMC Merchant ID and Data Source ID must be configured'
-        });
+        return sendError(res, 'GMC Merchant ID and Data Source ID must be configured', 400);
     }
 
     const dataSourceInfo = await gmcApi.getDataSourceInfo(
@@ -963,7 +947,7 @@ router.get('/api/data-source-info', requireAuth, requireMerchant, asyncHandler(a
         settings.gmc_data_source_id
     );
 
-    res.json({ success: true, dataSource: dataSourceInfo, settings });
+    sendSuccess(res, { dataSource: dataSourceInfo, settings });
 }));
 
 /**
@@ -974,7 +958,7 @@ router.post('/api/sync-products', requireAuth, requireMerchant, requireWriteAcce
     const merchantId = req.merchantContext.id;
 
     // Return immediately, run sync in background
-    res.json({ success: true, message: 'Sync started. Check Sync History for progress.', async: true });
+    sendSuccess(res, { message: 'Sync started. Check Sync History for progress.', async: true });
 
     // Run sync in background (don't await)
     gmcApi.syncProductCatalog(merchantId).catch(err => {
@@ -990,7 +974,7 @@ router.post('/api/sync-products', requireAuth, requireMerchant, requireWriteAcce
 router.get('/api/sync-status', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const status = await gmcApi.getLastSyncStatus(merchantId);
-    res.json({ success: true, status });
+    sendSuccess(res, { status });
 }));
 
 /**
@@ -1001,7 +985,7 @@ router.get('/api/sync-history', requireAuth, requireMerchant, validators.getSync
     const merchantId = req.merchantContext.id;
     const limit = parseInt(req.query.limit) || 20;
     const history = await gmcApi.getSyncHistory(merchantId, limit);
-    res.json({ success: true, history });
+    sendSuccess(res, { history });
 }));
 
 module.exports = router;

@@ -14,6 +14,7 @@ const { requireAuth, requireWriteAccess } = require('../../middleware/auth');
 const { requireMerchant } = require('../../middleware/merchant');
 const asyncHandler = require('../../middleware/async-handler');
 const validators = require('../../middleware/validators/loyalty');
+const { sendSuccess } = require('../../utils/response-helper');
 
 /**
  * GET /api/loyalty/settings
@@ -22,7 +23,7 @@ const validators = require('../../middleware/validators/loyalty');
 router.get('/settings', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const settings = await loyaltyService.getSettings(merchantId);
-    res.json({ settings });
+    sendSuccess(res, { settings });
 }));
 
 /**
@@ -39,7 +40,7 @@ router.put('/settings', requireAuth, requireMerchant, requireWriteAccess, valida
 
     logger.info('Updated loyalty settings', { merchantId, keys: Object.keys(updates) });
 
-    res.json({ success: true });
+    sendSuccess(res, {});
 }));
 
 module.exports = router;

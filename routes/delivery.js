@@ -56,6 +56,7 @@ const { validateUploadedImage } = require('../utils/file-validation');
 const validators = require('../middleware/validators/delivery');
 const deliveryStats = require('../services/delivery/delivery-stats');
 const { getLocationIds } = deliveryStats;
+const { sendSuccess, sendError } = require('../utils/response-helper');
 
 // Rate limiters
 const deliveryRateLimit = configureDeliveryRateLimit();
@@ -96,7 +97,7 @@ router.get('/orders', requireAuth, requireMerchant, validators.listOrders, async
         offset: parseInt(offset) || 0
     });
 
-    res.json({ orders });
+    sendSuccess(res, { orders });
 }));
 
 /**
@@ -108,7 +109,7 @@ router.post('/orders', deliveryRateLimit, requireAuth, requireMerchant, validato
     const merchantId = req.merchantContext.id;
 
     if (!customerName || !address) {
-        return res.status(400).json({ error: 'Customer name and address are required' });
+        return sendError(res, 'Customer name and address are required', 400);
     }
 
     const order = await deliveryApi.createOrder(merchantId, {
@@ -138,7 +139,7 @@ router.post('/orders', deliveryRateLimit, requireAuth, requireMerchant, validato
         customerName
     });
 
-    res.status(201).json({ order });
+    sendSuccess(res, { order }, 201);
 }));
 
 /**
@@ -150,10 +151,10 @@ router.get('/orders/:id', requireAuth, requireMerchant, validators.getOrder, asy
     const order = await deliveryApi.getOrderById(merchantId, req.params.id);
 
     if (!order) {
-        return res.status(404).json({ error: 'Order not found' });
+        return sendError(res, 'Order not found', 404);
     }
 
-    res.json({ order });
+    sendSuccess(res, { order });
 }));
 
 /**
@@ -173,7 +174,7 @@ router.patch('/orders/:id', deliveryRateLimit, requireAuth, requireMerchant, val
     const order = await deliveryApi.updateOrder(merchantId, req.params.id, updates);
 
     if (!order) {
-        return res.status(404).json({ error: 'Order not found' });
+        return sendError(res, 'Order not found', 404);
     }
 
     // Re-geocode if address changed
@@ -194,7 +195,7 @@ router.patch('/orders/:id', deliveryRateLimit, requireAuth, requireMerchant, val
         }
     }
 
-    res.json({ order });
+    sendSuccess(res, { order });
 }));
 
 /**
@@ -206,14 +207,12 @@ router.delete('/orders/:id', deliveryRateLimit, requireAuth, requireMerchant, va
     const deleted = await deliveryApi.deleteOrder(merchantId, req.params.id);
 
     if (!deleted) {
-        return res.status(400).json({
-            error: 'Cannot delete this order. Only manual orders not yet delivered can be deleted.'
-        });
+        return sendError(res, 'Cannot delete this order. Only manual orders not yet delivered can be deleted.', 400);
     }
 
     await deliveryApi.logAuditEvent(merchantId, req.session.user.id, 'order_deleted', req.params.id);
 
-    res.json({ success: true });
+    sendSuccess(res, {});
 }));
 
 /**
@@ -225,10 +224,10 @@ router.post('/orders/:id/skip', deliveryRateLimit, requireAuth, requireMerchant,
     const order = await deliveryApi.skipOrder(merchantId, req.params.id, req.session.user.id);
 
     if (!order) {
-        return res.status(404).json({ error: 'Order not found' });
+        return sendError(res, 'Order not found', 404);
     }
 
-    res.json({ order });
+    sendSuccess(res, { order });
 }));
 
 /**
@@ -240,7 +239,7 @@ router.post('/orders/:id/complete', deliveryRateLimit, requireAuth, requireMerch
     const order = await deliveryApi.getOrderById(merchantId, req.params.id);
 
     if (!order) {
-        return res.status(404).json({ error: 'Order not found' });
+        return sendError(res, 'Order not found', 404);
     }
 
     let squareSynced = false;
@@ -435,7 +434,7 @@ router.post('/orders/:id/complete', deliveryRateLimit, requireAuth, requireMerch
 
         const completedOrder = await deliveryApi.completeOrder(merchantId, req.params.id, req.session.user.id);
 
-        res.json({
+        sendSuccess(res, {
         order: completedOrder,
         square_synced: squareSynced,
         square_sync_error: squareSyncError
@@ -451,10 +450,10 @@ router.get('/orders/:id/customer', requireAuth, requireMerchant, validators.getO
     const { order, customerData } = await deliveryStats.getCustomerInfo(merchantId, req.params.id);
 
     if (!order) {
-        return res.status(404).json({ error: 'Order not found' });
+        return sendError(res, 'Order not found', 404);
     }
 
-    res.json(customerData);
+    sendSuccess(res, customerData);
 }));
 
 /**
@@ -467,15 +466,14 @@ router.patch('/orders/:id/customer-note', deliveryRateLimit, requireAuth, requir
     const result = await deliveryStats.updateCustomerNote(merchantId, req.params.id, note);
 
     if (!result.order) {
-        return res.status(404).json({ error: 'Order not found' });
+        return sendError(res, 'Order not found', 404);
     }
 
     if (result.error) {
-        return res.status(400).json({ error: result.error });
+        return sendError(res, result.error, 400);
     }
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         square_synced: result.squareSynced,
         customer_note: note
     });
@@ -491,15 +489,14 @@ router.patch('/orders/:id/notes', deliveryRateLimit, requireAuth, requireMerchan
     const order = await deliveryApi.getOrderById(merchantId, req.params.id);
 
     if (!order) {
-        return res.status(404).json({ error: 'Order not found' });
+        return sendError(res, 'Order not found', 404);
     }
 
     await deliveryApi.updateOrder(merchantId, order.id, {
         notes: notes || null
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         notes: notes
     });
 }));
@@ -513,10 +510,10 @@ router.get('/orders/:id/customer-stats', requireAuth, requireMerchant, validator
     const { order, stats } = await deliveryStats.getCustomerStats(merchantId, req.params.id);
 
     if (!order) {
-        return res.status(404).json({ error: 'Order not found' });
+        return sendError(res, 'Order not found', 404);
     }
 
-    res.json(stats);
+    sendSuccess(res, stats);
 }));
 
 /**
@@ -527,7 +524,7 @@ router.post('/orders/:id/pod', deliveryRateLimit, requireAuth, requireMerchant, 
     const merchantId = req.merchantContext.id;
 
     if (!req.file) {
-        return res.status(400).json({ error: 'No photo uploaded' });
+        return sendError(res, 'No photo uploaded', 400);
     }
 
     const pod = await deliveryApi.savePodPhoto(merchantId, req.params.id, req.file.buffer, {
@@ -542,7 +539,7 @@ router.post('/orders/:id/pod', deliveryRateLimit, requireAuth, requireMerchant, 
         hasGps: !!(req.body.latitude && req.body.longitude)
     });
 
-    res.status(201).json({ pod });
+    sendSuccess(res, { pod }, 201);
 }));
 
 /**
@@ -554,7 +551,7 @@ router.get('/pod/:id', requireAuth, requireMerchant, validators.getPod, asyncHan
     const pod = await deliveryApi.getPodPhoto(merchantId, req.params.id);
 
     if (!pod) {
-        return res.status(404).json({ error: 'POD not found' });
+        return sendError(res, 'POD not found', 404);
     }
 
     // Serve the file
@@ -562,7 +559,7 @@ router.get('/pod/:id', requireAuth, requireMerchant, validators.getPod, asyncHan
     try {
         await fsPromises.access(pod.full_path);
     } catch {
-        return res.status(404).json({ error: 'POD file not found' });
+        return sendError(res, 'POD file not found', 404);
     }
 
     res.setHeader('Content-Type', pod.mime_type || 'image/jpeg');
@@ -584,7 +581,7 @@ router.post('/route/generate', deliveryStrictRateLimit, requireAuth, requireMerc
         force
     });
 
-    res.status(201).json({ route });
+    sendSuccess(res, { route }, 201);
 }));
 
 /**
@@ -600,7 +597,7 @@ router.get('/route/active', requireAuth, requireMerchant, validators.getActiveRo
     const route = await deliveryApi.getActiveRoute(merchantId, routeDate);
 
     if (!route) {
-        return res.json({ route: null, orders: [] });
+        return sendSuccess(res, { route: null, orders: [] });
     }
 
     // Use getRouteWithOrders to get orders with GTIN enrichment
@@ -614,7 +611,7 @@ router.get('/route/active', requireAuth, requireMerchant, validators.getActiveRo
         ordersWithItems: orders.filter(o => o.square_order_data?.lineItems?.length > 0).length
     });
 
-    res.json({ route, orders });
+    sendSuccess(res, { route, orders });
 }));
 
 /**
@@ -631,7 +628,7 @@ router.get('/route/:id', requireAuth, requireMerchant, validators.getRoute, asyn
 
     if (!route) {
         logger.warn('Route not found', { merchantId, routeId });
-        return res.status(404).json({ error: 'Route not found' });
+        return sendError(res, 'Route not found', 404);
     }
 
     logger.debug('Route fetched successfully', {
@@ -640,7 +637,7 @@ router.get('/route/:id', requireAuth, requireMerchant, validators.getRoute, asyn
         orderCount: route.orders?.length || 0
     });
 
-    res.json({ route });
+    sendSuccess(res, { route });
 }));
 
 /**
@@ -656,14 +653,14 @@ router.post('/route/finish', deliveryRateLimit, requireAuth, requireMerchant, va
         // Get active route for today
         const activeRoute = await deliveryApi.getActiveRoute(merchantId);
         if (!activeRoute) {
-            return res.status(400).json({ error: 'No active route found' });
+            return sendError(res, 'No active route found', 400);
         }
         targetRouteId = activeRoute.id;
     }
 
     const result = await deliveryApi.finishRoute(merchantId, targetRouteId, req.session.user.id);
 
-    res.json({ result });
+    sendSuccess(res, { result });
 }));
 
 /**
@@ -676,7 +673,7 @@ router.post('/geocode', deliveryStrictRateLimit, requireAuth, requireMerchant, v
 
     const result = await deliveryApi.geocodePendingOrders(merchantId, limit || 10);
 
-    res.json({ result });
+    sendSuccess(res, { result });
 }));
 
 /**
@@ -699,7 +696,7 @@ router.get('/settings', requireAuth, requireMerchant, asyncHandler(async (req, r
         };
     }
 
-    res.json({ settings });
+    sendSuccess(res, { settings });
 }));
 
 /**
@@ -759,7 +756,7 @@ router.put('/settings', deliveryRateLimit, requireAuth, requireMerchant, validat
         endAddress: !!endAddress
     });
 
-    res.json({ settings });
+    sendSuccess(res, { settings });
 }));
 
 /**
@@ -778,7 +775,7 @@ router.get('/audit', requireAuth, requireMerchant, validators.getAudit, asyncHan
         routeId
     });
 
-    res.json({ entries });
+    sendSuccess(res, { entries });
 }));
 
 /**
@@ -788,7 +785,7 @@ router.get('/audit', requireAuth, requireMerchant, validators.getAudit, asyncHan
 router.get('/stats', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const stats = await deliveryStats.getDashboardStats(merchantId);
-    res.json({ stats });
+    sendSuccess(res, { stats });
 }));
 
 /**
@@ -914,8 +911,7 @@ router.post('/sync', deliveryStrictRateLimit, requireAuth, requireMerchant, vali
 
         logger.info('Delivery order sync completed', { merchantId, found: orders.length, imported, skipped, errors: errors.length });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         found: orders.length,
         imported,
         skipped,
@@ -935,10 +931,7 @@ router.post('/backfill-customers', deliveryStrictRateLimit, requireAuth, require
 
     const result = await deliveryApi.backfillUnknownCustomers(merchantId);
 
-    res.json({
-        success: true,
-        ...result
-    });
+    sendSuccess(res, result);
 }));
 
 module.exports = router;

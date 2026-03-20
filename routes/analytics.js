@@ -18,6 +18,7 @@ const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/analytics');
 const { getReorderSuggestions } = require('../services/catalog/reorder-service');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 
 // ==================== SALES VELOCITY ENDPOINTS ====================
 
@@ -34,10 +35,7 @@ router.get('/sales-velocity', requireAuth, requireMerchant, validators.getVeloci
             const periodDaysNum = parseInt(period_days);
             const validPeriods = [91, 182, 365];
             if (isNaN(periodDaysNum) || !validPeriods.includes(periodDaysNum)) {
-                return res.status(400).json({
-                    error: 'Invalid period_days parameter',
-                    message: 'period_days must be one of: 91, 182, or 365'
-                });
+                return sendError(res, 'Invalid period_days parameter', 400);
             }
         }
 
@@ -77,7 +75,7 @@ router.get('/sales-velocity', requireAuth, requireMerchant, validators.getVeloci
         query += ' ORDER BY sv.daily_avg_quantity DESC';
 
     const result = await db.query(query, params);
-    res.json({
+    sendSuccess(res, {
         count: result.rows.length,
         sales_velocity: result.rows
     });
@@ -98,10 +96,10 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
 
     // Service returns { error, message } for validation failures
     if (result.error) {
-        return res.status(400).json(result);
+        return sendError(res, result.error, 400);
     }
 
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 module.exports = router;

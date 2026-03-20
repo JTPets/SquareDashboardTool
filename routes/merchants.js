@@ -24,6 +24,7 @@ const { getUserMerchants, switchActiveMerchant } = require('../middleware/mercha
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/merchants');
 const { hasLocations } = require('../services/catalog/location-service');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 
 /**
  * GET /api/merchants
@@ -32,8 +33,7 @@ const { hasLocations } = require('../services/catalog/location-service');
 router.get('/merchants', requireAuth, validators.list, asyncHandler(async (req, res) => {
     const merchants = await getUserMerchants(req.session.user.id);
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         merchants,
         activeMerchantId: req.session.activeMerchantId || null,
         activeMerchant: req.merchantContext || null
@@ -48,10 +48,7 @@ router.post('/merchants/switch', requireAuth, validators.switch, asyncHandler(as
     const { merchantId } = req.body;
 
     if (!merchantId) {
-        return res.status(400).json({
-            success: false,
-            error: 'merchantId is required'
-        });
+        return sendError(res, 'merchantId is required', 400);
     }
 
     const switched = await switchActiveMerchant(
@@ -61,14 +58,10 @@ router.post('/merchants/switch', requireAuth, validators.switch, asyncHandler(as
     );
 
     if (!switched) {
-        return res.status(403).json({
-            success: false,
-            error: 'You do not have access to this merchant'
-        });
+        return sendError(res, 'You do not have access to this merchant', 403);
     }
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         activeMerchantId: req.session.activeMerchantId,
         message: 'Merchant switched successfully'
     });
@@ -79,8 +72,7 @@ router.post('/merchants/switch', requireAuth, validators.switch, asyncHandler(as
  * Get current merchant context for the session
  */
 router.get('/merchants/context', requireAuth, validators.context, async (req, res) => {
-    res.json({
-        success: true,
+    sendSuccess(res, {
         hasMerchant: !!req.merchantContext,
         merchant: req.merchantContext || null,
         connectUrl: '/api/square/oauth/connect'
@@ -116,7 +108,7 @@ router.get('/config', requireAuth, validators.config, asyncHandler(async (req, r
         }
 
         // Use merchant settings if available, otherwise fall back to env vars
-        res.json({
+        sendSuccess(res, {
             defaultSupplyDays: merchantSettings?.default_supply_days ??
                 parseInt(process.env.DEFAULT_SUPPLY_DAYS || '45'),
             reorderSafetyDays: merchantSettings?.reorder_safety_days ??

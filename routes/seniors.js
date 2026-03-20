@@ -19,6 +19,7 @@ const { requireAuth, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/seniors');
 const asyncHandler = require('../middleware/async-handler');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 const { SeniorsService } = require('../services/seniors');
 
 // ==================== STATUS / DASHBOARD ====================
@@ -36,7 +37,7 @@ router.get('/seniors/status', requireAuth, requireMerchant, asyncHandler(async (
     );
 
     if (config.rows.length === 0) {
-        return res.json({
+        return sendSuccess(res, {
             configured: false,
             message: 'Seniors discount not set up. Run setup script first.',
         });
@@ -71,7 +72,7 @@ router.get('/seniors/status', requireAuth, requireMerchant, asyncHandler(async (
         }
     }
 
-    res.json({
+    sendSuccess(res, {
         configured: true,
         enrolledCount: parseInt(memberCount.rows[0].count, 10),
         config: {
@@ -111,9 +112,7 @@ router.post('/seniors/setup', requireAuth, requireMerchant, requireWriteAccess, 
     );
 
     if (existing.rows.length > 0 && existing.rows[0].square_pricing_rule_id) {
-        return res.status(409).json({
-            error: 'Seniors discount already configured for this merchant'
-        });
+        return sendError(res, 'Seniors discount already configured for this merchant', 409);
     }
 
     const service = new SeniorsService(merchantId);
@@ -127,8 +126,7 @@ router.post('/seniors/setup', requireAuth, requireMerchant, requireWriteAccess, 
         squarePricingRuleId: config.square_pricing_rule_id,
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         config: {
             squareGroupId: config.square_group_id,
             squareDiscountId: config.square_discount_id,
@@ -158,10 +156,10 @@ router.get('/seniors/config', requireAuth, requireMerchant, asyncHandler(async (
     );
 
     if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'Seniors discount not configured' });
+        return sendError(res, 'Seniors discount not configured', 404);
     }
 
-    res.json({ config: result.rows[0] });
+    sendSuccess(res, { config: result.rows[0] });
 }));
 
 /**
@@ -197,7 +195,7 @@ router.patch('/seniors/config',
         }
 
         if (updates.length === 0) {
-            return res.status(400).json({ error: 'No fields to update' });
+            return sendError(res, 'No fields to update', 400);
         }
 
         updates.push(`updated_at = NOW()`);
@@ -212,7 +210,7 @@ router.patch('/seniors/config',
         );
 
         if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Seniors discount not configured' });
+            return sendError(res, 'Seniors discount not configured', 404);
         }
 
         logger.info('Seniors discount config updated', {
@@ -221,7 +219,7 @@ router.patch('/seniors/config',
             userId: req.session.user.id,
         });
 
-        res.json({ config: result.rows[0] });
+        sendSuccess(res, { config: result.rows[0] });
     })
 );
 
@@ -257,7 +255,7 @@ router.get('/seniors/members', requireAuth, requireMerchant, validators.listMemb
             [merchantId]
         );
 
-        res.json({
+        sendSuccess(res, {
             members: members.rows,
             total: parseInt(total.rows[0].count, 10),
             limit,
@@ -285,7 +283,7 @@ router.get('/seniors/audit-log', requireAuth, requireMerchant, validators.listAu
             [merchantId, limit]
         );
 
-        res.json({ entries: result.rows, count: result.rows.length });
+        sendSuccess(res, { entries: result.rows, count: result.rows.length });
     })
 );
 

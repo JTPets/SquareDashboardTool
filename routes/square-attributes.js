@@ -26,6 +26,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/square-attributes');
 const asyncHandler = require('../middleware/async-handler');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 
 /**
  * GET /api/square/custom-attributes
@@ -34,8 +35,7 @@ const asyncHandler = require('../middleware/async-handler');
 router.get('/square/custom-attributes', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const definitions = await squareApi.listCustomAttributeDefinitions({ merchantId });
-    res.json({
-        success: true,
+    sendSuccess(res, {
         count: definitions.length,
         definitions
     });
@@ -50,7 +50,7 @@ router.post('/square/custom-attributes/init', requireAuth, requireMerchant, vali
     const merchantId = req.merchantContext.id;
     logger.info('Initializing custom attribute definitions', { merchantId });
     const result = await squareApi.initializeCustomAttributes({ merchantId });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -62,11 +62,11 @@ router.post('/square/custom-attributes/definition', requireAuth, requireMerchant
     const merchantId = req.merchantContext.id;
 
     if (!definition.key || !definition.name) {
-        return res.status(400).json({ error: 'key and name are required' });
+        return sendError(res, 'key and name are required', 400);
     }
 
     const result = await squareApi.upsertCustomAttributeDefinition(definition, { merchantId });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -79,7 +79,7 @@ router.delete('/square/custom-attributes/definition/:key', requireAuth, requireM
     const merchantId = req.merchantContext.id;
     logger.info('Deleting custom attribute definition', { key, merchantId });
     const result = await squareApi.deleteCustomAttributeDefinition(key, { merchantId });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -92,11 +92,11 @@ router.put('/square/custom-attributes/:objectId', requireAuth, requireMerchant, 
     const merchantId = req.merchantContext.id;
 
     if (!customAttributeValues || Object.keys(customAttributeValues).length === 0) {
-        return res.status(400).json({ error: 'customAttributeValues object is required' });
+        return sendError(res, 'customAttributeValues object is required', 400);
     }
 
     const result = await squareApi.updateCustomAttributeValues(objectId, customAttributeValues, { merchantId });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -107,7 +107,7 @@ router.post('/square/custom-attributes/push/case-pack', requireAuth, requireMerc
     const merchantId = req.merchantContext.id;
     logger.info('Pushing case pack quantities to Square', { merchantId });
     const result = await squareApi.pushCasePackToSquare({ merchantId });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -118,7 +118,7 @@ router.post('/square/custom-attributes/push/brand', requireAuth, requireMerchant
     const merchantId = req.merchantContext.id;
     logger.info('Pushing brand assignments to Square', { merchantId });
     const result = await squareApi.pushBrandsToSquare({ merchantId });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -129,7 +129,7 @@ router.post('/square/custom-attributes/push/expiry', requireAuth, requireMerchan
     const merchantId = req.merchantContext.id;
     logger.info('Pushing expiry dates to Square', { merchantId });
     const result = await squareApi.pushExpiryDatesToSquare({ merchantId });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -172,7 +172,7 @@ router.post('/square/custom-attributes/push/all', requireAuth, requireMerchant, 
         results.success = false;
     }
 
-    res.json(results);
+    sendSuccess(res, results);
 }));
 
 module.exports = router;

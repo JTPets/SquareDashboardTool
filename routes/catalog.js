@@ -40,6 +40,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/catalog');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 
 // ==================== CATALOG ENDPOINTS ====================
 
@@ -49,8 +50,8 @@ const validators = require('../middleware/validators/catalog');
  */
 router.get('/locations', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const result = await catalogService.getLocations(merchantId);
-    res.json(result);
+    const locations = await catalogService.getLocations(merchantId);
+    sendSuccess(res, { locations });
 }));
 
 /**
@@ -61,7 +62,7 @@ router.get('/categories', requireAuth, requireMerchant, validators.getCategories
     const merchantId = req.merchantContext.id;
     const categories = await catalogService.getCategories(merchantId);
     logger.info('API /api/categories returning', { count: categories.length, merchantId });
-    res.json(categories);
+    sendSuccess(res, { categories });
 }));
 
 /**
@@ -73,7 +74,7 @@ router.get('/items', requireAuth, requireMerchant, validators.getItems, asyncHan
     const { name, category } = req.query;
     const result = await catalogService.getItems(merchantId, { name, category });
     logger.info('API /api/items returning', { count: result.count, merchantId });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -84,7 +85,7 @@ router.get('/variations', requireAuth, requireMerchant, validators.getVariations
     const merchantId = req.merchantContext.id;
     const { item_id, sku, has_cost, search, limit } = req.query;
     const result = await catalogService.getVariations(merchantId, { item_id, sku, has_cost, search, limit });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -94,7 +95,7 @@ router.get('/variations', requireAuth, requireMerchant, validators.getVariations
 router.get('/variations-with-costs', requireAuth, requireMerchant, validators.getVariationsWithCosts, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const result = await catalogService.getVariationsWithCosts(merchantId);
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -109,10 +110,10 @@ router.patch('/variations/:id/extended', requireAuth, requireMerchant, validator
     const result = await catalogService.updateExtendedFields(id, merchantId, req.body);
 
     if (!result.success) {
-        return res.status(result.status || 400).json({ error: result.error });
+        return sendError(res, result.error, result.status || 400);
     }
 
-    res.json({
+    sendSuccess(res, {
         status: 'success',
         variation: result.variation,
         square_sync: result.square_sync
@@ -132,13 +133,10 @@ router.patch('/variations/:id/min-stock', requireAuth, requireMerchant, validato
     const result = await catalogService.updateMinStock(id, merchantId, min_stock, location_id);
 
     if (!result.success) {
-        return res.status(result.status || 400).json({
-            error: result.error,
-            square_error: result.square_error
-        });
+        return res.status(result.status || 400).json(result);
     }
 
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -153,20 +151,10 @@ router.patch('/variations/:id/cost', requireAuth, requireMerchant, validators.up
     const result = await catalogService.updateCost(id, merchantId, cost_cents, vendor_id);
 
     if (!result.success) {
-        const errorResponse = {
-            error: result.error,
-            square_error: result.square_error
-        };
-        // Include structured error info for location mismatch
-        if (result.code) {
-            errorResponse.code = result.code;
-            errorResponse.parent_item_id = result.parent_item_id;
-            errorResponse.variation_id = result.variation_id;
-        }
-        return res.status(result.status || 400).json(errorResponse);
+        return res.status(result.status || 400).json(result);
     }
 
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -180,10 +168,10 @@ router.post('/variations/bulk-update-extended', requireAuth, requireMerchant, va
     const result = await catalogService.bulkUpdateExtendedFields(merchantId, updates);
 
     if (!result.success) {
-        return res.status(result.status || 400).json({ error: result.error });
+        return sendError(res, result.error, result.status || 400);
     }
 
-    res.json({
+    sendSuccess(res, {
         status: 'success',
         updated_count: result.updated_count,
         errors: result.errors,
@@ -203,7 +191,7 @@ router.get('/expirations', requireAuth, requireMerchant, validators.getExpiratio
 
     const result = await catalogService.getExpirations(merchantId, { expiry, category });
     logger.info('API /api/expirations returning', { count: result.count });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -217,11 +205,10 @@ router.post('/expirations', requireAuth, requireMerchant, validators.saveExpirat
     const result = await catalogService.saveExpirations(merchantId, changes);
 
     if (!result.success && result.status) {
-        return res.status(result.status).json({ error: result.error });
+        return sendError(res, result.error, result.status);
     }
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         message: result.message,
         squarePush: result.squarePush,
         tierOverrides: result.tierOverrides
@@ -238,10 +225,10 @@ router.post('/expirations/pull', requireAuth, requireMerchant, validators.pullEx
     const result = await catalogService.handleExpiredPull(merchantId, req.body);
 
     if (!result.success && result.status) {
-        return res.status(result.status).json({ success: false, error: result.error });
+        return sendError(res, result.error, result.status);
     }
 
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -256,11 +243,10 @@ router.post('/expirations/review', requireAuth, requireMerchant, validators.revi
     const result = await catalogService.markExpirationsReviewed(merchantId, variation_ids, reviewed_by);
 
     if (!result.success && result.status) {
-        return res.status(result.status).json({ error: result.error });
+        return sendError(res, result.error, result.status);
     }
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         message: result.message,
         reviewed_count: result.reviewed_count,
         squarePush: result.squarePush
@@ -278,7 +264,7 @@ router.get('/inventory', requireAuth, requireMerchant, validators.getInventory, 
     const { location_id, low_stock } = req.query;
 
     const result = await catalogService.getInventory(merchantId, { location_id, low_stock });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -288,7 +274,7 @@ router.get('/inventory', requireAuth, requireMerchant, validators.getInventory, 
 router.get('/low-stock', requireAuth, requireMerchant, validators.getLowStock, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const result = await catalogService.getLowStock(merchantId);
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -303,7 +289,7 @@ router.get('/deleted-items', requireAuth, requireMerchant, validators.getDeleted
     const merchantId = req.merchantContext.id;
 
     const result = await catalogService.getDeletedItems(merchantId, { age_months, status });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 // ==================== CATALOG AUDIT ENDPOINTS ====================
@@ -317,7 +303,7 @@ router.get('/catalog-audit', requireAuth, requireMerchant, validators.getCatalog
     const merchantId = req.merchantContext.id;
 
     const result = await catalogService.getCatalogAudit(merchantId, { location_id, issue_type });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -337,12 +323,10 @@ router.post('/catalog-audit/enable-item-at-locations', requireAuth, requireMerch
     const result = await catalogService.enableItemAtAllLocations(item_id, merchantId);
 
     if (!result.success) {
-        return res.status(result.status || 500).json({
-            error: result.error
-        });
+        return sendError(res, result.error, result.status || 500);
     }
 
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -356,22 +340,14 @@ router.post('/catalog-audit/fix-locations', requireAuth, requireMerchant, valida
     const result = await catalogService.fixLocationMismatches(merchantId);
 
     if (result.success) {
-        res.json({
-            success: true,
+        sendSuccess(res, {
             message: result.message,
             itemsFixed: result.itemsFixed,
             variationsFixed: result.variationsFixed,
             details: result.details
         });
     } else {
-        res.status(500).json({
-            success: false,
-            message: result.message,
-            itemsFixed: result.itemsFixed,
-            variationsFixed: result.variationsFixed,
-            errors: result.errors,
-            details: result.details
-        });
+        res.status(500).json(result);
     }
 }));
 
@@ -386,22 +362,14 @@ router.post('/catalog-audit/fix-inventory-alerts', requireAuth, requireMerchant,
     const result = await catalogService.fixInventoryAlerts(merchantId);
 
     if (result.success) {
-        res.json({
-            success: true,
+        sendSuccess(res, {
             message: result.message,
             variationsFixed: result.variationsFixed,
             totalFound: result.totalFound,
             details: result.details
         });
     } else {
-        res.status(500).json({
-            success: false,
-            message: result.message,
-            variationsFixed: result.variationsFixed,
-            totalFound: result.totalFound,
-            errors: result.errors,
-            details: result.details
-        });
+        sendError(res, result.message, 500);
     }
 }));
 

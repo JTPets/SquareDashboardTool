@@ -67,6 +67,7 @@ describe('customer-details-service', () => {
                 email: 'john@test.com',
                 phone: '555-1234',
                 companyName: 'Acme',
+                birthday: null,
                 createdAt: '2025-01-01',
                 updatedAt: '2025-06-01',
             });

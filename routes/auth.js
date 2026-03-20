@@ -14,6 +14,7 @@ const { hashResetToken } = require('../utils/hash-utils');
 const { requireAuth, requireAdmin, logAuthEvent, getClientIp } = require('../middleware/auth');
 const { configureLoginRateLimit, configurePasswordResetRateLimit } = require('../middleware/security');
 const asyncHandler = require('../middleware/async-handler');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 const validators = require('../middleware/validators/auth');
 
 // Apply rate limiting to sensitive routes
@@ -53,10 +54,7 @@ router.post('/login', loginRateLimit, validators.login, asyncHandler(async (req,
         });
 
         // Use generic error to prevent email enumeration
-        return res.status(401).json({
-            success: false,
-            error: 'Invalid email or password'
-        });
+        return sendError(res, 'Invalid email or password', 401);
     }
 
     const user = userResult.rows[0];
@@ -72,20 +70,14 @@ router.post('/login', loginRateLimit, validators.login, asyncHandler(async (req,
             details: { reason: 'account_inactive' }
         });
 
-        return res.status(401).json({
-            success: false,
-            error: 'This account has been deactivated'
-        });
+        return sendError(res, 'This account has been deactivated', 401);
     }
 
     // Check if account is locked
     if (user.locked_until && new Date(user.locked_until) > new Date()) {
         const remainingMinutes = Math.ceil((new Date(user.locked_until) - new Date()) / 60000);
 
-        return res.status(401).json({
-            success: false,
-            error: `Account is locked. Try again in ${remainingMinutes} minutes.`
-        });
+        return sendError(res, `Account is locked. Try again in ${remainingMinutes} minutes.`, 401);
     }
 
     // Verify password
@@ -120,16 +112,10 @@ router.post('/login', loginRateLimit, validators.login, asyncHandler(async (req,
         });
 
         if (lockUntil) {
-            return res.status(401).json({
-                success: false,
-                error: `Too many failed attempts. Account locked for ${LOCKOUT_DURATION_MINUTES} minutes.`
-            });
+            return sendError(res, `Too many failed attempts. Account locked for ${LOCKOUT_DURATION_MINUTES} minutes.`, 401);
         }
 
-        return res.status(401).json({
-            success: false,
-            error: 'Invalid email or password'
-        });
+        return sendError(res, 'Invalid email or password', 401);
     }
 
     // Login successful - reset failed attempts and update last login
@@ -143,10 +129,7 @@ router.post('/login', loginRateLimit, validators.login, asyncHandler(async (req,
     req.session.regenerate(async (err) => {
         if (err) {
             logger.error('Session regeneration failed', { error: err.message, stack: err.stack, userId: user.id });
-            return res.status(500).json({
-                success: false,
-                error: 'Login failed. Please try again.'
-            });
+            return sendError(res, 'Login failed. Please try again.', 500);
         }
 
         // Create session with user data after regeneration
@@ -161,10 +144,7 @@ router.post('/login', loginRateLimit, validators.login, asyncHandler(async (req,
         req.session.save(async (saveErr) => {
             if (saveErr) {
                 logger.error('Session save failed', { error: saveErr.message, stack: saveErr.stack, userId: user.id });
-                return res.status(500).json({
-                    success: false,
-                    error: 'Login failed. Please try again.'
-                });
+                return sendError(res, 'Login failed. Please try again.', 500);
             }
 
             await logAuthEvent(db, {
@@ -177,8 +157,7 @@ router.post('/login', loginRateLimit, validators.login, asyncHandler(async (req,
 
             logger.info('User logged in', { userId: user.id, email: user.email });
 
-            res.json({
-                success: true,
+            sendSuccess(res, {
                 user: {
                     id: user.id,
                     email: user.email,
@@ -217,7 +196,7 @@ router.post('/logout', asyncHandler(async (req, res) => {
             logger.error('Session destroy error', { error: err.message, stack: err.stack });
         }
         res.clearCookie('sid');
-        res.json({ success: true });
+        sendSuccess(res, {});
     });
 }));
 
@@ -227,14 +206,10 @@ router.post('/logout', asyncHandler(async (req, res) => {
  */
 router.get('/me', (req, res) => {
     if (!req.session?.user) {
-        return res.status(401).json({
-            success: false,
-            authenticated: false
-        });
+        return sendError(res, 'Not authenticated', 401);
     }
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         authenticated: true,
         user: req.session.user
     });
@@ -259,19 +234,13 @@ router.post('/change-password', requireAuth, validators.changePassword, asyncHan
     );
 
     if (userResult.rows.length === 0) {
-        return res.status(404).json({
-            success: false,
-            error: 'User not found'
-        });
+        return sendError(res, 'User not found', 404);
     }
 
     // Verify current password
     const currentPasswordValid = await verifyPassword(currentPassword, userResult.rows[0].password_hash);
     if (!currentPasswordValid) {
-        return res.status(401).json({
-            success: false,
-            error: 'Current password is incorrect'
-        });
+        return sendError(res, 'Current password is incorrect', 401);
     }
 
     // Hash new password and update
@@ -292,7 +261,7 @@ router.post('/change-password', requireAuth, validators.changePassword, asyncHan
 
     logger.info('Password changed', { userId });
 
-    res.json({ success: true, message: 'Password changed successfully' });
+    sendSuccess(res, { message: 'Password changed successfully' });
 }));
 
 // ==================== ADMIN ROUTES ====================
@@ -305,10 +274,7 @@ router.get('/users', requireAuth, requireAdmin, asyncHandler(async (req, res) =>
     const merchantId = req.session.activeMerchantId;
 
     if (!merchantId) {
-        return res.status(403).json({
-            success: false,
-            error: 'No active merchant selected'
-        });
+        return sendError(res, 'No active merchant selected', 403);
     }
 
     // Only return users who belong to the same merchant as the admin
@@ -320,10 +286,7 @@ router.get('/users', requireAuth, requireAdmin, asyncHandler(async (req, res) =>
         ORDER BY u.created_at DESC
     `, [merchantId]);
 
-    res.json({
-        success: true,
-        users: result.rows
-    });
+    sendSuccess(res, { users: result.rows });
 }));
 
 /**
@@ -337,10 +300,7 @@ router.post('/users', requireAuth, requireAdmin, validators.createUser, asyncHan
     const userAgent = req.headers['user-agent'];
 
     if (!merchantId) {
-        return res.status(403).json({
-            success: false,
-            error: 'No active merchant selected'
-        });
+        return sendError(res, 'No active merchant selected', 403);
     }
 
     // Email validated and normalized by middleware
@@ -353,10 +313,7 @@ router.post('/users', requireAuth, requireAdmin, validators.createUser, asyncHan
     );
 
     if (existingUser.rows.length > 0) {
-        return res.status(400).json({
-            success: false,
-            error: 'A user with this email already exists'
-        });
+        return sendError(res, 'A user with this email already exists', 400);
     }
 
     // Role validated by middleware, default to 'user' if not provided
@@ -410,10 +367,7 @@ router.post('/users', requireAuth, requireAdmin, validators.createUser, asyncHan
         merchantId
     });
 
-    const response = {
-        success: true,
-        user: newUser
-    };
+    const response = { user: newUser };
 
     // Include generated password in response (one-time display)
     if (generatedPassword) {
@@ -421,7 +375,7 @@ router.post('/users', requireAuth, requireAdmin, validators.createUser, asyncHan
         response.message = 'User created with generated password. Make sure to share it securely.';
     }
 
-    res.json(response);
+    sendSuccess(res, response);
 }));
 
 /**
@@ -436,10 +390,7 @@ router.put('/users/:id', requireAuth, requireAdmin, validators.updateUser, async
     const userAgent = req.headers['user-agent'];
 
     if (!merchantId) {
-        return res.status(403).json({
-            success: false,
-            error: 'No active merchant selected'
-        });
+        return sendError(res, 'No active merchant selected', 403);
     }
 
     // Check user exists AND belongs to admin's merchant
@@ -449,18 +400,12 @@ router.put('/users/:id', requireAuth, requireAdmin, validators.updateUser, async
     );
 
     if (existingUser.rows.length === 0) {
-        return res.status(404).json({
-            success: false,
-            error: 'User not found'
-        });
+        return sendError(res, 'User not found', 404);
     }
 
     // Prevent deactivating yourself
     if (userId === req.session.user.id && is_active === false) {
-        return res.status(400).json({
-            success: false,
-            error: 'You cannot deactivate your own account'
-        });
+        return sendError(res, 'You cannot deactivate your own account', 400);
     }
 
     // Build update query (role validated by middleware)
@@ -487,10 +432,7 @@ router.put('/users/:id', requireAuth, requireAdmin, validators.updateUser, async
     }
 
     if (updates.length === 0) {
-        return res.status(400).json({
-            success: false,
-            error: 'No fields to update'
-        });
+        return sendError(res, 'No fields to update', 400);
     }
 
     values.push(userId);
@@ -516,10 +458,7 @@ router.put('/users/:id', requireAuth, requireAdmin, validators.updateUser, async
         changes: req.body
     });
 
-    res.json({
-        success: true,
-        user: result.rows[0]
-    });
+    sendSuccess(res, { user: result.rows[0] });
 }));
 
 /**
@@ -534,10 +473,7 @@ router.post('/users/:id/reset-password', requireAuth, requireAdmin, validators.r
     const userAgent = req.headers['user-agent'];
 
     if (!merchantId) {
-        return res.status(403).json({
-            success: false,
-            error: 'No active merchant selected'
-        });
+        return sendError(res, 'No active merchant selected', 403);
     }
 
     // Check user exists AND belongs to admin's merchant
@@ -547,10 +483,7 @@ router.post('/users/:id/reset-password', requireAuth, requireAdmin, validators.r
     );
 
     if (existingUser.rows.length === 0) {
-        return res.status(404).json({
-            success: false,
-            error: 'User not found'
-        });
+        return sendError(res, 'User not found', 404);
     }
 
     // Generate password if not provided (password strength validated by middleware if provided)
@@ -584,17 +517,14 @@ router.post('/users/:id/reset-password', requireAuth, requireAdmin, validators.r
         resetBy: req.session.user.id
     });
 
-    const response = {
-        success: true,
-        message: 'Password has been reset'
-    };
+    const response = { message: 'Password has been reset' };
 
     if (generatedPassword) {
         response.generatedPassword = generatedPassword;
         response.message = 'Password reset with generated password. Make sure to share it securely.';
     }
 
-    res.json(response);
+    sendSuccess(res, response);
 }));
 
 /**
@@ -608,10 +538,7 @@ router.post('/users/:id/unlock', requireAuth, requireAdmin, validators.unlockUse
     const userAgent = req.headers['user-agent'];
 
     if (!merchantId) {
-        return res.status(403).json({
-            success: false,
-            error: 'No active merchant selected'
-        });
+        return sendError(res, 'No active merchant selected', 403);
     }
 
     // Verify user belongs to admin's merchant before unlocking
@@ -621,10 +548,7 @@ router.post('/users/:id/unlock', requireAuth, requireAdmin, validators.unlockUse
     );
 
     if (memberCheck.rows.length === 0) {
-        return res.status(404).json({
-            success: false,
-            error: 'User not found'
-        });
+        return sendError(res, 'User not found', 404);
     }
 
     const result = await db.query(`
@@ -635,10 +559,7 @@ router.post('/users/:id/unlock', requireAuth, requireAdmin, validators.unlockUse
     `, [userId]);
 
     if (result.rows.length === 0) {
-        return res.status(404).json({
-            success: false,
-            error: 'User not found'
-        });
+        return sendError(res, 'User not found', 404);
     }
 
     await logAuthEvent(db, {
@@ -656,10 +577,7 @@ router.post('/users/:id/unlock', requireAuth, requireAdmin, validators.unlockUse
         unlockedBy: req.session.user.id
     });
 
-    res.json({
-        success: true,
-        message: 'Account unlocked successfully'
-    });
+    sendSuccess(res, { message: 'Account unlocked successfully' });
 }));
 
 // ==================== PASSWORD RESET (PUBLIC) ====================
@@ -684,8 +602,7 @@ router.post('/forgot-password', validators.forgotPassword, asyncHandler(async (r
     // Always return success to prevent email enumeration
     if (userResult.rows.length === 0) {
         logger.info('Password reset requested for non-existent email', { email: normalizedEmail, ipAddress });
-        return res.json({
-            success: true,
+        return sendSuccess(res, {
             message: 'If an account exists with this email, you will receive a password reset link.'
         });
     }
@@ -726,8 +643,7 @@ router.post('/forgot-password', validators.forgotPassword, asyncHandler(async (r
     // S-5: Positive opt-in — only expose token when NODE_ENV is explicitly 'development'
     const isDev = process.env.NODE_ENV === 'development';
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         message: 'If an account exists with this email, you will receive a password reset link.',
         // Only include token in development for testing
         ...(isDev && { resetToken, resetUrl: `/set-password.html?token=${resetToken}` })
@@ -782,10 +698,7 @@ router.post('/reset-password', passwordResetRateLimit, validators.resetPassword,
             });
         }
 
-        return res.status(400).json({
-            success: false,
-            error: 'Invalid or expired reset token. Please request a new password reset.'
-        });
+        return sendError(res, 'Invalid or expired reset token. Please request a new password reset.', 400);
     }
 
     const resetRecord = tokenResult.rows[0];
@@ -827,8 +740,7 @@ router.post('/reset-password', passwordResetRateLimit, validators.resetPassword,
 
     logger.info('Password reset completed', { userId, email: resetRecord.email });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         message: 'Password has been reset successfully. You can now log in with your new password.'
     });
 }));
@@ -857,15 +769,13 @@ router.get('/verify-reset-token', validators.verifyResetToken, asyncHandler(asyn
     `, [hashedToken]);
 
     if (tokenResult.rows.length === 0) {
-        return res.json({
-            success: true,
+        return sendSuccess(res, {
             valid: false,
             message: 'Invalid or expired token'
         });
     }
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         valid: true,
         email: tokenResult.rows[0].email,
         expiresAt: tokenResult.rows[0].expires_at

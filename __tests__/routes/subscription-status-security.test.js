@@ -75,7 +75,7 @@ describe('CRIT-1: GET /api/subscriptions/status security', () => {
                 .query({ email: 'test@example.com' })
                 .expect(200);
 
-            expect(Object.keys(res.body)).toEqual(['active', 'planName']);
+            expect(Object.keys(res.body).sort()).toEqual(['active', 'planName', 'success'].sort());
             expect(res.body.active).toBe(true);
             expect(res.body.planName).toBe('starter');
         });
@@ -94,7 +94,7 @@ describe('CRIT-1: GET /api/subscriptions/status security', () => {
                 .query({ email: 'trial@example.com' })
                 .expect(200);
 
-            expect(Object.keys(res.body)).toEqual(['active', 'planName']);
+            expect(Object.keys(res.body).sort()).toEqual(['active', 'planName', 'success'].sort());
             expect(res.body.active).toBe(true);
             expect(res.body.planName).toBe('pro');
         });
@@ -112,7 +112,7 @@ describe('CRIT-1: GET /api/subscriptions/status security', () => {
                 .query({ email: 'nobody@example.com' })
                 .expect(200);
 
-            expect(Object.keys(res.body)).toEqual(['active', 'planName']);
+            expect(Object.keys(res.body).sort()).toEqual(['active', 'planName', 'success'].sort());
             expect(res.body.active).toBe(false);
             expect(res.body.planName).toBeNull();
         });

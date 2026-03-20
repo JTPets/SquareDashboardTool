@@ -20,6 +20,7 @@ const { requireAuth, requireAdmin } = require('../middleware/auth');
 const asyncHandler = require('../middleware/async-handler');
 const platformSettings = require('../services/platform-settings');
 const validators = require('../middleware/validators/admin');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 
 /**
  * GET /api/admin/merchants
@@ -33,8 +34,7 @@ router.get('/merchants', requireAuth, requireAdmin, validators.listMerchants, as
         ORDER BY created_at DESC
     `);
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         merchants: result.rows
     });
 }));
@@ -61,10 +61,7 @@ router.post('/merchants/:merchantId/extend-trial', requireAuth, requireAdmin, va
     `, [days, merchantId]);
 
     if (result.rows.length === 0) {
-        return res.status(404).json({
-            success: false,
-            error: 'Merchant not found'
-        });
+        return sendError(res, 'Merchant not found', 404);
     }
 
     const merchant = result.rows[0];
@@ -75,8 +72,7 @@ router.post('/merchants/:merchantId/extend-trial', requireAuth, requireAdmin, va
         adminUserId: req.session.user.id
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         merchant
     });
 }));
@@ -98,10 +94,7 @@ router.post('/merchants/:merchantId/deactivate', requireAuth, requireAdmin, vali
     `, [merchantId]);
 
     if (result.rows.length === 0) {
-        return res.status(404).json({
-            success: false,
-            error: 'Merchant not found'
-        });
+        return sendError(res, 'Merchant not found', 404);
     }
 
     const merchant = result.rows[0];
@@ -110,8 +103,7 @@ router.post('/merchants/:merchantId/deactivate', requireAuth, requireAdmin, vali
         adminUserId: req.session.user.id
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         merchant
     });
 }));
@@ -123,8 +115,7 @@ router.post('/merchants/:merchantId/deactivate', requireAuth, requireAdmin, vali
 router.get('/settings', requireAuth, requireAdmin, validators.listSettings, asyncHandler(async (req, res) => {
     const settings = await platformSettings.getAllSettings();
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         settings
     });
 }));
@@ -144,8 +135,7 @@ router.put('/settings/:key', requireAuth, requireAdmin, validators.updateSetting
         adminUserId: req.session.user.id
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         setting: { key, value }
     });
 }));

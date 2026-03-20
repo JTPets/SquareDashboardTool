@@ -16,6 +16,7 @@ const { requireAuth, requireWriteAccess } = require('../../middleware/auth');
 const { requireMerchant } = require('../../middleware/merchant');
 const asyncHandler = require('../../middleware/async-handler');
 const validators = require('../../middleware/validators/loyalty');
+const { sendSuccess } = require('../../utils/response-helper');
 
 /**
  * POST /api/loyalty/rewards/:rewardId/redeem
@@ -43,7 +44,7 @@ router.post('/rewards/:rewardId/redeem', requireAuth, requireMerchant, requireWr
         merchantId
     });
 
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -69,7 +70,7 @@ router.patch('/rewards/:rewardId/vendor-credit', requireAuth, requireMerchant, r
         userId: req.session.user.id
     });
 
-    res.json({ success: true, vendorCredit });
+    sendSuccess(res, { vendorCredit });
 }));
 
 /**
@@ -89,7 +90,7 @@ router.get('/rewards', requireAuth, requireMerchant, validators.listRewards, asy
         offset: parseInt(offset) || 0
     });
 
-    res.json({ rewards });
+    sendSuccess(res, { rewards });
 }));
 
 /**
@@ -110,7 +111,7 @@ router.get('/redemptions', requireAuth, requireMerchant, validators.listRedempti
         offset: parseInt(offset) || 0
     });
 
-    res.json({ redemptions });
+    sendSuccess(res, { redemptions });
 }));
 
 module.exports = router;

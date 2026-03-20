@@ -21,6 +21,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/settings');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 
 /**
  * GET /api/settings/merchant
@@ -32,8 +33,7 @@ router.get('/settings/merchant', requireAuth, requireMerchant, validators.get, a
 
     const settings = await getMerchantSettings(merchantId);
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         settings,
         merchantId
     });
@@ -61,7 +61,7 @@ router.put('/settings/merchant', requireAuth, requireMerchant, validators.update
             if (settings.hasOwnProperty(field)) {
                 const value = parseInt(settings[field]);
                 if (isNaN(value) || value < 0) {
-                    return res.status(400).json({ error: `Invalid value for ${field}: must be a non-negative number` });
+                    return sendError(res, `Invalid value for ${field}: must be a non-negative number`, 400);
                 }
                 settings[field] = value;
             }
@@ -82,8 +82,7 @@ router.put('/settings/merchant', requireAuth, requireMerchant, validators.update
             fields: Object.keys(settings)
         });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         settings: updated,
         message: 'Settings saved successfully'
     });
@@ -95,8 +94,7 @@ router.put('/settings/merchant', requireAuth, requireMerchant, validators.update
  * Useful for resetting to defaults
  */
 router.get('/settings/merchant/defaults', requireAuth, validators.defaults, async (req, res) => {
-    res.json({
-        success: true,
+    sendSuccess(res, {
         defaults: DEFAULT_MERCHANT_SETTINGS
     });
 });

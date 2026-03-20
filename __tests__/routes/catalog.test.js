@@ -134,7 +134,7 @@ describe('Catalog Routes', () => {
             ]);
             const res = await request(app).get('/api/locations');
             expect(res.status).toBe(200);
-            expect(res.body).toHaveLength(1);
+            expect(res.body.locations).toHaveLength(1);
             expect(mockCatalogService.getLocations).toHaveBeenCalledWith(1);
         });
     });
@@ -144,7 +144,7 @@ describe('Catalog Routes', () => {
             mockCatalogService.getCategories.mockResolvedValueOnce(['Food', 'Toys']);
             const res = await request(app).get('/api/categories');
             expect(res.status).toBe(200);
-            expect(res.body).toEqual(['Food', 'Toys']);
+            expect(res.body.categories).toEqual(['Food', 'Toys']);
         });
     });
 

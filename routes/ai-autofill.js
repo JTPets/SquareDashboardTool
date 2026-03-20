@@ -23,6 +23,7 @@ const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 const validators = require('../middleware/validators/ai-autofill');
 const aiAutofillService = require('../services/ai-autofill-service');
 const { batchUpdateCatalogContent } = require('../services/square/api');
@@ -42,11 +43,7 @@ router.post('/api-key', requireAuth, requireMerchant, asyncHandler(async (req, r
     const { apiKey } = req.body;
 
     if (!apiKey || typeof apiKey !== 'string' || !apiKey.startsWith('sk-ant-')) {
-        return res.status(400).json({
-            success: false,
-            error: 'Invalid API key format. Claude API keys start with sk-ant-',
-            code: 'INVALID_API_KEY'
-        });
+        return sendError(res, 'Invalid API key format. Claude API keys start with sk-ant-', 400, 'INVALID_API_KEY');
     }
 
     // Encrypt the API key using AES-256-GCM
@@ -62,10 +59,7 @@ router.post('/api-key', requireAuth, requireMerchant, asyncHandler(async (req, r
 
     logger.info('Claude API key stored for merchant', { merchantId });
 
-    res.json({
-        success: true,
-        message: 'API key saved securely'
-    });
+    sendSuccess(res, { message: 'API key saved securely' });
 }));
 
 /**
@@ -83,10 +77,7 @@ router.get('/api-key/status', requireAuth, requireMerchant, asyncHandler(async (
 
     const hasKey = result.rows.length > 0 && result.rows[0].has_key === true;
 
-    res.json({
-        success: true,
-        data: { hasKey }
-    });
+    sendSuccess(res, { data: { hasKey } });
 }));
 
 /**
@@ -104,10 +95,7 @@ router.delete('/api-key', requireAuth, requireMerchant, asyncHandler(async (req,
 
     logger.info('Claude API key deleted for merchant', { merchantId });
 
-    res.json({
-        success: true,
-        message: 'API key deleted'
-    });
+    sendSuccess(res, { message: 'API key deleted' });
 }));
 
 /**
@@ -142,10 +130,7 @@ router.get('/status', requireAuth, requireMerchant, validators.getStatus, asyncH
 
     const grouped = await aiAutofillService.getItemsWithReadiness(merchantId);
 
-    res.json({
-        success: true,
-        data: grouped
-    });
+    sendSuccess(res, { data: grouped });
 }));
 
 /**
@@ -174,33 +159,20 @@ router.post('/generate', requireAuth, requireMerchant, validators.generate, asyn
     // Get API key from encrypted server-side storage
     const apiKey = await getApiKeyForMerchant(merchantId);
     if (!apiKey) {
-        return res.status(400).json({
-            success: false,
-            error: 'No Claude API key configured. Please save your API key first.',
-            code: 'API_KEY_NOT_CONFIGURED'
-        });
+        return sendError(res, 'No Claude API key configured. Please save your API key first.', 400, 'API_KEY_NOT_CONFIGURED');
     }
 
     // Fetch full item data
     const items = await aiAutofillService.getItemsForGeneration(merchantId, itemIds);
 
     if (items.length === 0) {
-        return res.status(404).json({
-            success: false,
-            error: 'No items found with the provided IDs',
-            code: 'ITEMS_NOT_FOUND'
-        });
+        return sendError(res, 'No items found with the provided IDs', 404, 'ITEMS_NOT_FOUND');
     }
 
     // Validate readiness for the requested field type
     const readiness = aiAutofillService.validateReadiness(items, fieldType);
     if (!readiness.valid) {
-        return res.status(400).json({
-            success: false,
-            error: 'Items are not ready for this field type',
-            code: 'ITEMS_NOT_READY',
-            details: readiness.errors
-        });
+        return sendError(res, 'Items are not ready for this field type', 400, 'ITEMS_NOT_READY');
     }
 
     const options = { context, keywords, tone, storeName: req.merchantContext.businessName };
@@ -215,8 +187,7 @@ router.post('/generate', requireAuth, requireMerchant, validators.generate, asyn
             successCount: results.filter(r => r.generated).length
         });
 
-        return res.json({
-            success: true,
+        return sendSuccess(res, {
             data: { fieldType, results }
         });
     }
@@ -298,10 +269,7 @@ router.post('/apply', requireAuth, requireMerchant, validators.apply, asyncHandl
         failed: result.failed.length
     });
 
-    res.json({
-        success: true,
-        data: result
-    });
+    sendSuccess(res, { data: result });
 }));
 
 module.exports = router;

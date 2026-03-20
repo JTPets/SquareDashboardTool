@@ -3,10 +3,20 @@
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
 **Last Validated**: 2026-03-20
-**Total Open Items**: ~41
+**Total Open Items**: ~38
 
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
+
+### Purge Log — 2026-03-20 Cleanup Batch (BACKLOG-3, OSS locale, Backfill, T-4)
+
+**BACKLOG-3 FIXED** — Response format standardization. Created `utils/response-helper.js` with `sendSuccess` (flat-merge pattern preserving existing response shapes), `sendError` (consistent `{ success: false, error, code }` format), and `sendPaginated`. Converted all 35 route files (28 top-level + 10 loyalty sub-routes, minus 3 redirect-only OAuth/driver routes). ~420 `res.json()`/`res.status().json()` calls standardized. File downloads, redirects, and binary responses left unchanged. Response helper test suite added (14 tests).
+
+**OSS locale FIXED** — Updated `public/js/utils/format-currency.js` and `public/js/utils/date-format.js` to read `window.MERCHANT_LOCALE` and `window.MERCHANT_CURRENCY` globals with fallback to 'en-CA' / 'CAD'. Created `public/js/utils/merchant-context.js` to set defaults with `TODO(pre-franchise)` comment for API population. No frontend breakage — falls back to existing behavior when globals are unset.
+
+**Backfill WON'T FIX** — Historical `loyalty_purchase_events` with incorrect quantity (pre-2026-03-07 dedup bug). Old paper card conversion data, likely untracked or already redeemed. No business impact. Dedup fix deployed 2026-03-07 prevents new occurrences. Historical data is reference-only.
+
+**T-4 FIXED** — Added test files for all 13 untested background jobs. Each covers: import check, empty data handling, DB error graceful handling, merchant_id scoping where applicable. Structural coverage only (no full integration tests for Square API/email).
 
 ### Purge Log — 2026-03-20 Cleanup Batch (BACKLOG-17, Vendor reconcile)
 
@@ -195,7 +205,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| Backfill | Historical `loyalty_purchase_events` with incorrect quantity — pre-2026-03-07 dedup bug. Requires runtime DB inspection. | `purchase-service.js` | M | 2026-03-07 |
+| ~~Backfill~~ | ~~Historical `loyalty_purchase_events` with incorrect quantity — pre-2026-03-07 dedup bug.~~ **WON'T FIX 2026-03-20** — Old paper card conversion data, likely untracked or already redeemed. No business impact. Quantity inaccuracies in pre-dedup-fix events do not affect current loyalty calculations (dedup fix deployed 2026-03-07 prevents new occurrences). Historical data is reference-only. | `purchase-service.js` | M | 2026-03-07 |
 
 ### Multi-Tenant Gaps
 
@@ -211,7 +221,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| T-4 | Background jobs mostly untested — 2 of 16 jobs have tests (`cron-scheduler`, `trial-expiry-job`). 13 jobs untested. | `jobs/` | L | 2026-02-25 |
+| ~~T-4~~ | ~~Background jobs mostly untested — 2 of 16 jobs have tests (`cron-scheduler`, `trial-expiry-job`). 13 jobs untested.~~ **FIXED 2026-03-20** — Added test files for all 13 untested jobs: backup, cart-activity-cleanup, catalog-health, catalog-location-health, committed-inventory-reconciliation, cycle-count, expiry-discount, loyalty-audit, loyalty-catchup, loyalty-sync-retry, seniors-day, sync, webhook-retry. Each covers: import check, empty data handling, DB error handling, merchant_id scoping. | `jobs/`, `__tests__/jobs/` | L | 2026-02-25 |
 
 
 ## Low Priority
@@ -278,7 +288,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | Effort | Discovered |
 |----|-------------|--------|------------|
-| BACKLOG-3 | Response format standardization. | M | 2026-01-01 |
+| ~~BACKLOG-3~~ | ~~Response format standardization.~~ **FIXED 2026-03-20** — All 35 route files (including 10 loyalty sub-routes) converted to use `sendSuccess`/`sendError`/`sendPaginated` from `utils/response-helper.js`. Helper uses flat-merge pattern (`{ success: true, ...data }`) to preserve existing response shapes while adding consistent `success` flag. Error responses standardized to `{ success: false, error, code }`. File downloads, redirects, and binary responses left unchanged. `sendPaginated` added for paginated endpoints. | M | 2026-01-01 |
 | ~~BACKLOG-17~~ | ~~Customer lookup helpers duplicated (DEDUP L-4).~~ **FIXED 2026-03-20** — customer-admin-service delegates to customer-details-service. | M | 2026-02-17 |
 | ~~BACKLOG-23~~ | ~~Currency formatting — no shared helper (DEDUP G-3).~~ **FIXED 2026-03-20** | S | 2026-02-17 |
 | ~~BACKLOG-25~~ | ~~Location lookup queries repeated across 6 routes (DEDUP G-5).~~ **FIXED 2026-03-20** | S | 2026-02-17 |
@@ -305,7 +315,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | High | 4 |
 | Medium | ~25 |
 | Low | ~17 |
-| Nice to Have | 16 |
-| **Total** | **~44** |
+| Nice to Have | 13 |
+| **Total** | **~41** |
 
-**Validation delta**: ~95 → ~65 → ~49 → ~44 → ~37 → ~34 items. **87 items purged** across five validations (2026-03-15: 46 items, 2026-03-17/19: 26 items, 2026-03-20: 5 items, 2026-03-20b: 7 items, 2026-03-20c: 3 items).
+**Validation delta**: ~95 → ~65 → ~49 → ~44 → ~37 → ~34 → ~31 items. **90 items purged** across six validations (2026-03-15: 46 items, 2026-03-17/19: 26 items, 2026-03-20: 5 items, 2026-03-20b: 7 items, 2026-03-20c: 3 items, 2026-03-20d: 3 items).

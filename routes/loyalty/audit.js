@@ -17,6 +17,7 @@ const { requireAuth, requireWriteAccess } = require('../../middleware/auth');
 const { requireMerchant } = require('../../middleware/merchant');
 const asyncHandler = require('../../middleware/async-handler');
 const validators = require('../../middleware/validators/loyalty');
+const { sendSuccess, sendError } = require('../../utils/response-helper');
 
 /**
  * GET /api/loyalty/audit
@@ -34,7 +35,7 @@ router.get('/audit', requireAuth, requireMerchant, validators.listAudit, asyncHa
         offset: parseInt(offset) || 0
     });
 
-    res.json({ entries });
+    sendSuccess(res, { entries });
 }));
 
 /**
@@ -45,7 +46,7 @@ router.get('/stats', requireAuth, requireMerchant, asyncHandler(async (req, res)
     const merchantId = req.merchantContext.id;
 
     const stats = await loyaltyService.getLoyaltyStats(merchantId);
-    res.json({ stats });
+    sendSuccess(res, { stats });
 }));
 
 /**
@@ -64,7 +65,7 @@ router.get('/audit-findings', requireAuth, requireMerchant, validators.listAudit
         offset: parseInt(offset)
     });
 
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -78,11 +79,7 @@ router.post('/audit-findings/resolve/:id', requireAuth, requireMerchant, require
     const finding = await loyaltyService.resolveAuditFinding({ merchantId, findingId: id });
 
     if (!finding) {
-        return res.status(404).json({
-            success: false,
-            error: 'Audit finding not found',
-            code: 'NOT_FOUND'
-        });
+        return sendError(res, 'Audit finding not found', 404, 'NOT_FOUND');
     }
 
     logger.info('Resolved loyalty audit finding', {
@@ -91,7 +88,7 @@ router.post('/audit-findings/resolve/:id', requireAuth, requireMerchant, require
         userId: req.session.user.id
     });
 
-    res.json({ success: true, finding });
+    sendSuccess(res, { finding });
 }));
 
 /**
@@ -116,7 +113,7 @@ router.post('/audit-missed-redemptions', requireAuth, requireMerchant, requireWr
         dryRun
     });
 
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 module.exports = router;

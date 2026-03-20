@@ -22,6 +22,7 @@ const logger = require('../utils/logger');
 const { requireAdmin } = require('../middleware/auth');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/logs');
+const { sendSuccess } = require('../utils/response-helper');
 
 // Get today's date in server timezone (YYYY-MM-DD format)
 // OSS: System-level — must match logger.js process.env.TZ for correct log file lookup.
@@ -52,7 +53,7 @@ router.get('/logs', requireAdmin, validators.list, asyncHandler(async (req, res)
 
     const content = await fs.readFile(logFile, 'utf-8').catch(() => '');
     if (!content.trim()) {
-        return res.json({ logs: [], count: 0, message: 'No logs for today yet' });
+        return sendSuccess(res, { logs: [], count: 0, message: 'No logs for today yet' });
     }
 
     // limit=0 means all logs, otherwise take last N lines
@@ -66,7 +67,7 @@ router.get('/logs', requireAdmin, validators.list, asyncHandler(async (req, res)
         }
     });
 
-    res.json({ logs, count: logs.length, total: allLines.length });
+    sendSuccess(res, { logs, count: logs.length, total: allLines.length });
 }));
 
 /**
@@ -82,9 +83,9 @@ router.get('/logs/errors', requireAdmin, validators.errors, asyncHandler(async (
         const content = await fs.readFile(errorFile, 'utf-8');
         const lines = content.trim().split('\n');
         const errors = lines.map(line => JSON.parse(line));
-        res.json({ errors, count: errors.length });
+        sendSuccess(res, { errors, count: errors.length });
     } catch {
-        res.json({ errors: [], count: 0 }); // No errors is good!
+        sendSuccess(res, { errors: [], count: 0 }); // No errors is good!
     }
 }));
 
@@ -126,7 +127,7 @@ router.get('/logs/stats', requireAdmin, validators.stats, asyncHandler(async (re
     const warnCount = logs.filter(l => l.level === 'warn').length;
     const infoCount = logs.filter(l => l.level === 'info').length;
 
-    res.json({
+    sendSuccess(res, {
         total: logs.length,
         errors: errors.length,
         warnings: warnCount,
