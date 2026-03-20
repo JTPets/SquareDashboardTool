@@ -54,7 +54,8 @@ const db = require('../../../utils/database');
 const {
     validateEarnedRewardsDiscounts,
     validateSingleRewardDiscount,
-    syncRewardDiscountPrices
+    syncRewardDiscountPrices,
+    recreateDiscountIfInvalid
 } = require('../../../services/loyalty-admin/discount-validation-service');
 
 // ============================================================================
@@ -590,7 +591,8 @@ describe('syncRewardDiscountPrices', () => {
         expect(mockUpdateRewardDiscountAmount).not.toHaveBeenCalled();
     });
 
-    it('should mark as up-to-date when stored cap exceeds current price', async () => {
+    // BACKLOG-70: stored cap > current price now triggers a downward update
+    it('should update when stored cap exceeds current price (bidirectional sync)', async () => {
         db.query.mockResolvedValueOnce({
             rows: [{
                 reward_id: 1, square_discount_id: 'DISC_1',
@@ -598,10 +600,18 @@ describe('syncRewardDiscountPrices', () => {
                 offer_id: 10, offer_name: 'Test Offer'
             }]
         });
+        mockUpdateRewardDiscountAmount.mockResolvedValueOnce({ success: true });
 
         const result = await syncRewardDiscountPrices({ merchantId: 1 });
 
-        expect(result.upToDate).toBe(1);
+        expect(result.updated).toBe(1);
+        expect(result.upToDate).toBe(0);
+        expect(mockUpdateRewardDiscountAmount).toHaveBeenCalledWith({
+            merchantId: 1,
+            squareDiscountId: 'DISC_1',
+            newAmountCents: 1500,
+            rewardId: 1
+        });
     });
 
     it('should update discount when current price exceeds stored cap', async () => {
@@ -621,7 +631,8 @@ describe('syncRewardDiscountPrices', () => {
             rewardId: 1,
             offerName: 'Test Offer',
             oldCap: 1000,
-            newCap: 1500
+            newCap: 1500,
+            direction: 'increase'
         });
         expect(mockUpdateRewardDiscountAmount).toHaveBeenCalledWith({
             merchantId: 1,
@@ -703,5 +714,126 @@ describe('syncRewardDiscountPrices', () => {
         expect(result.updated).toBe(1);
         expect(result.details[0].oldCap).toBe(1499);
         expect(result.details[0].newCap).toBe(1500);
+    });
+
+    // BACKLOG-70: price cap now syncs both directions
+    it('should update discount when current price DECREASES below stored cap', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                reward_id: 1, square_discount_id: 'DISC_1',
+                discount_amount_cents: '2000', current_max_price_cents: '1500',
+                offer_id: 10, offer_name: 'Price Drop'
+            }]
+        });
+        mockUpdateRewardDiscountAmount.mockResolvedValueOnce({ success: true });
+
+        const result = await syncRewardDiscountPrices({ merchantId: 1 });
+
+        expect(result.updated).toBe(1);
+        expect(result.upToDate).toBe(0);
+        expect(result.details[0]).toEqual({
+            rewardId: 1,
+            offerName: 'Price Drop',
+            oldCap: 2000,
+            newCap: 1500,
+            direction: 'decrease'
+        });
+        expect(mockUpdateRewardDiscountAmount).toHaveBeenCalledWith({
+            merchantId: 1,
+            squareDiscountId: 'DISC_1',
+            newAmountCents: 1500,
+            rewardId: 1
+        });
+    });
+
+    it('should include direction "increase" when price goes up', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                reward_id: 1, square_discount_id: 'D1',
+                discount_amount_cents: '1000', current_max_price_cents: '1500',
+                offer_id: 10, offer_name: 'Price Up'
+            }]
+        });
+        mockUpdateRewardDiscountAmount.mockResolvedValueOnce({ success: true });
+
+        const result = await syncRewardDiscountPrices({ merchantId: 1 });
+
+        expect(result.details[0].direction).toBe('increase');
+    });
+
+    it('should mark as up-to-date only when prices are exactly equal', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                reward_id: 1, square_discount_id: 'D1',
+                discount_amount_cents: '1500', current_max_price_cents: '1500',
+                offer_id: 10, offer_name: 'Same'
+            }]
+        });
+
+        const result = await syncRewardDiscountPrices({ merchantId: 1 });
+
+        expect(result.upToDate).toBe(1);
+        expect(result.updated).toBe(0);
+        expect(mockUpdateRewardDiscountAmount).not.toHaveBeenCalled();
+    });
+});
+
+// ============================================================================
+// TESTS — recreateDiscountIfInvalid (BACKLOG-69)
+// ============================================================================
+
+describe('recreateDiscountIfInvalid', () => {
+    beforeEach(() => jest.clearAllMocks());
+
+    it('should clear IDs and recreate discount successfully', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] }); // Clear IDs
+        mockCreateSquareCustomerGroupDiscount.mockResolvedValueOnce({ success: true });
+
+        const result = await recreateDiscountIfInvalid({
+            merchantId: 1,
+            reward: { id: 10, square_customer_id: 'CUST_1', offer_id: 5 }
+        });
+
+        expect(result.success).toBe(true);
+        expect(db.query).toHaveBeenCalledWith(
+            expect.stringContaining('square_group_id = NULL'),
+            [10, 1]
+        );
+        expect(mockCreateSquareCustomerGroupDiscount).toHaveBeenCalledWith({
+            merchantId: 1,
+            squareCustomerId: 'CUST_1',
+            internalRewardId: 10,
+            offerId: 5
+        });
+    });
+
+    it('should return error when recreation fails', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+        mockCreateSquareCustomerGroupDiscount.mockResolvedValueOnce({
+            success: false, error: 'Square API error'
+        });
+
+        const result = await recreateDiscountIfInvalid({
+            merchantId: 1,
+            reward: { id: 10, square_customer_id: 'CUST_1', offer_id: 5 }
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('Square API error');
+    });
+
+    it('should skip clearing IDs when clearIds is false', async () => {
+        mockCreateSquareCustomerGroupDiscount.mockResolvedValueOnce({ success: true });
+
+        const result = await recreateDiscountIfInvalid({
+            merchantId: 1,
+            reward: { id: 10, square_customer_id: 'CUST_1', offer_id: 5 },
+            clearIds: false
+        });
+
+        expect(result.success).toBe(true);
+        // No UPDATE query should have been called
+        expect(db.query).not.toHaveBeenCalled();
+        expect(mockCreateSquareCustomerGroupDiscount).toHaveBeenCalled();
     });
 });

@@ -70,7 +70,7 @@ describe('loyalty-admin index (barrel exports)', () => {
         // Backfill / Sync
         'isOrderAlreadyProcessedForLoyalty', 'processOrderForLoyaltyIfNeeded',
         // Customer order audit
-        'getCustomerOrderHistoryForAudit', 'addOrdersToLoyaltyTracking',
+        'getCustomerOrderHistoryForAudit', 'addOrdersToLoyaltyTracking', 'analyzeOrders',
         // Catchup
         'runLoyaltyCatchup',
         // Manual processing

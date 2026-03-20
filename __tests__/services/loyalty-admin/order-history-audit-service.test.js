@@ -56,7 +56,8 @@ jest.mock('../../../services/loyalty-admin/constants', () => ({
 const db = require('../../../utils/database');
 const {
     getCustomerOrderHistoryForAudit,
-    addOrdersToLoyaltyTracking
+    addOrdersToLoyaltyTracking,
+    analyzeOrders
 } = require('../../../services/loyalty-admin/order-history-audit-service');
 
 // ============================================================================
@@ -731,5 +732,204 @@ describe('addOrdersToLoyaltyTracking', () => {
             source: 'audit',
             customerSource: 'manual'
         });
+    });
+});
+
+// ============================================================================
+// TESTS — analyzeOrders (BACKLOG-71: extracted for independent testing)
+// ============================================================================
+
+describe('analyzeOrders', () => {
+    const makeOffer = (offerId, name, brandName, sizeGroup, requiredQty) => ({
+        offerId, offerName: name, brandName, sizeGroup, requiredQuantity: requiredQty
+    });
+
+    it('should return empty array for empty orders', () => {
+        const result = analyzeOrders([], new Map(), new Set(), new Map(), new Map());
+        expect(result).toEqual([]);
+    });
+
+    it('should correctly count qualifying items', () => {
+        const variationToOffer = new Map([
+            ['VAR_1', makeOffer(10, 'Buy 10', 'Acme', '15kg', 10)]
+        ]);
+
+        const orders = [{
+            id: 'ORD_1', customer_id: 'C1', closed_at: '2026-03-01T12:00:00Z',
+            location_id: 'LOC_1', tenders: [],
+            line_items: [
+                { uid: 'LI_1', catalog_object_id: 'VAR_1', name: 'Dog Food', quantity: '3', base_price_money: { amount: 5999 }, total_money: { amount: 17997 } }
+            ],
+            total_money: { amount: 17997 }
+        }];
+
+        const result = analyzeOrders(orders, variationToOffer, new Set(), new Map(), new Map());
+
+        expect(result).toHaveLength(1);
+        expect(result[0].totalQualifyingQty).toBe(3);
+        expect(result[0].qualifyingItems).toHaveLength(1);
+        expect(result[0].qualifyingItems[0].offer.id).toBe(10);
+        expect(result[0].canBeAdded).toBe(true);
+    });
+
+    it('should handle refunds (orders with negative/zero totals) as valid orders', () => {
+        const orders = [{
+            id: 'ORD_REFUND', customer_id: 'C1', closed_at: '2026-03-01T12:00:00Z',
+            location_id: 'LOC_1', tenders: [],
+            line_items: [],
+            total_money: { amount: 0 }
+        }];
+
+        const result = analyzeOrders(orders, new Map(), new Set(), new Map(), new Map());
+
+        expect(result).toHaveLength(1);
+        expect(result[0].totalQualifyingQty).toBe(0);
+        expect(result[0].canBeAdded).toBe(false);
+    });
+
+    it('should mark duplicate orders as already tracked', () => {
+        const trackedOrderIds = new Set(['ORD_1']);
+        const trackedOrderSources = new Map([['ORD_1', 'webhook']]);
+
+        const orders = [{
+            id: 'ORD_1', customer_id: 'C1', closed_at: '2026-03-01T12:00:00Z',
+            location_id: 'LOC_1', tenders: [],
+            line_items: [{ uid: 'LI_1', catalog_object_id: 'VAR_1', name: 'Item', quantity: '1', base_price_money: { amount: 1000 }, total_money: { amount: 1000 } }],
+            total_money: { amount: 1000 }
+        }];
+
+        const variationToOffer = new Map([
+            ['VAR_1', makeOffer(10, 'Test', 'A', 'S', 10)]
+        ]);
+
+        const result = analyzeOrders(orders, variationToOffer, trackedOrderIds, trackedOrderSources, new Map());
+
+        expect(result[0].isAlreadyTracked).toBe(true);
+        expect(result[0].canBeAdded).toBe(false);
+        expect(result[0].customerSource).toBe('webhook');
+    });
+
+    it('should classify free items as non-qualifying', () => {
+        const variationToOffer = new Map([
+            ['VAR_1', makeOffer(10, 'Buy 10', 'Acme', '15kg', 10)]
+        ]);
+
+        const orders = [{
+            id: 'ORD_1', customer_id: 'C1', closed_at: '2026-03-01T12:00:00Z',
+            location_id: 'LOC_1', tenders: [],
+            line_items: [
+                { uid: 'LI_1', catalog_object_id: 'VAR_1', name: 'Dog Food', quantity: '1', base_price_money: { amount: 5999 }, total_money: { amount: 0 } }
+            ],
+            total_money: { amount: 0 }
+        }];
+
+        const result = analyzeOrders(orders, variationToOffer, new Set(), new Map(), new Map());
+
+        expect(result[0].qualifyingItems).toHaveLength(0);
+        expect(result[0].nonQualifyingItems).toHaveLength(1);
+        expect(result[0].nonQualifyingItems[0].skipReason).toBe('free_item');
+    });
+
+    it('should handle orders with no line_items', () => {
+        const orders = [{
+            id: 'ORD_1', customer_id: 'C1', closed_at: '2026-03-01T12:00:00Z',
+            location_id: 'LOC_1', tenders: [],
+            total_money: { amount: 0 }
+        }];
+
+        const result = analyzeOrders(orders, new Map(), new Set(), new Map(), new Map());
+
+        expect(result).toHaveLength(1);
+        expect(result[0].qualifyingItems).toHaveLength(0);
+        expect(result[0].nonQualifyingItems).toHaveLength(0);
+        expect(result[0].totalQualifyingQty).toBe(0);
+    });
+
+    it('should cross-reference redemptions without duplicating free items', () => {
+        const variationToOffer = new Map([
+            ['VAR_1', makeOffer(10, 'Buy 10', 'A', 'S', 10)]
+        ]);
+
+        const orderRedemptionsMap = new Map([
+            ['ORD_1', [{ variationId: 'VAR_1', itemName: 'Dog Food', variationName: '15kg', valueCents: 5999, offerName: 'Buy 10' }]]
+        ]);
+
+        // The item is already detected as free in line_items
+        const orders = [{
+            id: 'ORD_1', customer_id: 'C1', closed_at: '2026-03-01T12:00:00Z',
+            location_id: 'LOC_1', tenders: [],
+            line_items: [
+                { uid: 'LI_1', catalog_object_id: 'VAR_1', name: 'Dog Food', quantity: '1', base_price_money: { amount: 5999 }, total_money: { amount: 0 } }
+            ],
+            total_money: { amount: 0 }
+        }];
+
+        const result = analyzeOrders(orders, variationToOffer, new Set(), new Map(), orderRedemptionsMap);
+
+        // Should NOT duplicate the free item
+        expect(result[0].nonQualifyingItems).toHaveLength(1);
+        expect(result[0].nonQualifyingItems[0].skipReason).toBe('free_item');
+    });
+
+    it('should add redemption record when not detected as free item', () => {
+        const orderRedemptionsMap = new Map([
+            ['ORD_1', [{ variationId: 'VAR_REDEEMED', itemName: 'Treat', variationName: 'Large', valueCents: 1000, offerName: 'Buy 5' }]]
+        ]);
+
+        const orders = [{
+            id: 'ORD_1', customer_id: 'C1', closed_at: '2026-03-01T12:00:00Z',
+            location_id: 'LOC_1', tenders: [],
+            line_items: [],
+            total_money: { amount: 0 }
+        }];
+
+        const result = analyzeOrders(orders, new Map(), new Set(), new Map(), orderRedemptionsMap);
+
+        expect(result[0].nonQualifyingItems).toHaveLength(1);
+        expect(result[0].nonQualifyingItems[0].skipReason).toBe('redeemed_reward');
+        expect(result[0].nonQualifyingItems[0].offerName).toBe('Buy 5');
+    });
+
+    it('should extract receipt URL from tenders', () => {
+        const orders = [{
+            id: 'ORD_1', customer_id: 'C1', closed_at: '2026-03-01T12:00:00Z',
+            location_id: 'LOC_1',
+            tenders: [{ receipt_url: 'https://receipt.example.com/123' }],
+            line_items: [],
+            total_money: { amount: 0 }
+        }];
+
+        const result = analyzeOrders(orders, new Map(), new Set(), new Map(), new Map());
+
+        expect(result[0].receiptUrl).toBe('https://receipt.example.com/123');
+    });
+
+    it('should handle multiple orders with mixed qualifying status', () => {
+        const variationToOffer = new Map([
+            ['VAR_1', makeOffer(10, 'Buy 10', 'Acme', '15kg', 10)]
+        ]);
+
+        const orders = [
+            {
+                id: 'ORD_1', customer_id: 'C1', closed_at: '2026-03-01',
+                location_id: 'LOC_1', tenders: [],
+                line_items: [{ uid: 'LI_1', catalog_object_id: 'VAR_1', name: 'Dog Food', quantity: '2', base_price_money: { amount: 5999 }, total_money: { amount: 11998 } }],
+                total_money: { amount: 11998 }
+            },
+            {
+                id: 'ORD_2', customer_id: 'C1', closed_at: '2026-03-02',
+                location_id: 'LOC_1', tenders: [],
+                line_items: [{ uid: 'LI_2', catalog_object_id: 'VAR_UNKNOWN', name: 'Cat Toy', quantity: '1', base_price_money: { amount: 999 }, total_money: { amount: 999 } }],
+                total_money: { amount: 999 }
+            }
+        ];
+
+        const result = analyzeOrders(orders, variationToOffer, new Set(), new Map(), new Map());
+
+        expect(result).toHaveLength(2);
+        expect(result[0].totalQualifyingQty).toBe(2);
+        expect(result[0].canBeAdded).toBe(true);
+        expect(result[1].totalQualifyingQty).toBe(0);
+        expect(result[1].canBeAdded).toBe(false);
     });
 });

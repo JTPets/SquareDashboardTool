@@ -130,7 +130,8 @@ const {
 // Order history audit service (split from backfill-service.js)
 const {
     getCustomerOrderHistoryForAudit,
-    addOrdersToLoyaltyTracking
+    addOrdersToLoyaltyTracking,
+    analyzeOrders
 } = require('./order-history-audit-service');
 
 // Square discount services (split from square-discount-service.js)
@@ -296,6 +297,7 @@ module.exports = {
     // Manual Customer Order Audit
     getCustomerOrderHistoryForAudit,
     addOrdersToLoyaltyTracking,
+    analyzeOrders,
 
     // Background Loyalty Catchup
     runLoyaltyCatchup,

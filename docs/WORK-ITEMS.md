@@ -74,10 +74,10 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| BACKLOG-69 | Extract duplicate discount fix pattern — same recreate-discount logic repeated 3 times in validation checks. | `discount-validation-service.js:238-257, 297-322, 350-375` | S | 2026-03-15 |
-| BACKLOG-71 | Extract `_analyzeOrders` from `order-history-audit-service.js` for independent testing. | `order-history-audit-service.js:240-314` | S | 2026-03-15 |
-| BACKLOG-70 | `syncRewardDiscountPrices` only updates upward — price cap stays inflated if catalog price drops. | `discount-validation-service.js:124-217` | S | 2026-03-15 |
-| BACKLOG-74 | Extract promo code validation — duplicated between `POST /promo/validate` (~line 92) and `POST /create` (~line 208) in `routes/subscriptions.js`. Extract to `validatePromoCode(code, merchantId, plan, priceCents)` service function. | `routes/subscriptions.js` | S | 2026-03-17 |
+| ~~BACKLOG-69~~ | ~~Extract duplicate discount fix pattern — same recreate-discount logic repeated 3 times in validation checks.~~ **FIXED 2026-03-20**: Extracted `recreateDiscountIfInvalid()` shared function, 3 call sites consolidated. | `discount-validation-service.js` | S | 2026-03-15 |
+| ~~BACKLOG-71~~ | ~~Extract `_analyzeOrders` from `order-history-audit-service.js` for independent testing.~~ **FIXED 2026-03-20**: Renamed to `analyzeOrders()`, exported as public function with independent tests. | `order-history-audit-service.js` | S | 2026-03-15 |
+| ~~BACKLOG-70~~ | ~~`syncRewardDiscountPrices` only updates upward — price cap stays inflated if catalog price drops.~~ **FIXED 2026-03-20**: Price cap now syncs both directions (increase and decrease). | `discount-validation-service.js` | S | 2026-03-15 |
+| ~~BACKLOG-74~~ | ~~Extract promo code validation — duplicated between `POST /promo/validate` (~line 92) and `POST /create` (~line 208) in `routes/subscriptions.js`. Extract to `validatePromoCode(code, merchantId, plan, priceCents)` service function.~~ **FIXED 2026-03-20**: Extracted to `services/promo-validation.js`, both routes use shared function. | `routes/subscriptions.js`, `services/promo-validation.js` | S | 2026-03-17 |
 
 ### Features
 

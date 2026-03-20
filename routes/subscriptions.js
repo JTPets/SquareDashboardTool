@@ -49,6 +49,8 @@ const asyncHandler = require('../middleware/async-handler');
 const promoRateLimit = configureLoginRateLimit();
 const subscriptionRateLimit = configureSubscriptionRateLimit();
 const subscriptionBridge = require('../services/subscription-bridge');
+// LOGIC CHANGE: extracted promo code validation to shared service (BACKLOG-74)
+const { validatePromoCode } = require('../services/promo-validation');
 
 /**
  * GET /api/square/payment-config
@@ -86,6 +88,7 @@ router.get('/subscriptions/plans', asyncHandler(async (req, res) => {
  */
 // LOGIC CHANGE: rate limit unauthenticated endpoint (security audit 2026-03-10)
 // LOGIC CHANGE: scope promo code lookup to merchant (CRIT-2 audit)
+// LOGIC CHANGE: uses shared validatePromoCode service (BACKLOG-74)
 router.post('/subscriptions/promo/validate', promoRateLimit, validators.validatePromo, asyncHandler(async (req, res) => {
     const { code, plan, priceCents } = req.body;
     const merchantId = req.merchantContext?.id || req.session?.activeMerchantId;
@@ -93,58 +96,20 @@ router.post('/subscriptions/promo/validate', promoRateLimit, validators.validate
         return res.status(400).json({ valid: false, error: 'Merchant context required' });
     }
 
-    // Look up the promo code scoped to this merchant
-    const result = await db.query(`
-        SELECT * FROM promo_codes
-        WHERE UPPER(code) = UPPER($1)
-          AND merchant_id = $2
-          AND is_active = TRUE
-          AND (valid_from IS NULL OR valid_from <= NOW())
-          AND (valid_until IS NULL OR valid_until >= NOW())
-          AND (max_uses IS NULL OR times_used < max_uses)
-    `, [code.trim(), merchantId]);
+    const result = await validatePromoCode({ code, merchantId, plan, priceCents });
 
-    if (result.rows.length === 0) {
-        return res.json({ valid: false, error: 'Invalid or expired promo code' });
+    if (!result.valid) {
+        return res.json({ valid: false, error: result.error });
     }
 
-    const promo = result.rows[0];
-
-    // Check plan restriction
-    if (promo.applies_to_plans && promo.applies_to_plans.length > 0 && plan) {
-        if (!promo.applies_to_plans.includes(plan)) {
-            return res.json({ valid: false, error: 'This code does not apply to the selected plan' });
-        }
-    }
-
-    // Check minimum purchase
-    if (promo.min_purchase_cents && priceCents && priceCents < promo.min_purchase_cents) {
-        return res.json({
-            valid: false,
-            error: `Minimum purchase of $${(promo.min_purchase_cents / 100).toFixed(2)} required`
-        });
-    }
-
-    // Calculate discount
-    let discountCents = 0;
-    if (promo.discount_type === 'percent') {
-        discountCents = Math.floor((priceCents || 0) * promo.discount_value / 100);
-    } else {
-        discountCents = promo.discount_value;
-    }
-
-    // Don't let discount exceed price
-    if (priceCents && discountCents > priceCents) {
-        discountCents = priceCents;
-    }
-
+    const promo = result.promo;
     res.json({
         valid: true,
         code: promo.code,
         description: promo.description,
         discountType: promo.discount_type,
         discountValue: promo.discount_value,
-        discountCents,
+        discountCents: result.discount,
         discountDisplay: promo.discount_type === 'percent'
             ? `${promo.discount_value}% off`
             : `$${(promo.discount_value / 100).toFixed(2)} off`
@@ -197,51 +162,30 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
         });
     }
 
-    // Validate and apply promo code if provided
+    // LOGIC CHANGE: uses shared validatePromoCode service (BACKLOG-74)
     let promoCodeId = null;
     let discountCents = 0;
     let finalPriceCents = selectedPlan.price_cents;
 
     if (promoCode) {
-        // LOGIC CHANGE: scope promo code to merchant (CRIT-2 audit)
-        const promoResult = await db.query(`
-            SELECT * FROM promo_codes
-            WHERE UPPER(code) = UPPER($1)
-              AND merchant_id = $2
-              AND is_active = TRUE
-              AND (valid_from IS NULL OR valid_from <= NOW())
-              AND (valid_until IS NULL OR valid_until >= NOW())
-              AND (max_uses IS NULL OR times_used < max_uses)
-        `, [promoCode.trim(), merchantId]);
+        const promoResult = await validatePromoCode({
+            code: promoCode,
+            merchantId,
+            plan,
+            priceCents: selectedPlan.price_cents
+        });
 
-        if (promoResult.rows.length > 0) {
-            const promo = promoResult.rows[0];
+        if (promoResult.valid) {
+            promoCodeId = promoResult.promo.id;
+            discountCents = promoResult.discount;
+            finalPriceCents = promoResult.finalPrice;
 
-            // Check plan restriction
-            if (!promo.applies_to_plans || promo.applies_to_plans.length === 0 || promo.applies_to_plans.includes(plan)) {
-                promoCodeId = promo.id;
-
-                // Calculate discount
-                if (promo.discount_type === 'percent') {
-                    discountCents = Math.floor(selectedPlan.price_cents * promo.discount_value / 100);
-                } else {
-                    discountCents = promo.discount_value;
-                }
-
-                // Don't let discount exceed price
-                if (discountCents > selectedPlan.price_cents) {
-                    discountCents = selectedPlan.price_cents;
-                }
-
-                finalPriceCents = selectedPlan.price_cents - discountCents;
-
-                logger.info('Promo code applied', {
-                    code: promo.code,
-                    discountCents,
-                    originalPrice: selectedPlan.price_cents,
-                    finalPrice: finalPriceCents
-                });
-            }
+            logger.info('Promo code applied', {
+                code: promoResult.promo.code,
+                discountCents,
+                originalPrice: selectedPlan.price_cents,
+                finalPrice: finalPriceCents
+            });
         }
     }
 

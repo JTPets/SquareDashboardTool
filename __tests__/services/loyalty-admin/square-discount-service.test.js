@@ -541,7 +541,8 @@ describe('syncRewardDiscountPrices', () => {
         expect(result.updated).toBe(0);
     });
 
-    it('should skip rewards where cap already covers price', async () => {
+    // BACKLOG-70: price cap now syncs both directions — cap > price triggers downward update
+    it('should update when cap exceeds current price (bidirectional sync)', async () => {
         db.query.mockResolvedValueOnce({
             rows: [{
                 reward_id: 1, square_discount_id: 'disc_1',
@@ -550,10 +551,33 @@ describe('syncRewardDiscountPrices', () => {
             }]
         });
 
+        // Mock the GET to fetch existing discount (for updateRewardDiscountAmount)
+        mockFetchSuccess({
+            object: {
+                id: 'disc_1',
+                version: 5,
+                discount_data: {
+                    name: 'Loyalty: Test',
+                    discount_type: 'FIXED_PERCENTAGE',
+                    percentage: '100',
+                    maximum_amount_money: { amount: 5000, currency: 'CAD' }
+                }
+            }
+        });
+
+        // Mock the upsert
+        mockFetchSuccess({});
+
+        // Mock local DB update
+        db.query.mockResolvedValueOnce({ rows: [] });
+
         const result = await syncRewardDiscountPrices({ merchantId: 1 });
 
-        expect(result.upToDate).toBe(1);
-        expect(result.updated).toBe(0);
+        expect(result.updated).toBe(1);
+        expect(result.upToDate).toBe(0);
+        expect(result.details[0].oldCap).toBe(5000);
+        expect(result.details[0].newCap).toBe(4500);
+        expect(result.details[0].direction).toBe('decrease');
     });
 
     it('should update when current price exceeds stored cap', async () => {
