@@ -17,6 +17,8 @@ const logger = require('../utils/logger');
 const squareApi = require('../services/square');
 
 // Track consecutive runs with zero deletions per merchant (resets on PM2 restart)
+// BACKLOG-9: Acceptable loss — monitoring-only counter. Worst case: one extra log cycle
+// before the counter reaches the warning threshold again. No data integrity impact.
 const consecutiveZeroDeletions = new Map();
 const CONSECUTIVE_WARN_THRESHOLD = 3;
 

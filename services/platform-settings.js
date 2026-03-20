@@ -11,6 +11,8 @@ const db = require('../utils/database');
 const logger = require('../utils/logger');
 
 // In-memory cache: { key: { value, cachedAt } }
+// BACKLOG-9: Acceptable loss on PM2 restart — read-through cache rebuilds on first miss per key.
+// No startup recovery needed; 5-minute TTL means stale data is short-lived anyway.
 const cache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 

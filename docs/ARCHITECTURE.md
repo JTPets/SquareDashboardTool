@@ -405,6 +405,26 @@ await squareClient.orders.createOrder({
 | `services/square/index.js` | Facade — re-exports all 10 split modules (see Services Directory above) |
 | `services/webhook-processor.js` | Webhook signature verification |
 
+### Square Variation ID Reuse on POS Reorder (BACKLOG-34)
+
+When a merchant reorders (rearranges) item variations in Square POS or Dashboard, Square **deletes the existing variations and recreates them with new catalog object IDs**. This is not documented in Square's API reference but is confirmed behavior.
+
+**Impact on SqTools**:
+- Historical `loyalty_purchase_events`, `sales_velocity`, and `order` records reference the old variation IDs
+- Lookups by variation ID against current catalog return no results for pre-reorder data
+- `variation_discount_status` and `variation_expiration` rows become orphaned (FK CASCADE deletes them when the variation row is removed during catalog sync)
+
+**Current mitigations**:
+- Delta catalog sync (`square-catalog-sync.js`) detects deleted variations and marks them `is_deleted = TRUE` rather than hard-deleting, preserving historical references
+- Sales velocity reporting uses the Inventory Changes API (daily full sync) which aggregates by item, not variation, reducing the impact of ID churn
+- The `deleted-items.html` page surfaces deleted/recreated items for manual review
+
+**Future mitigation** (Roadmap):
+- Sales velocity refactor to use Inventory Changes API as primary source (eliminates variation ID dependency for velocity data)
+- Consider storing a stable `item_id + variation_ordinal` composite key for historical joins
+
+**Recommendation**: Do not build features that require long-lived variation ID stability for historical analysis. Prefer item-level aggregation or snapshot-based approaches.
+
 ---
 
 ## Database Patterns

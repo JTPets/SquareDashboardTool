@@ -25,6 +25,8 @@ const { SQUARE: { MAX_PAGINATION_ITERATIONS }, SYNC: { BATCH_DELAY_MS, INTER_BAT
 
 // Cache for merchants without INVOICES_READ scope (avoid repeated API calls and log spam)
 // Map<merchantId, timestamp> - expires after 1 hour
+// BACKLOG-9: Acceptable loss on PM2 restart — negative lookup cache rebuilds on first API call
+// per merchant. One extra failed API call per merchant after restart is negligible.
 const merchantsWithoutInvoicesScope = new Map();
 const INVOICES_SCOPE_CACHE_TTL = INVOICES_SCOPE_TTL_MS;
 

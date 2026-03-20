@@ -475,6 +475,46 @@ router.post('/:id/receive', requireAuth, requireMerchant, validators.receivePurc
             }
         });
 
+    // LOGIC CHANGE: Flag items with active expiry discounts for re-audit after PO receiving (EXPIRY-REORDER-AUDIT)
+    // When new stock arrives, items on clearance (AUTO25/AUTO50) may have a later expiry date,
+    // making the existing discount no longer appropriate. Similar pattern to BACKLOG-58.
+    // The request body only has PO item IDs, so we look up variation_ids from the PO items table.
+    const receivedItemIds = items.map(item => item.id).filter(Boolean);
+    if (receivedItemIds.length > 0) {
+        try {
+            const flagResult = await db.query(`
+                UPDATE variation_discount_status
+                SET needs_manual_review = TRUE,
+                    updated_at = NOW()
+                WHERE variation_id IN (
+                    SELECT variation_id FROM purchase_order_items
+                    WHERE id = ANY($1) AND purchase_order_id = $2 AND merchant_id = $3
+                )
+                  AND merchant_id = $3
+                  AND current_tier_id IN (
+                      SELECT id FROM expiry_discount_tiers
+                      WHERE tier_code IN ('AUTO25', 'AUTO50')
+                        AND merchant_id = $3
+                  )
+                  AND needs_manual_review = FALSE
+            `, [receivedItemIds, id, merchantId]);
+            if (flagResult.rowCount > 0) {
+                logger.info('Flagged expiry-discounted items for re-audit after PO receiving', {
+                    merchantId,
+                    purchaseOrderId: id,
+                    flaggedCount: flagResult.rowCount
+                });
+            }
+        } catch (flagError) {
+            // Non-blocking — don't fail the PO receive for this
+            logger.warn('Failed to flag items for expiry re-audit during PO receiving', {
+                merchantId,
+                purchaseOrderId: id,
+                error: flagError.message
+            });
+        }
+    }
+
     // Return updated PO
     const result = await db.query('SELECT * FROM purchase_orders WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
     res.json({
