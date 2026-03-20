@@ -49,17 +49,41 @@ async function migrateVendorFKs(client, oldId, newId, merchantId) {
  * Reconcile a vendor whose Square ID changed but name matches an existing DB row.
  * Uses a transaction to: insert new vendor with temp name, migrate ALL FK references,
  * delete old vendor, then set the correct name on the new vendor.
+ *
+ * // LOGIC CHANGE: Returns boolean indicating whether reconciliation actually occurred.
+ * // Previously returned void, causing callers to count unreconciled vendors as synced.
+ * @returns {Promise<boolean>} true if vendor was reconciled, false if no action taken
  */
 async function reconcileVendorId(vendor, vendorParams, merchantId) {
-    await db.transaction(async (client) => {
+    return await db.transaction(async (client) => {
         const existing = await client.query(
-            'SELECT id FROM vendors WHERE merchant_id = $1 AND vendor_name_normalized(name) = vendor_name_normalized($2)',
+            'SELECT id, name FROM vendors WHERE merchant_id = $1 AND vendor_name_normalized(name) = vendor_name_normalized($2)',
             [merchantId, vendor.name]
         );
-        if (existing.rows.length === 0) return;
+        if (existing.rows.length === 0) {
+            // LOGIC CHANGE: Log warning instead of silent return — unique constraint
+            // fired but normalized name lookup found nothing (normalization mismatch).
+            logger.warn('reconcileVendorId: no vendor found by normalized name — cannot reconcile', {
+                merchantId, vendorId: vendor.id, vendorName: vendor.name
+            });
+            return false;
+        }
 
         const oldId = existing.rows[0].id;
-        if (oldId === vendor.id) return;
+        if (oldId === vendor.id) {
+            // LOGIC CHANGE: Same ID found — update name if it differs (e.g., casing change).
+            // Previously returned silently, leaving stale name until next full sync.
+            if (existing.rows[0].name !== vendor.name) {
+                await client.query(
+                    'UPDATE vendors SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND merchant_id = $3',
+                    [vendor.name, vendor.id, merchantId]
+                );
+                logger.info('reconcileVendorId: updated vendor name (same ID, different casing)', {
+                    merchantId, vendorId: vendor.id, oldName: existing.rows[0].name, newName: vendor.name
+                });
+            }
+            return true;
+        }
 
         // Insert new vendor with a temp name to avoid unique name constraint
         const tempName = `__reconciling_${vendor.id}`;
@@ -85,6 +109,7 @@ async function reconcileVendorId(vendor, vendorParams, merchantId) {
         logger.info('Reconciled vendor ID change', {
             merchantId, vendorName: vendor.name, oldId, newId: vendor.id, migrated
         });
+        return true;
     });
 }
 
@@ -163,8 +188,9 @@ async function syncVendors(merchantId) {
                         logger.warn('Vendor unique name constraint hit — reconciling ID change', {
                             merchantId, vendorId: vendor.id, vendorName: vendor.name
                         });
-                        await reconcileVendorId(vendor, vendorParams, merchantId);
-                        totalSynced++;
+                        // LOGIC CHANGE: Only count as synced if reconciliation actually succeeded
+                        const reconciled = await reconcileVendorId(vendor, vendorParams, merchantId);
+                        if (reconciled) totalSynced++;
                     } else {
                         throw err;
                     }
@@ -250,7 +276,13 @@ async function ensureVendorsExist(vendorIds, merchantId) {
                     logger.warn('Vendor unique name constraint hit during on-demand fetch — reconciling', {
                         merchantId, vendorId, vendorName: vendor.name
                     });
-                    await reconcileVendorId(vendor, vendorParams, merchantId);
+                    // LOGIC CHANGE: Log whether reconciliation succeeded for observability
+                    const reconciled = await reconcileVendorId(vendor, vendorParams, merchantId);
+                    if (!reconciled) {
+                        logger.warn('On-demand vendor reconciliation failed — vendor not synced', {
+                            merchantId, vendorId, vendorName: vendor.name
+                        });
+                    }
                 } else {
                     throw insertErr;
                 }

@@ -17,9 +17,12 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
-const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
+const { getSquareAccessToken } = require('./shared-utils');
 const { cacheCustomerDetails, getCachedCustomer } = require('./customer-cache-service');
 const { LoyaltyCustomerService } = require('./customer-identification-service');
+// LOGIC CHANGE (BACKLOG-17): Delegate Square API call to customer-details-service
+// instead of duplicating raw fetch logic. This is the canonical low-level fetch.
+const { getCustomerDetails: fetchCustomerFromSquare } = require('./customer-details-service');
 
 /**
  * CALLER MAP (A-4 / BACKLOG-17 / DEDUP L-4 consolidation):
@@ -32,15 +35,17 @@ const { LoyaltyCustomerService } = require('./customer-identification-service');
  *   webhook-processing-service.js:94  — pre-purchase caching
  *   square-discount-service.js:518    — group naming
  *
+ * LOGIC CHANGE (BACKLOG-17): This function now delegates the Square API call to
+ * customer-details-service.js:getCustomerDetails() instead of duplicating raw fetch
+ * logic with fetchWithTimeout. The dedup hierarchy is:
+ *   customer-details-service.js — canonical low-level Square fetch (SquareApiClient)
+ *   customer-admin-service.js   — adds cache-first lookup + DB caching on top
+ *   customer-identification-service.js:getCustomerDetails — delegates to customer-details-service
+ *
  * LOGIC CHANGE: removed 3 dead lookup wrappers (BACKLOG-72, 2026-03-17):
  *   lookupCustomerFromLoyalty, lookupCustomerFromFulfillmentRecipient,
  *   lookupCustomerFromOrderRewards — all had 0 callers, delegated to
  *   LoyaltyCustomerService methods which are called directly by actual callers.
- *
- * LoyaltyCustomerService class methods (customer-identification-service.js):
- *   identifyCustomerFromOrder() — 3 callers (order-handler, webhook-processing, catchup-job)
- *   getCustomerDetails()        — 4 callers (order-handler x2, delivery-service x2)
- *   cacheCustomerDetails()      — internal only
  */
 
 /**
@@ -62,56 +67,13 @@ async function getCustomerDetails(customerId, merchantId) {
             return cachedCustomer;
         }
 
-        // Not in cache, fetch from Square API
-        const accessToken = await getSquareAccessToken(merchantId);
-        if (!accessToken) {
+        // LOGIC CHANGE (BACKLOG-17): Delegate to customer-details-service.js instead of
+        // duplicating raw fetch logic. customer-details-service is the canonical low-level
+        // Square customer fetch. This function adds caching on top.
+        const customerDetails = await fetchCustomerFromSquare(customerId, merchantId);
+        if (!customerDetails) {
             return null;
         }
-
-        const customerStartTime = Date.now();
-        const response = await fetchWithTimeout(`https://connect.squareup.com/v2/customers/${customerId}`, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-                'Square-Version': SQUARE_API_VERSION
-            }
-        }, 10000);
-        const customerDuration = Date.now() - customerStartTime;
-
-        loyaltyLogger.squareApi({
-            endpoint: `/customers/${customerId}`,
-            method: 'GET',
-            status: response.status,
-            duration: customerDuration,
-            success: response.ok,
-            merchantId,
-        });
-
-        if (!response.ok) {
-            logger.debug('Failed to fetch customer details', { customerId, status: response.status });
-            return null;
-        }
-
-        const data = await response.json();
-        const customer = data.customer;
-
-        if (!customer) {
-            return null;
-        }
-
-        const customerDetails = {
-            id: customer.id,
-            givenName: customer.given_name || null,
-            familyName: customer.family_name || null,
-            displayName: [customer.given_name, customer.family_name].filter(Boolean).join(' ') || customer.company_name || null,
-            email: customer.email_address || null,
-            phone: customer.phone_number || null,
-            companyName: customer.company_name || null,
-            birthday: customer.birthday || null,
-            createdAt: customer.created_at,
-            updatedAt: customer.updated_at
-        };
 
         // Cache for future lookups
         await cacheCustomerDetails(customerDetails, merchantId);

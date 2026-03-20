@@ -33,6 +33,9 @@ async function getCustomerDetails(customerId, merchantId) {
             email: customer.email_address || null,
             phone: customer.phone_number || null,
             companyName: customer.company_name || null,
+            // LOGIC CHANGE (BACKLOG-17): Added birthday field so customer-admin-service
+            // can delegate to this function without losing birthday data.
+            birthday: customer.birthday || null,
             createdAt: customer.created_at,
             updatedAt: customer.updated_at,
         };

@@ -8,6 +8,12 @@
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
 
+### Purge Log — 2026-03-20 Cleanup Batch (BACKLOG-17, Vendor reconcile)
+
+**BACKLOG-17 FIXED** — Consolidated duplicate `getCustomerDetails` functions. `customer-admin-service.js` now delegates the Square API call to `customer-details-service.js` (the canonical low-level fetch via SquareApiClient) instead of duplicating raw `fetchWithTimeout` logic. Added `birthday` field to customer-details-service return value. Dedup hierarchy: customer-details-service (fetch) → customer-admin-service (cache-first + DB caching) → customer-identification-service (delegates to customer-details-service). 4 tests updated.
+
+**Vendor reconcileVendorId FIXED** — `reconcileVendorId` now returns boolean indicating success. When no vendor is found by normalized name (silent no-op), returns `false` and logs warning. When same vendor ID found with different name casing, updates the name. Callers (`syncVendors`, `ensureVendorsExist`) now check the return value — `totalSynced` only increments on actual reconciliation. 2 tests added.
+
 ### Purge Log — 2026-03-20 Cleanup Batch (BACKLOG-9, BACKLOG-34, BACKLOG-40, EXPIRY-REORDER-AUDIT)
 
 **BACKLOG-9 DOCUMENTED** — Audited all module-level in-memory state across services/, utils/, and jobs/. Findings: (1) `sync-queue.js` already persists to DB with startup recovery. (2) `platform-settings.js` cache, `square-inventory.js` invoices scope cache, `square-discount-catalog-service.js` currency cache are all read-through caches that self-heal on first miss after restart. (3) `committed-inventory-reconciliation-job.js` consecutiveZeroDeletions is monitoring-only. All acceptable losses documented with `// BACKLOG-9:` comments in each file.
@@ -230,7 +236,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
 | ~~Velocity~~ | ~~FIXED 2026-03-20~~ — `return_amounts` replaced with correct `total_money` field. | `square-velocity.js` | S | 2026-03-15 |
-| Vendor | `reconcileVendorId` silent no-op — vendor name changes don't propagate until next full sync. | `services/square/square-vendors.js:53-80` | S | 2026-03-15 |
+| ~~Vendor~~ | ~~`reconcileVendorId` silent no-op — vendor name changes don't propagate until next full sync.~~ **FIXED 2026-03-20** — Returns boolean, callers check it, name casing updates applied. | `services/square/square-vendors.js:53-80` | S | 2026-03-15 |
 | ~~Google~~ | ~~FIXED 2026-03-20~~ — `loadTokens()` now force-rotates plaintext tokens to encrypted on read (fire-and-forget). | `utils/google-auth.js` | S | 2026-03-15 |
 
 ### Architecture
@@ -273,7 +279,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | ID | Description | Effort | Discovered |
 |----|-------------|--------|------------|
 | BACKLOG-3 | Response format standardization. | M | 2026-01-01 |
-| BACKLOG-17 | Customer lookup helpers duplicated (DEDUP L-4). | M | 2026-02-17 |
+| ~~BACKLOG-17~~ | ~~Customer lookup helpers duplicated (DEDUP L-4).~~ **FIXED 2026-03-20** — customer-admin-service delegates to customer-details-service. | M | 2026-02-17 |
 | ~~BACKLOG-23~~ | ~~Currency formatting — no shared helper (DEDUP G-3).~~ **FIXED 2026-03-20** | S | 2026-02-17 |
 | ~~BACKLOG-25~~ | ~~Location lookup queries repeated across 6 routes (DEDUP G-5).~~ **FIXED 2026-03-20** | S | 2026-02-17 |
 | ~~BACKLOG-26~~ | ~~Date string formatting pattern repeated 12 times (DEDUP G-7).~~ **FIXED 2026-03-20** | S | 2026-02-17 |
