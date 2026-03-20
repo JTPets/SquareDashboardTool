@@ -66,3 +66,11 @@ desktop.ini
 
 # Output of 'npm pack'
 *.tgz
+.env.save
+core
+FETCH_HEAD
+et -a
+2026-*
+check_invoice.js
+storage/pod/
+public/feeds/

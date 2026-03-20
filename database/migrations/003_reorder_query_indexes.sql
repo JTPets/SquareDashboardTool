@@ -1,3 +1,5 @@
+BEGIN;
+
 -- Migration 003: Add composite indexes to support optimized reorder query (PERF-6)
 -- The reorder LATERAL JOINs filter by (variation_id, merchant_id) on variation_vendors
 -- and (variation_id, merchant_id, period_days) on sales_velocity. Existing indexes
@@ -17,3 +19,7 @@ CREATE INDEX IF NOT EXISTS idx_sales_velocity_var_merchant_period
 -- Existing indexes are single-column on variation_id and merchant_id separately
 CREATE INDEX IF NOT EXISTS idx_poi_var_merchant
     ON purchase_order_items(variation_id, merchant_id);
+
+COMMIT;
+
+COMMIT;
