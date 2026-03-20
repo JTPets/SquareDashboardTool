@@ -491,7 +491,6 @@ router.post('/refresh', requireAuth, requireAdmin, asyncHandler(async (req, res)
     });
 }));
 
-// Delegate to shared utility (extracted from here to fix circular dependency A-3)
 const { refreshMerchantToken } = require('../utils/square-token');
 
 /**
@@ -523,7 +522,7 @@ async function getValidAccessToken(merchantId) {
     return decryptToken(merchant.rows[0].square_access_token);
 }
 
-// Export helper functions for use in other modules
+// LOGIC CHANGE (A-3): Removed re-export of refreshMerchantToken — import
+// directly from utils/square-token.js instead to avoid coupling through route module.
 module.exports = router;
-module.exports.refreshMerchantToken = refreshMerchantToken;
 module.exports.getValidAccessToken = getValidAccessToken;

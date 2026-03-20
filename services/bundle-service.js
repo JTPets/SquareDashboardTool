@@ -290,6 +290,8 @@ async function _lookupChildCatalog(client, merchantId, childVariationIds) {
 
 /**
  * Batch insert bundle components using multi-row VALUES
+ * // LOGIC CHANGE (PERF-7): Uses single INSERT with multi-row VALUES clause
+ * // instead of N individual INSERTs that existed in the original routes/bundles.js.
  * @param {Object} client - DB transaction client
  * @param {number} bundleId
  * @param {Array} components - [{ child_variation_id, quantity_in_bundle, individual_cost_cents }]

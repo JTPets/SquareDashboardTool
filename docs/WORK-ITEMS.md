@@ -215,6 +215,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
 | PERF-6 | Reorder suggestions query: 11-table JOIN with 4 correlated subqueries. Moved from `routes/analytics.js` to `services/catalog/reorder-service.js:135+` but still complex. | `services/catalog/reorder-service.js` | M | 2026-02-28 |
+| ~~PERF-7~~ | ~~FIXED 2026-03-20~~ — N+1 bundle component inserts replaced with single multi-row VALUES INSERT in `_batchInsertComponents()`. Fixed during A-2 service extraction. | `services/bundle-service.js` | S | 2026-02-28 |
 | ~~P-5~~ | ~~FIXED 2026-03-20~~ — Added `listenerCount` guard to `utils/google-auth.js:getAuthenticatedClient()` to match merchant-service pattern. Added error handling in listener. | `utils/google-auth.js`, `services/gmc/merchant-service.js` | S | 2026-02-25 |
 | ~~P-8~~ | ~~FIXED 2026-03-20~~ — Documented why follow-up syncs must be sequential (pending flag depends on main sync completion). Pattern is already non-blocking via fire-and-forget. | `services/sync-queue.js:232-242` | S | 2026-02-25 |
 
@@ -236,7 +237,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| A-3 | Circular dependency — `middleware/merchant.js` ↔ `routes/square-oauth.js` via deferred `require()`. | Multiple | S | 2026-02-25 |
+| ~~A-3~~ | ~~Circular dependency — `middleware/merchant.js` ↔ `routes/square-oauth.js` via deferred `require()`.~~ **FIXED 2026-03-20** — Moved deferred require to top-level in merchant.js; removed re-export from square-oauth.js. `refreshMerchantToken` lives in `utils/square-token.js`. | Multiple | S | 2026-02-25 |
 | ~~O-5~~ | ~~Business logic leaking into API sync layer — vendor sync logic embedded in catalog sync.~~ **FIXED 2026-03-20** — Extracted `syncVariationVendors()` to `square-vendors.js`. | `services/square/square-vendors.js` | M | 2026-02-25 |
 
 ### Config

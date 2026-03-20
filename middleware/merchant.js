@@ -14,6 +14,10 @@ const { SquareClient, SquareEnvironment } = require('square');
 const db = require('../utils/database');
 const logger = require('../utils/logger');
 const { decryptToken } = require('../utils/token-encryption');
+// LOGIC CHANGE (A-3): Moved require to top-level — no longer deferred inside
+// getSquareClientForMerchant(). Safe now that refreshMerchantToken lives in
+// utils/square-token.js, breaking the old merchant.js ↔ square-oauth.js cycle.
+const { refreshMerchantToken } = require('../utils/square-token');
 
 // Cache for Square clients (to avoid recreating on every request)
 const clientCache = new Map();
@@ -229,7 +233,6 @@ async function getSquareClientForMerchant(merchantId) {
     let accessToken;
     if (expiresAt < oneHourFromNow && m.square_refresh_token) {
         // Token needs refresh
-        const { refreshMerchantToken } = require('../utils/square-token');
         const refreshResult = await refreshMerchantToken(merchantId);
         accessToken = refreshResult.accessToken;
     } else {
