@@ -44,9 +44,11 @@ async function ingestDeliveryOrder(order, merchantId, result) {
             });
         }
     } catch (deliveryError) {
+        // LOGIC CHANGE: added merchantId to error log context (L-2)
         logger.error('Failed to ingest order for delivery', {
             error: deliveryError.message,
-            orderId: order.id
+            orderId: order.id,
+            merchantId
         });
     }
 }
@@ -63,9 +65,11 @@ async function handleOrderCancellation(orderId, merchantId, result) {
         await deliveryApi.handleSquareOrderUpdate(merchantId, orderId, 'CANCELED');
         logger.info('Removed cancelled order from delivery queue', { squareOrderId: orderId });
     } catch (cancelError) {
+        // LOGIC CHANGE: added merchantId to error log context (L-2)
         logger.error('Failed to handle order cancellation for delivery', {
             error: cancelError.message,
-            orderId
+            orderId,
+            merchantId
         });
     }
 }

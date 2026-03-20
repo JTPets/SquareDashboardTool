@@ -24,7 +24,7 @@ const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { getMerchantToken, makeSquareRequest, sleep, generateIdempotencyKey } = require('./square-client');
 
-const { SQUARE: { MAX_PAGINATION_ITERATIONS } } = require('../../config/constants');
+const { SQUARE: { MAX_PAGINATION_ITERATIONS }, SYNC: { CATALOG_BATCH_SIZE, INTER_BATCH_DELAY_MS } } = require('../../config/constants');
 const { enableItemAtAllLocations } = require('./square-diagnostics');
 
 /**
@@ -282,8 +282,8 @@ async function batchUpdateCustomAttributeValues(updates, options = {}) {
         errors: []
     };
 
-    // Process in batches of 100 (Square API limit)
-    const batchSize = 100;
+    // LOGIC CHANGE: use centralized batch size from constants (C-1)
+    const batchSize = CATALOG_BATCH_SIZE;
 
     for (let i = 0; i < updates.length; i += batchSize) {
         const batch = updates.slice(i, i + batchSize);
@@ -490,7 +490,7 @@ async function batchUpdateCustomAttributeValues(updates, options = {}) {
 
         // Small delay between batches
         if (i + batchSize < updates.length) {
-            await sleep(200);
+            await sleep(INTER_BATCH_DELAY_MS);
         }
     }
 

@@ -192,7 +192,8 @@ router.post('/cycle-counts/:id/complete', requireAuth, requireMerchant, validato
 
         if (isFullyComplete) {
             sendCycleCountReport(merchantId).catch(error => {
-                logger.error('Auto email report failed', { error: error.message });
+                // LOGIC CHANGE: added merchantId to error log context (L-2)
+                logger.error('Auto email report failed', { error: error.message, merchantId });
             });
         }
 

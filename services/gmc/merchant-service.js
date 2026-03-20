@@ -22,9 +22,8 @@ const logger = require('../../utils/logger');
 // OAuth2 scopes for Merchant Center (content scope works for new API too)
 const SCOPES = ['https://www.googleapis.com/auth/content'];
 
-// Rate limiting and retry configuration (matches Square API pattern in services/square/api.js)
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 1000;
+// LOGIC CHANGE: use centralized retry config from constants (C-1)
+const { RETRY: { MAX_ATTEMPTS: MAX_RETRIES, BASE_DELAY_MS: RETRY_DELAY_MS } } = require('../../config/constants');
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -72,7 +71,8 @@ async function getAuthClient(merchantId) {
                 `, [newTokens.access_token, newTokens.expiry_date, merchantId]);
                 logger.info('Refreshed Google OAuth tokens for merchant', { merchantId });
             } catch (err) {
-                logger.error('Failed to save refreshed tokens', { error: err.message, stack: err.stack });
+                // LOGIC CHANGE: added merchantId to error log context (L-2)
+                logger.error('Failed to save refreshed tokens', { error: err.message, stack: err.stack, merchantId });
             }
         });
     }

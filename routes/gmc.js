@@ -978,7 +978,8 @@ router.post('/api/sync-products', requireAuth, requireMerchant, requireWriteAcce
 
     // Run sync in background (don't await)
     gmcApi.syncProductCatalog(merchantId).catch(err => {
-        logger.error('Background GMC product sync error', { error: err.message, stack: err.stack });
+        // LOGIC CHANGE: added merchantId to error log context (L-2)
+        logger.error('Background GMC product sync error', { error: err.message, stack: err.stack, merchantId });
     });
 }));
 

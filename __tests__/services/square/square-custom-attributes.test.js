@@ -20,7 +20,8 @@ jest.mock('../../../services/square/square-client', () => ({
     generateIdempotencyKey: jest.fn().mockReturnValue('test-idem-key')
 }));
 jest.mock('../../../config/constants', () => ({
-    SQUARE: { MAX_PAGINATION_ITERATIONS: 50 }
+    SQUARE: { MAX_PAGINATION_ITERATIONS: 50 },
+    SYNC: { CATALOG_BATCH_SIZE: 100, INTER_BATCH_DELAY_MS: 200 }
 }));
 jest.mock('../../../services/square/square-diagnostics', () => ({
     enableItemAtAllLocations: jest.fn().mockResolvedValue()

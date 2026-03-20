@@ -18,6 +18,7 @@ const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { getMerchantToken, makeSquareRequest, sleep, generateIdempotencyKey } = require('./square-client');
 const { ensureVendorsExist } = require('./square-vendors');
+const { SYNC: { CATALOG_BATCH_SIZE, INTER_BATCH_DELAY_MS } } = require('../../config/constants');
 
 /**
  * Batch update variation prices in Square
@@ -39,8 +40,8 @@ async function batchUpdateVariationPrices(priceUpdates, merchantId) {
     // Get access token for this merchant
     const accessToken = await getMerchantToken(merchantId);
 
-    // Process in batches of 100 (Square API limit)
-    const batchSize = 100;
+    // LOGIC CHANGE: use centralized batch size from constants (C-1)
+    const batchSize = CATALOG_BATCH_SIZE;
 
     for (let i = 0; i < priceUpdates.length; i += batchSize) {
         const batch = priceUpdates.slice(i, i + batchSize);
@@ -188,7 +189,7 @@ async function batchUpdateVariationPrices(priceUpdates, merchantId) {
 
         // Small delay between batches to avoid rate limiting
         if (i + batchSize < priceUpdates.length) {
-            await sleep(200);
+            await sleep(INTER_BATCH_DELAY_MS);
         }
     }
 

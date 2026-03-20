@@ -127,9 +127,11 @@ async function updateCustomerNote(merchantId, orderId, note) {
             squareSynced = true;
         }
     } catch (squareError) {
+        // LOGIC CHANGE: added merchantId to error log context (L-2)
         logger.error('Failed to update customer note in Square', {
             error: squareError.message,
-            customerId: order.square_customer_id
+            customerId: order.square_customer_id,
+            merchantId
         });
     }
 
