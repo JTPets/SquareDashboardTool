@@ -165,12 +165,12 @@ function renderTable() {
       <td><small>${escapeHtml(item.category_name || '-')}</small></td>
       <td class="variation-name variation-col">${escapeHtml(item.variation || 'Regular')}</td>
       <td class="gtin gtin-col">${escapeHtml(item.gtin || 'N/A')}</td>
-      <td class="price">$${((item.price_money || 0) / 100).toFixed(2)}</td>
-      <td>${item.quantity || 0}</td>
+      <td class="price">$${escapeHtml(((item.price_money || 0) / 100).toFixed(2))}</td>
+      <td>${escapeHtml(String(item.quantity || 0))}</td>
       <td>${formatExpiryDate(item.expiration_date)}</td>
       <td>
         <div class="date-input-container">
-          <input type="date" value="${expiryValue}"
+          <input type="date" value="${escapeHtml(expiryValue)}"
                  data-change="showDateConfirmation" data-item-id="${safeId}"
                  ${item.does_not_expire ? 'disabled' : ''}>
           <div id="confirm-${safeId}" class="date-confirmation">

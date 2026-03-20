@@ -65,9 +65,9 @@ function showSuccess(result) {
       <h2>Route Completed!</h2>
       <p>Thank you for your deliveries today.</p>
       <div class="success-stats">
-        <div><span>Completed:</span><strong>${result.completed}</strong></div>
-        <div><span>Skipped:</span><strong>${result.skipped}</strong></div>
-        <div><span>Total Stops:</span><strong>${route.totalStops}</strong></div>
+        <div><span>Completed:</span><strong>${escapeHtml(String(result.completed))}</strong></div>
+        <div><span>Skipped:</span><strong>${escapeHtml(String(result.skipped))}</strong></div>
+        <div><span>Total Stops:</span><strong>${escapeHtml(String(route.totalStops))}</strong></div>
       </div>
     </div>
   `;
@@ -82,10 +82,10 @@ function renderRoute() {
   if (route.distanceKm || route.estimatedMinutes) {
     document.getElementById('routeStats').style.display = 'flex';
     document.getElementById('distanceDisplay').innerHTML = route.distanceKm
-      ? `&#128205; ${route.distanceKm.toFixed(1)} km`
+      ? `&#128205; ${escapeHtml(route.distanceKm.toFixed(1))} km`
       : '';
     document.getElementById('durationDisplay').innerHTML = route.estimatedMinutes
-      ? `&#9201; ~${route.estimatedMinutes} min`
+      ? `&#9201; ~${escapeHtml(String(route.estimatedMinutes))} min`
       : '';
   }
 

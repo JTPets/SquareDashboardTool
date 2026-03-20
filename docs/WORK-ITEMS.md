@@ -3,7 +3,7 @@
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
 **Last Validated**: 2026-03-19
-**Total Open Items**: ~49
+**Total Open Items**: ~51
 
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
@@ -51,7 +51,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| CRIT-3 (audit) | 288 innerHTML assignments in frontend JS — systematic XSS surface across 34 files. Multi-tenant data rendered without escaping. | `public/js/` (34 files) | L | 2026-03-10 |
+| ~~CRIT-3 (audit)~~ | ~~288 innerHTML assignments in frontend JS — systematic XSS surface across 34 files. Multi-tenant data rendered without escaping.~~ **RESOLVED 2026-03-20**: All innerHTML interpolations wrapped with escapeHtml() across 17 files (Phases 1-3B complete). Zero unescaped variable interpolations remain. | `public/js/` (34 files) | L | 2026-03-10 |
 
 ---
 
@@ -110,6 +110,8 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | BACKLOG-87 | Cycle count by vendor and category — current smart rotation prioritizes by value and recency but doesn't let merchants target specific vendors or categories. Add filter options to generate batches scoped to a single vendor (e.g., "count all Fromm products") or category (e.g., "count all dog treats"). Use case: receiving a vendor shipment and wanting to count just those items, or auditing a category after a planogram change. Extends existing batch generation. | `services/inventory/cycle-count-service.js` | S | 2026-03-19 |
 | BACKLOG-88 | Tax selection on bulk item creation — currently `catalog-create-service.js` auto-applies ALL active merchant taxes to every created item. Add tax selection checkboxes to the "Create in Square" confirmation dialog showing each tax name and rate (fetched from Square). Pre-check all by default. Merchant unchecks taxes that don't apply to selected items. Supports merchants with multiple tax rates, tax-exempt items, or mixed tax jurisdictions. | `public/js/vendor-catalog.js`, `services/vendor/catalog-create-service.js` | S | 2026-03-19 |
 | BACKLOG-90 | Vendor catalog match should create/update vendor links — when a vendor catalog import matches a UPC to an existing variation, check if `variation_vendors` has a row linking that variation to the importing vendor. If not, INSERT the vendor relationship with `vendor_code` and cost. If it exists, UPDATE the cost if changed. This enables multi-vendor price comparison on the reorder page. Currently a UPC match confirms the product exists but doesn't establish the vendor relationship, so the cheaper price from a secondary supplier is invisible to the reorder tool. Connects to existing "cheaper elsewhere" highlight on reorder suggestions. | `services/vendor/catalog-import-service.js`, `variation_vendors` table | S | 2026-03-19 |
+| BACKLOG-91 | Purchase order minimum threshold should soft-block, not hard-block — current PO generation prevents orders under vendor minimums entirely. This should only hard-block automated PO generation (future auto-reorder). Manual PO creation should allow under-minimum orders with a warning ("Order is $X below $Y minimum — proceed anyway?"). Use case: adding a single urgent item or an add-on to a delivery already scheduled. | `routes/purchase-orders.js`, `services/purchase-orders/`, `public/js/purchase-orders.js` | S | 2026-03-20 |
+| BACKLOG-92 | Category performance audit for dead stock and shrink management — identify underperforming categories or subcategories by combining sales velocity, margin, and inventory age. Example: canned cat food section is out of room. Tool surfaces slow movers (low velocity), low margin items, and items with high days-on-shelf. Actions: mark for clearance (triggers expiry discount system at a custom tier), flag as "do not reorder" (adds friction to PO generation for these items), or discontinue (remove from next vendor order). Builds on existing sales velocity, margin data, and expiry automation. Critical for space-constrained stores optimizing shelf allocation. | New service + routes, `services/expiry/`, `services/purchase-orders/` | M | 2026-03-20 |
 
 ### Data Integrity
 

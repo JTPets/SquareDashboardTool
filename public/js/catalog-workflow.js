@@ -662,7 +662,7 @@ function initReviewForStreaming(fieldType, totalItems) {
     container.innerHTML = `
         <div id="batch-progress" class="batch-progress">
             <div class="batch-progress-header">
-                <span id="batch-progress-text">Starting generation... (0/${totalItems} items)</span>
+                <span id="batch-progress-text">Starting generation... (0/${escapeHtml(String(totalItems))} items)</span>
                 <button class="btn btn-danger" data-action="cancelBatchGeneration"
                         style="padding: 4px 12px; font-size: 12px;">Cancel</button>
             </div>

@@ -554,8 +554,8 @@ function showSubmitConfirmation() {
     <p><strong>Summary:</strong></p>
     <p>
       Vendor: ${escapeHtml(po.vendor_name)}<br>
-      Items: ${po.items.length}<br>
-      Total: $${calculateTotal().toFixed(2)}
+      Items: ${escapeHtml(String(po.items.length))}<br>
+      Total: $${escapeHtml(calculateTotal().toFixed(2))}
     </p>
 
     <p>Are you sure you want to submit this purchase order?</p>

@@ -355,13 +355,13 @@ function renderTable(data) {
              data-variation-id="${escapeHtml(item.variation_id)}"
              data-field="stock_alert_max"
              data-current-value="${item.stock_alert_max || 'null'}">
-          ${item.stock_alert_max ? item.stock_alert_max : '<span class="infinity-symbol">∞</span>'}
+          ${item.stock_alert_max ? escapeHtml(String(item.stock_alert_max)) : '<span class="infinity-symbol">∞</span>'}
         </div>
       </td>
       <td class="text-right editable-cell">
         <input type="number"
                class="editable-input case-pack-input"
-               value="${item.case_pack_quantity || ''}"
+               value="${escapeHtml(String(item.case_pack_quantity || ''))}"
                placeholder="-"
                min="1"
                data-field="case_pack_quantity"

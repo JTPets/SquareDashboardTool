@@ -116,8 +116,8 @@ function renderAuditCards() {
 
     card.innerHTML =
       '<div class="card-header"><span class="card-title">' + audit.label + '</span></div>' +
-      '<div class="card-value">' + count.toLocaleString() + '</div>' +
-      '<div class="card-percent">' + percent + '% of catalog</div>' +
+      '<div class="card-value">' + escapeHtml(count.toLocaleString()) + '</div>' +
+      '<div class="card-percent">' + escapeHtml(String(percent)) + '% of catalog</div>' +
       (audit.note ? '<div class="card-note">' + audit.note + '</div>' : '');
 
     grid.appendChild(card);

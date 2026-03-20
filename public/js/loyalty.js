@@ -1077,7 +1077,7 @@ function renderAuditOrders(data) {
         <div style="text-align: center; margin-top: 15px;">
           <button id="audit-load-more-btn" data-action="loadMoreAuditHistory"
                   style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">
-            Load More (${nextStart}-${nextEnd} months ago)
+            Load More (${escapeHtml(String(nextStart))}-${escapeHtml(String(nextEnd))} months ago)
           </button>
         </div>
       `;

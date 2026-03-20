@@ -97,13 +97,13 @@ function renderTable() {
     let ageBadge = '';
     let ageClass = '';
     if (daysInactive < 90) {
-      ageBadge = `${daysInactive} days`;
+      ageBadge = `${escapeHtml(String(daysInactive))} days`;
       ageClass = 'age-recent';
     } else if (daysInactive < 365) {
-      ageBadge = `${Math.floor(daysInactive / 30)} months`;
+      ageBadge = `${escapeHtml(String(Math.floor(daysInactive / 30)))} months`;
       ageClass = 'age-old';
     } else {
-      ageBadge = `${Math.floor(daysInactive / 365)} years`;
+      ageBadge = `${escapeHtml(String(Math.floor(daysInactive / 365)))} years`;
       ageClass = 'age-ancient';
     }
 
@@ -121,7 +121,7 @@ function renderTable() {
 
     // Format price
     const price = item.price_money
-      ? `${item.currency || 'CAD'} $${(item.price_money / 100).toFixed(2)}`
+      ? `${escapeHtml(item.currency || 'CAD')} $${escapeHtml((item.price_money / 100).toFixed(2))}`
       : '-';
 
     return `
