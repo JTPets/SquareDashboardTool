@@ -969,7 +969,8 @@ async function regeneratePriceReport(batchId, merchantId) {
         throw new Error('merchantId is required for regeneratePriceReport');
     }
 
-    // Get batch info and all matched items with current catalog prices
+    // LOGIC CHANGE: Guard against db.query returning undefined/null to prevent
+    // crash on .rows access if the database connection has an issue.
     const batchResult = await db.query(`
         SELECT
             vci.vendor_id,
@@ -995,7 +996,7 @@ async function regeneratePriceReport(batchId, merchantId) {
         ORDER BY vci.product_name
     `, [batchId, merchantId]);
 
-    if (batchResult.rows.length === 0) {
+    if (!batchResult || !batchResult.rows || batchResult.rows.length === 0) {
         return {
             success: false,
             error: 'Batch not found or no items'

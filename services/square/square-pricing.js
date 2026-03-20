@@ -226,6 +226,10 @@ async function updateVariationCost(variationId, vendorId, newCostCents, currency
     const accessToken = await getMerchantToken(merchantId);
 
     let oldCostCents = null;
+    // LOGIC CHANGE: O-4 fix — hoist currentVariationData outside try block so catch can
+    // safely reference it. Previously was scoped inside try, causing undefined reference
+    // if error occurred before the retrieve call completed.
+    let currentVariationData = null;
 
     for (let attempt = 1; attempt <= COST_UPDATE_MAX_RETRIES; attempt++) {
         try {
@@ -243,7 +247,7 @@ async function updateVariationCost(variationId, vendorId, newCostCents, currency
                 throw new Error(`Object is not a variation: ${currentObject.type}`);
             }
 
-            const currentVariationData = currentObject.item_variation_data || {};
+            currentVariationData = currentObject.item_variation_data || {};
             const currentVendorInfo = currentVariationData.vendor_information || [];
 
             // Find old cost for the specified vendor
@@ -349,8 +353,9 @@ async function updateVariationCost(variationId, vendorId, newCostCents, currency
 
             // Check if parent item is not enabled at the location
             // Detect via structured Square error fields (preferred) or message string (fallback)
-            // NOTE: O-4 scoping bug — currentVariationData may be undefined if error occurs
-            // before the retrieve succeeds. Preserved as-is per extraction rules (document, don't fix).
+            // LOGIC CHANGE: O-4 fix — currentVariationData is scoped to the try block and may
+            // be undefined if error occurs before the retrieve succeeds. Use optional chaining
+            // on the outer currentObject variable which is also try-scoped.
             const squareErrors = error.squareErrors || [];
             const hasStructuredLocationMismatch = squareErrors.some(e =>
                 e.code === 'INVALID_VALUE' && e.field === 'item_id'

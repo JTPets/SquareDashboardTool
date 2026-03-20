@@ -731,6 +731,28 @@ describe('getSettings / updateSettings', () => {
         expect(settings.openrouteservice_api_key).toBe('plaintext-key');
     });
 
+    it('logs geocoding-impact warning when ORS key decryption fails', async () => {
+        mockDecryptToken.mockImplementationOnce(() => { throw new Error('bad cipher'); });
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                merchant_id: MERCHANT_ID,
+                start_address: '100 Queen St',
+                ors_api_key_encrypted: 'encrypted:corrupt',
+                openrouteservice_api_key: null
+            }]
+        });
+
+        const settings = await deliveryService.getSettings(MERCHANT_ID);
+
+        // Key should be null since decryption failed
+        expect(settings.openrouteservice_api_key).toBeFalsy();
+        // LOGIC CHANGE: verify improved error log mentions geocoding impact
+        expect(logger.error).toHaveBeenCalledWith(
+            expect.stringContaining('geocoding'),
+            expect.objectContaining({ impact: 'geocoding_disabled' })
+        );
+    });
+
     it('updateSettings encrypts ORS key', async () => {
         db.query.mockResolvedValueOnce({
             rows: [{
@@ -1168,12 +1190,15 @@ describe('backfillUnknownCustomers', () => {
         expect(result.failed).toBe(0);
     });
 
-    it('returns empty result when no orders to fix', async () => {
+    it('returns empty result with consistent shape when no orders to fix', async () => {
+        // LOGIC CHANGE: empty path now includes `total` field for consistent response shape
         db.query.mockResolvedValueOnce({ rows: [] });
 
         const result = await deliveryService.backfillUnknownCustomers(MERCHANT_ID);
 
         expect(result.updated).toBe(0);
+        expect(result.total).toBe(0);
+        expect(result.failed).toBe(0);
         expect(result.message).toContain('No orders');
     });
 
