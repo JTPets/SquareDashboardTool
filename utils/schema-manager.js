@@ -141,18 +141,21 @@ async function ensureSchema() {
         logger.info('Creating variation_expiration table...');
         await query(`
             CREATE TABLE IF NOT EXISTS variation_expiration (
-                variation_id TEXT PRIMARY KEY REFERENCES variations(id) ON DELETE CASCADE,
+                variation_id TEXT NOT NULL REFERENCES variations(id) ON DELETE CASCADE,
                 expiration_date TIMESTAMPTZ,
                 does_not_expire BOOLEAN DEFAULT FALSE,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
                 reviewed_at TIMESTAMPTZ,
                 reviewed_by TEXT,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (variation_id, merchant_id)
             )
         `);
         await query('CREATE INDEX IF NOT EXISTS idx_variation_expiration_date ON variation_expiration(expiration_date) WHERE expiration_date IS NOT NULL');
         await query('CREATE INDEX IF NOT EXISTS idx_variation_does_not_expire ON variation_expiration(does_not_expire) WHERE does_not_expire = TRUE');
         await query('CREATE INDEX IF NOT EXISTS idx_variation_expiration_reviewed ON variation_expiration(reviewed_at) WHERE reviewed_at IS NOT NULL');
+        await query('CREATE INDEX IF NOT EXISTS idx_variation_expiration_merchant ON variation_expiration(merchant_id)');
         logger.info('Created variation_expiration table with indexes');
         appliedCount++;
     } else {
@@ -471,6 +474,10 @@ async function ensureSchema() {
                 card_last_four TEXT,
                 card_id TEXT,
                 is_intro_pricing BOOLEAN DEFAULT TRUE,
+                promo_code_id INTEGER,
+                discount_applied_cents INTEGER DEFAULT 0,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                user_id INTEGER REFERENCES users(id),
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             )
@@ -691,7 +698,7 @@ async function ensureSchema() {
                 color_code TEXT DEFAULT '#6b7280',
                 priority INTEGER DEFAULT 0,
                 is_active BOOLEAN DEFAULT TRUE,
-                merchant_id INTEGER REFERENCES merchants(id),
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW(),
                 UNIQUE(tier_code, merchant_id)
@@ -707,7 +714,7 @@ async function ensureSchema() {
         // 2. Variation Discount Status - tracks current discount state per variation
         await query(`
             CREATE TABLE IF NOT EXISTS variation_discount_status (
-                variation_id TEXT PRIMARY KEY REFERENCES variations(id) ON DELETE CASCADE,
+                variation_id TEXT NOT NULL REFERENCES variations(id) ON DELETE CASCADE,
                 current_tier_id INTEGER REFERENCES expiry_discount_tiers(id) ON DELETE SET NULL,
                 days_until_expiry INTEGER,
                 original_price_cents INTEGER,
@@ -719,8 +726,10 @@ async function ensureSchema() {
                 manually_overridden BOOLEAN DEFAULT FALSE,
                 manual_override_at TIMESTAMPTZ,
                 manual_override_note TEXT,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
                 created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (variation_id, merchant_id)
             )
         `);
         await query('CREATE INDEX IF NOT EXISTS idx_variation_discount_tier ON variation_discount_status(current_tier_id)');
@@ -728,6 +737,7 @@ async function ensureSchema() {
         await query('CREATE INDEX IF NOT EXISTS idx_variation_discount_days ON variation_discount_status(days_until_expiry)');
         await query('CREATE INDEX IF NOT EXISTS idx_variation_discount_manual_review ON variation_discount_status(needs_manual_review) WHERE needs_manual_review = TRUE');
         await query('CREATE INDEX IF NOT EXISTS idx_variation_discount_overridden ON variation_discount_status(manually_overridden) WHERE manually_overridden = TRUE');
+        await query('CREATE INDEX IF NOT EXISTS idx_variation_discount_status_merchant ON variation_discount_status(merchant_id)');
 
         // 3. Expiry Discount Audit Log - tracks all changes for accountability
         await query(`
@@ -863,6 +873,10 @@ async function ensureSchema() {
                 sync_results JSONB,
                 received_at TIMESTAMPTZ DEFAULT NOW(),
                 processing_time_ms INTEGER,
+                retry_count INTEGER DEFAULT 0,
+                max_retries INTEGER DEFAULT 5,
+                next_retry_at TIMESTAMPTZ,
+                last_retry_at TIMESTAMPTZ,
                 CONSTRAINT valid_webhook_status CHECK (status IN ('received', 'processing', 'completed', 'failed', 'skipped'))
             )
         `);
@@ -870,6 +884,7 @@ async function ensureSchema() {
         await query('CREATE INDEX IF NOT EXISTS idx_webhook_events_status ON webhook_events(status)');
         await query('CREATE INDEX IF NOT EXISTS idx_webhook_events_received ON webhook_events(received_at DESC)');
         await query('CREATE INDEX IF NOT EXISTS idx_webhook_events_square_id ON webhook_events(square_event_id)');
+        await query(`CREATE INDEX IF NOT EXISTS idx_webhook_events_retry ON webhook_events(status, next_retry_at) WHERE status = 'failed'`);
 
         logger.info('Created webhook_events table with indexes');
         appliedCount++;
@@ -1832,17 +1847,26 @@ async function ensureSchema() {
                     required_quantity INTEGER NOT NULL CHECK (required_quantity > 0),
                     reward_quantity INTEGER NOT NULL DEFAULT 1 CHECK (reward_quantity = 1),
                     window_months INTEGER NOT NULL DEFAULT 12 CHECK (window_months > 0),
+                    reward_type VARCHAR(50) NOT NULL DEFAULT 'free_item'
+                        CHECK (reward_type IN ('free_item', 'percent_off', 'fixed_amount')),
+                    reward_value INTEGER NOT NULL DEFAULT 1,
+                    reward_description TEXT,
+                    square_reward_tier_id TEXT,
+                    vendor_id TEXT REFERENCES vendors(id) ON DELETE SET NULL,
+                    vendor_name TEXT,
+                    vendor_email TEXT,
                     is_active BOOLEAN NOT NULL DEFAULT TRUE,
                     description TEXT,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    created_by INTEGER REFERENCES users(id),
+                    created_by INTEGER REFERENCES users(id) ON DELETE CASCADE,
                     CONSTRAINT loyalty_offers_unique_brand_size UNIQUE(merchant_id, brand_name, size_group)
                 )
             `);
             await query('CREATE INDEX idx_loyalty_offers_merchant ON loyalty_offers(merchant_id)');
             await query('CREATE INDEX idx_loyalty_offers_brand ON loyalty_offers(merchant_id, brand_name)');
             await query('CREATE INDEX idx_loyalty_offers_active ON loyalty_offers(merchant_id, is_active) WHERE is_active = TRUE');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_offers_vendor ON loyalty_offers(vendor_id) WHERE vendor_id IS NOT NULL');
 
             // 2. loyalty_qualifying_variations - Maps Square variations to offers
             await query(`
@@ -1879,13 +1903,18 @@ async function ensureSchema() {
                     variation_id TEXT NOT NULL,
                     quantity INTEGER NOT NULL CHECK (quantity != 0),
                     unit_price_cents INTEGER,
+                    total_price_cents INTEGER,
                     purchased_at TIMESTAMPTZ NOT NULL,
                     window_start_date DATE,
                     window_end_date DATE,
                     reward_id UUID,
+                    customer_source VARCHAR(20) DEFAULT 'order',
+                    receipt_url TEXT,
+                    payment_type TEXT,
                     is_refund BOOLEAN NOT NULL DEFAULT FALSE,
                     original_event_id UUID REFERENCES loyalty_purchase_events(id),
                     idempotency_key TEXT NOT NULL,
+                    trace_id UUID,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     CONSTRAINT loyalty_purchase_events_idempotent UNIQUE(merchant_id, idempotency_key)
@@ -1896,6 +1925,11 @@ async function ensureSchema() {
             await query('CREATE INDEX idx_loyalty_purchase_events_customer ON loyalty_purchase_events(merchant_id, square_customer_id)');
             await query('CREATE INDEX idx_loyalty_purchase_events_customer_offer ON loyalty_purchase_events(merchant_id, square_customer_id, offer_id)');
             await query('CREATE INDEX idx_loyalty_purchase_events_order ON loyalty_purchase_events(merchant_id, square_order_id)');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_window ON loyalty_purchase_events(merchant_id, offer_id, square_customer_id, window_end_date)');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_unlocked ON loyalty_purchase_events(merchant_id, offer_id, square_customer_id, reward_id) WHERE reward_id IS NULL');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_active_unlocked ON loyalty_purchase_events (merchant_id, offer_id, square_customer_id, window_end_date) WHERE reward_id IS NULL');
+            await query('CREATE INDEX IF NOT EXISTS idx_lpe_reward_progress ON loyalty_purchase_events (merchant_id, offer_id, square_customer_id, window_end_date) WHERE reward_id IS NULL');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_trace_id ON loyalty_purchase_events(trace_id) WHERE trace_id IS NOT NULL');
 
             // 4. loyalty_rewards - Tracks reward state machine
             await query(`
@@ -1915,6 +1949,21 @@ async function ensureSchema() {
                     redemption_id UUID,
                     redemption_order_id TEXT,
                     revocation_reason TEXT,
+                    vendor_credit_status VARCHAR(20) DEFAULT NULL CHECK (
+                        vendor_credit_status IS NULL OR vendor_credit_status IN ('SUBMITTED', 'CREDITED', 'DENIED')
+                    ),
+                    vendor_credit_submitted_at TIMESTAMPTZ,
+                    vendor_credit_resolved_at TIMESTAMPTZ,
+                    vendor_credit_notes TEXT,
+                    square_reward_id TEXT,
+                    square_group_id TEXT,
+                    square_discount_id TEXT,
+                    square_product_set_id TEXT,
+                    square_pricing_rule_id TEXT,
+                    square_pos_synced_at TIMESTAMPTZ,
+                    discount_amount_cents INTEGER DEFAULT NULL,
+                    square_sync_pending BOOLEAN NOT NULL DEFAULT FALSE,
+                    trace_id UUID,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
@@ -1922,8 +1971,17 @@ async function ensureSchema() {
             await query('CREATE INDEX idx_loyalty_rewards_merchant ON loyalty_rewards(merchant_id)');
             await query('CREATE INDEX idx_loyalty_rewards_offer ON loyalty_rewards(offer_id)');
             await query('CREATE INDEX idx_loyalty_rewards_customer ON loyalty_rewards(merchant_id, square_customer_id)');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_customer_offer ON loyalty_rewards(merchant_id, square_customer_id, offer_id)');
             await query('CREATE INDEX idx_loyalty_rewards_status ON loyalty_rewards(merchant_id, status)');
             await query('CREATE INDEX idx_loyalty_rewards_earned ON loyalty_rewards(merchant_id, square_customer_id, status) WHERE status = \'earned\'');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_in_progress ON loyalty_rewards(merchant_id, square_customer_id, status) WHERE status = \'in_progress\'');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_vendor_credit_status ON loyalty_rewards(merchant_id, vendor_credit_status) WHERE vendor_credit_status IS NOT NULL');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_sync_pending ON loyalty_rewards(merchant_id, status) WHERE square_sync_pending = TRUE AND status = \'earned\'');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_square ON loyalty_rewards(square_reward_id) WHERE square_reward_id IS NOT NULL');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_square_discount ON loyalty_rewards(square_discount_id) WHERE square_discount_id IS NOT NULL');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_square_group ON loyalty_rewards(square_group_id) WHERE square_group_id IS NOT NULL');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_trace_id ON loyalty_rewards(trace_id) WHERE trace_id IS NOT NULL');
+            await query('CREATE UNIQUE INDEX IF NOT EXISTS loyalty_rewards_one_in_progress_idx ON loyalty_rewards (merchant_id, offer_id, square_customer_id) WHERE status = \'in_progress\'');
 
             // 5. loyalty_redemptions - Records redemption details
             await query(`
@@ -1941,7 +1999,7 @@ async function ensureSchema() {
                     redeemed_variation_name TEXT,
                     redeemed_value_cents INTEGER,
                     square_discount_id TEXT,
-                    redeemed_by_user_id INTEGER REFERENCES users(id),
+                    redeemed_by_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
                     admin_notes TEXT,
                     redeemed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -1950,6 +2008,7 @@ async function ensureSchema() {
             await query('CREATE INDEX idx_loyalty_redemptions_merchant ON loyalty_redemptions(merchant_id)');
             await query('CREATE INDEX idx_loyalty_redemptions_reward ON loyalty_redemptions(reward_id)');
             await query('CREATE INDEX idx_loyalty_redemptions_customer ON loyalty_redemptions(merchant_id, square_customer_id)');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_redemptions_order ON loyalty_redemptions(merchant_id, square_order_id)');
             await query('CREATE INDEX idx_loyalty_redemptions_date ON loyalty_redemptions(merchant_id, redeemed_at)');
 
             // 6. loyalty_audit_logs - Complete audit trail
@@ -1969,15 +2028,19 @@ async function ensureSchema() {
                     old_quantity INTEGER,
                     new_quantity INTEGER,
                     triggered_by VARCHAR(50) NOT NULL DEFAULT 'SYSTEM',
-                    user_id INTEGER REFERENCES users(id),
+                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
                     details JSONB,
+                    trace_id UUID,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             `);
             await query('CREATE INDEX idx_loyalty_audit_merchant ON loyalty_audit_logs(merchant_id)');
             await query('CREATE INDEX idx_loyalty_audit_customer ON loyalty_audit_logs(merchant_id, square_customer_id)');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_audit_offer ON loyalty_audit_logs(offer_id)');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_audit_reward ON loyalty_audit_logs(reward_id)');
             await query('CREATE INDEX idx_loyalty_audit_action ON loyalty_audit_logs(merchant_id, action)');
             await query('CREATE INDEX idx_loyalty_audit_created ON loyalty_audit_logs(merchant_id, created_at DESC)');
+            await query('CREATE INDEX IF NOT EXISTS idx_loyalty_audit_logs_trace_id ON loyalty_audit_logs(trace_id) WHERE trace_id IS NOT NULL');
 
             // 7. loyalty_settings - Per-merchant configuration
             await query(`
