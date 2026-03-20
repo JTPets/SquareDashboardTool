@@ -76,7 +76,7 @@ describe('DB-7: TIMESTAMP to TIMESTAMPTZ consistency', () => {
 
     test('migration 073 exists and is wrapped in BEGIN/COMMIT', () => {
         const migrationPath = path.join(
-            __dirname, '..', '..', 'database', 'migrations',
+            __dirname, '..', '..', 'database', 'migrations', 'archive',
             '073_timestamp_to_timestamptz.sql'
         );
         const migration = fs.readFileSync(migrationPath, 'utf8');
@@ -88,7 +88,7 @@ describe('DB-7: TIMESTAMP to TIMESTAMPTZ consistency', () => {
 
     test('migration 073 covers all 31 affected tables', () => {
         const migrationPath = path.join(
-            __dirname, '..', '..', 'database', 'migrations',
+            __dirname, '..', '..', 'database', 'migrations', 'archive',
             '073_timestamp_to_timestamptz.sql'
         );
         const migration = fs.readFileSync(migrationPath, 'utf8');

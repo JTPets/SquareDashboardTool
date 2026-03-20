@@ -2,11 +2,32 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
-**Last Validated**: 2026-03-19
+**Last Validated**: 2026-03-20
 **Total Open Items**: ~51
 
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
+
+### Purge Log — 2026-03-20 Validation (T-5)
+
+**T-5 FIXED** — Migration runner + schema integrity + install verification:
+
+- **Part 0** — schema-manager.js drift fixes:
+  - `merchants` table: timezone `America/New_York` → `America/Toronto`, currency `USD` → `CAD`, added `locale`, `custom_attributes_initialized_at`, `admin_email` columns, CHECK constraint now includes `platform_owner`
+  - `oauth_states`: `merchant_id` now `NOT NULL`, `user_id` has `ON DELETE CASCADE`, added merchant index
+  - `variation_expiration`: added `merchant_id NOT NULL`, composite `PRIMARY KEY (variation_id, merchant_id)`, merchant index
+  - `variation_discount_status`: added `merchant_id NOT NULL`, composite PK, merchant index
+  - `expiry_discount_tiers`: `merchant_id` now `NOT NULL`
+  - `webhook_events` CREATE TABLE: retry columns now included for fresh installs
+  - `subscribers` CREATE TABLE: `merchant_id NOT NULL`, `promo_code_id`, `discount_applied_cents`, `user_id` now in initial CREATE
+  - Added 35+ missing table CREATE blocks: `sync_history`, `locations`, `vendors`, `categories`, `images`, `items`, `variations`, `variation_vendors`, `inventory_counts`, `committed_inventory`, `sales_velocity`, `variation_location_settings`, `purchase_orders`, `purchase_order_items`, `count_history/priority/daily/sessions`, all delivery tables, `bundle_definitions/components`, `loyalty_customers`, `loyalty_processed_orders`, `loyalty_audit_log`, seniors tables, `cart_activity`, `label_templates`, `catalog_location_health`, `platform_settings`
+  - Loyalty table column drift fixed: `loyalty_offers` (vendor fields, reward_type), `loyalty_purchase_events` (trace_id, customer_source, indexes), `loyalty_rewards` (vendor_credit fields, square integration fields, sync_pending, 9 indexes + partial unique), `loyalty_audit_logs` (trace_id, cascade FKs), `loyalty_redemptions` (cascade FK)
+- **Part 1** — migrations 003–075 archived to `database/migrations/archive/` with README
+- **Part 2** — `scripts/migrate.js` migration runner created (fresh install detection, sequential execution, failure stops)
+- **Part 3** — `__tests__/database/schema-integrity.test.js` created (table coverage, column coverage, CHECK constraints, migration conventions)
+- **Part 4** — `scripts/deploy.sh` updated with `node scripts/migrate.js` step
+- **Part 0B** — `scripts/validate-schema.js` created (read-only DB comparison report); `__tests__/scripts/validate-schema.test.js` and `__tests__/scripts/migrate.test.js` added
+- **package.json**: added `"migrate": "node scripts/migrate.js"` script
 
 ### Purge Log — 2026-03-17/19 Validation
 

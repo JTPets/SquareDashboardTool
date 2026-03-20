@@ -105,6 +105,923 @@ async function ensureSchema() {
         appliedCount++;
     }
 
+    // ==================== CORE APPLICATION TABLES ====================
+    // These tables are the foundation of the application — sync_history, locations, vendors,
+    // categories, images, items, variations, variation_vendors, inventory_counts, etc.
+    // Created here for fresh installs; existing installs already have them from initial migrations.
+
+    const coreTableChecks = [
+        {
+            name: 'sync_history',
+            sql: `CREATE TABLE IF NOT EXISTS sync_history (
+                id SERIAL PRIMARY KEY,
+                sync_type TEXT NOT NULL,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                started_at TIMESTAMPTZ DEFAULT NOW(),
+                completed_at TIMESTAMPTZ,
+                synced_at TIMESTAMPTZ DEFAULT NOW(),
+                status TEXT DEFAULT 'running',
+                records_synced INTEGER DEFAULT 0,
+                error_message TEXT,
+                duration_seconds INTEGER,
+                last_delta_timestamp TEXT,
+                last_catalog_version TEXT,
+                UNIQUE(sync_type, merchant_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_sync_history_type_completed ON sync_history(sync_type, completed_at DESC)',
+                'CREATE INDEX IF NOT EXISTS idx_sync_history_merchant ON sync_history(merchant_id)'
+            ]
+        },
+        {
+            name: 'locations',
+            sql: `CREATE TABLE IF NOT EXISTS locations (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                square_location_id TEXT UNIQUE,
+                active BOOLEAN DEFAULT TRUE,
+                address TEXT,
+                timezone TEXT,
+                phone_number TEXT,
+                business_email TEXT,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_locations_merchant ON locations(merchant_id)'
+            ]
+        },
+        {
+            name: 'vendors',
+            sql: `CREATE TABLE IF NOT EXISTS vendors (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                status TEXT,
+                contact_name TEXT,
+                contact_email TEXT,
+                contact_phone TEXT,
+                lead_time_days INTEGER DEFAULT 7,
+                default_supply_days INTEGER DEFAULT 45,
+                minimum_order_amount DECIMAL(10,2),
+                payment_terms TEXT,
+                notes TEXT,
+                schedule_type VARCHAR(10) DEFAULT 'anytime' CHECK (schedule_type IN ('fixed', 'anytime')),
+                order_day VARCHAR(10),
+                receive_day VARCHAR(10),
+                payment_method VARCHAR(20),
+                order_method VARCHAR(50),
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_vendors_merchant ON vendors(merchant_id)',
+                'CREATE INDEX IF NOT EXISTS idx_vendors_merchant_name ON vendors(merchant_id, name)'
+            ]
+        },
+        {
+            name: 'categories',
+            sql: `CREATE TABLE IF NOT EXISTS categories (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_categories_merchant ON categories(merchant_id)',
+                'CREATE INDEX IF NOT EXISTS idx_categories_merchant_name ON categories(merchant_id, name)'
+            ]
+        },
+        {
+            name: 'images',
+            sql: `CREATE TABLE IF NOT EXISTS images (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                url TEXT,
+                caption TEXT,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_images_merchant ON images(merchant_id)'
+            ]
+        },
+        {
+            name: 'items',
+            sql: `CREATE TABLE IF NOT EXISTS items (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                category_id TEXT,
+                category_name TEXT,
+                product_type TEXT,
+                taxable BOOLEAN DEFAULT FALSE,
+                tax_ids JSONB,
+                visibility TEXT,
+                present_at_all_locations BOOLEAN DEFAULT TRUE,
+                present_at_location_ids JSONB,
+                absent_at_location_ids JSONB,
+                modifier_list_info JSONB,
+                item_options JSONB,
+                images JSONB,
+                available_online BOOLEAN DEFAULT FALSE,
+                available_for_pickup BOOLEAN DEFAULT FALSE,
+                seo_title TEXT,
+                seo_description TEXT,
+                is_deleted BOOLEAN DEFAULT FALSE,
+                deleted_at TIMESTAMPTZ,
+                is_archived BOOLEAN DEFAULT FALSE,
+                archived_at TIMESTAMPTZ,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_items_merchant ON items(merchant_id)',
+                'CREATE INDEX IF NOT EXISTS idx_items_category ON items(category_id)',
+                'CREATE INDEX IF NOT EXISTS idx_items_merchant_deleted ON items(merchant_id, is_deleted)'
+            ]
+        },
+        {
+            name: 'variations',
+            sql: `CREATE TABLE IF NOT EXISTS variations (
+                id TEXT PRIMARY KEY,
+                item_id TEXT NOT NULL,
+                name TEXT,
+                sku TEXT,
+                upc TEXT,
+                price_money INTEGER,
+                currency TEXT DEFAULT 'CAD',
+                pricing_type TEXT,
+                track_inventory BOOLEAN DEFAULT TRUE,
+                inventory_alert_type TEXT,
+                inventory_alert_threshold INTEGER,
+                present_at_all_locations BOOLEAN DEFAULT TRUE,
+                present_at_location_ids JSONB,
+                absent_at_location_ids JSONB,
+                item_option_values JSONB,
+                custom_attributes JSONB,
+                images JSONB,
+                case_pack_quantity INTEGER,
+                stock_alert_min INTEGER,
+                stock_alert_max INTEGER,
+                preferred_stock_level INTEGER,
+                shelf_location TEXT,
+                bin_location TEXT,
+                reorder_multiple INTEGER,
+                discontinued BOOLEAN DEFAULT FALSE,
+                discontinue_date DATE,
+                replacement_variation_id TEXT,
+                supplier_item_number TEXT,
+                last_cost_cents INTEGER,
+                last_cost_date DATE,
+                notes TEXT,
+                is_deleted BOOLEAN DEFAULT FALSE,
+                deleted_at TIMESTAMPTZ,
+                is_archived BOOLEAN DEFAULT FALSE,
+                archived_at TIMESTAMPTZ,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
+                FOREIGN KEY (replacement_variation_id) REFERENCES variations(id) ON DELETE SET NULL
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_variations_merchant ON variations(merchant_id)',
+                'CREATE INDEX IF NOT EXISTS idx_variations_sku ON variations(sku)',
+                'CREATE INDEX IF NOT EXISTS idx_variations_item_id ON variations(item_id)',
+                'CREATE INDEX IF NOT EXISTS idx_variations_discontinued ON variations(discontinued)',
+                'CREATE INDEX IF NOT EXISTS idx_variations_merchant_item ON variations(merchant_id, item_id)',
+                'CREATE INDEX IF NOT EXISTS idx_items_not_deleted ON items(is_deleted) WHERE is_deleted = FALSE',
+                'CREATE INDEX IF NOT EXISTS idx_variations_not_deleted ON variations(is_deleted) WHERE is_deleted = FALSE'
+            ]
+        },
+        {
+            name: 'variation_vendors',
+            sql: `CREATE TABLE IF NOT EXISTS variation_vendors (
+                id SERIAL PRIMARY KEY,
+                variation_id TEXT NOT NULL,
+                vendor_id TEXT NOT NULL,
+                vendor_code TEXT,
+                unit_cost_money INTEGER,
+                currency TEXT DEFAULT 'CAD',
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                FOREIGN KEY (variation_id) REFERENCES variations(id) ON DELETE CASCADE,
+                FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
+                UNIQUE(variation_id, vendor_id, merchant_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_variation_vendors_merchant ON variation_vendors(merchant_id)',
+                'CREATE INDEX IF NOT EXISTS idx_variation_vendors_variation ON variation_vendors(variation_id)',
+                'CREATE INDEX IF NOT EXISTS idx_variation_vendors_vendor ON variation_vendors(vendor_id)'
+            ]
+        },
+        {
+            name: 'inventory_counts',
+            sql: `CREATE TABLE IF NOT EXISTS inventory_counts (
+                id SERIAL PRIMARY KEY,
+                catalog_object_id TEXT NOT NULL,
+                location_id TEXT NOT NULL,
+                state TEXT NOT NULL,
+                quantity INTEGER DEFAULT 0,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                FOREIGN KEY (catalog_object_id) REFERENCES variations(id) ON DELETE CASCADE,
+                FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE,
+                UNIQUE(catalog_object_id, location_id, state, merchant_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_inventory_counts_merchant ON inventory_counts(merchant_id)',
+                'CREATE INDEX IF NOT EXISTS idx_inventory_variation_location ON inventory_counts(catalog_object_id, location_id)',
+                'CREATE INDEX IF NOT EXISTS idx_inventory_location ON inventory_counts(location_id)',
+                'CREATE INDEX IF NOT EXISTS idx_inventory_merchant_location ON inventory_counts(merchant_id, location_id)',
+                'CREATE INDEX IF NOT EXISTS idx_inventory_counts_merchant_location_state ON inventory_counts(merchant_id, location_id, state)'
+            ]
+        },
+        {
+            name: 'committed_inventory',
+            sql: `CREATE TABLE IF NOT EXISTS committed_inventory (
+                id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                square_invoice_id TEXT NOT NULL,
+                square_order_id TEXT,
+                catalog_object_id TEXT NOT NULL,
+                location_id TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                invoice_status TEXT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(merchant_id, square_invoice_id, catalog_object_id, location_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_committed_inv_merchant ON committed_inventory(merchant_id)',
+                'CREATE INDEX IF NOT EXISTS idx_committed_inv_status ON committed_inventory(merchant_id, invoice_status)',
+                'CREATE INDEX IF NOT EXISTS idx_committed_inv_variation ON committed_inventory(merchant_id, catalog_object_id)'
+            ]
+        },
+        {
+            name: 'sales_velocity',
+            sql: `CREATE TABLE IF NOT EXISTS sales_velocity (
+                id SERIAL PRIMARY KEY,
+                variation_id TEXT NOT NULL,
+                location_id TEXT NOT NULL,
+                period_days INTEGER NOT NULL,
+                total_quantity_sold DECIMAL(10,2) DEFAULT 0,
+                total_revenue_cents INTEGER DEFAULT 0,
+                period_start_date TIMESTAMPTZ NOT NULL,
+                period_end_date TIMESTAMPTZ NOT NULL,
+                daily_avg_quantity DECIMAL(10,4) DEFAULT 0,
+                daily_avg_revenue_cents DECIMAL(10,2) DEFAULT 0,
+                weekly_avg_quantity DECIMAL(10,4) DEFAULT 0,
+                monthly_avg_quantity DECIMAL(10,4) DEFAULT 0,
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                FOREIGN KEY (variation_id) REFERENCES variations(id) ON DELETE CASCADE,
+                FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE,
+                UNIQUE(variation_id, location_id, period_days, merchant_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_sales_velocity_merchant ON sales_velocity(merchant_id)',
+                'CREATE INDEX IF NOT EXISTS idx_sales_velocity_variation_period ON sales_velocity(variation_id, period_days)',
+                'CREATE INDEX IF NOT EXISTS idx_sales_velocity_location ON sales_velocity(location_id)',
+                'CREATE INDEX IF NOT EXISTS idx_sales_velocity_merchant_location ON sales_velocity(merchant_id, location_id)'
+            ]
+        },
+        {
+            name: 'variation_location_settings',
+            sql: `CREATE TABLE IF NOT EXISTS variation_location_settings (
+                id SERIAL PRIMARY KEY,
+                variation_id TEXT NOT NULL,
+                location_id TEXT NOT NULL,
+                stock_alert_min INTEGER,
+                stock_alert_max INTEGER,
+                preferred_stock_level INTEGER,
+                shelf_location TEXT,
+                active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                FOREIGN KEY (variation_id) REFERENCES variations(id) ON DELETE CASCADE,
+                FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE,
+                UNIQUE(variation_id, location_id, merchant_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_variation_location_settings_merchant ON variation_location_settings(merchant_id)'
+            ]
+        },
+        {
+            name: 'purchase_orders',
+            sql: `CREATE TABLE IF NOT EXISTS purchase_orders (
+                id SERIAL PRIMARY KEY,
+                po_number TEXT UNIQUE NOT NULL,
+                vendor_id TEXT NOT NULL,
+                location_id TEXT NOT NULL,
+                status TEXT DEFAULT 'DRAFT',
+                supply_days_override INTEGER,
+                order_date DATE DEFAULT CURRENT_DATE,
+                expected_delivery_date DATE,
+                actual_delivery_date DATE,
+                subtotal_cents INTEGER DEFAULT 0,
+                tax_cents INTEGER DEFAULT 0,
+                shipping_cents INTEGER DEFAULT 0,
+                total_cents INTEGER DEFAULT 0,
+                notes TEXT,
+                created_by TEXT,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE RESTRICT,
+                FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE RESTRICT
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_purchase_orders_merchant ON purchase_orders(merchant_id)',
+                'CREATE INDEX IF NOT EXISTS idx_purchase_orders_status ON purchase_orders(status)',
+                'CREATE INDEX IF NOT EXISTS idx_purchase_orders_vendor ON purchase_orders(vendor_id)',
+                'CREATE INDEX IF NOT EXISTS idx_purchase_orders_location ON purchase_orders(location_id)',
+                'CREATE INDEX IF NOT EXISTS idx_purchase_orders_date ON purchase_orders(order_date)',
+                'CREATE INDEX IF NOT EXISTS idx_purchase_orders_merchant_status ON purchase_orders(merchant_id, status)'
+            ]
+        },
+        {
+            name: 'purchase_order_items',
+            sql: `CREATE TABLE IF NOT EXISTS purchase_order_items (
+                id SERIAL PRIMARY KEY,
+                purchase_order_id INTEGER NOT NULL,
+                variation_id TEXT NOT NULL,
+                quantity_override DECIMAL(10,2),
+                quantity_ordered DECIMAL(10,2) NOT NULL,
+                unit_cost_cents INTEGER NOT NULL,
+                total_cost_cents INTEGER NOT NULL,
+                received_quantity DECIMAL(10,2) DEFAULT 0,
+                notes TEXT,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE,
+                FOREIGN KEY (variation_id) REFERENCES variations(id) ON DELETE RESTRICT
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_purchase_order_items_merchant ON purchase_order_items(merchant_id)',
+                'CREATE INDEX IF NOT EXISTS idx_purchase_order_items_po ON purchase_order_items(purchase_order_id)',
+                'CREATE INDEX IF NOT EXISTS idx_purchase_order_items_variation ON purchase_order_items(variation_id)'
+            ]
+        },
+        {
+            name: 'count_history',
+            sql: `CREATE TABLE IF NOT EXISTS count_history (
+                id SERIAL PRIMARY KEY,
+                catalog_object_id TEXT NOT NULL,
+                last_counted_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                counted_by TEXT,
+                is_accurate BOOLEAN DEFAULT NULL,
+                actual_quantity INTEGER DEFAULT NULL,
+                expected_quantity INTEGER DEFAULT NULL,
+                variance INTEGER DEFAULT NULL,
+                notes TEXT DEFAULT NULL,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                FOREIGN KEY (catalog_object_id) REFERENCES variations(id) ON DELETE CASCADE,
+                UNIQUE(catalog_object_id, merchant_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_count_history_merchant ON count_history(merchant_id)',
+                'CREATE INDEX IF NOT EXISTS idx_count_history_catalog_id ON count_history(catalog_object_id)',
+                'CREATE INDEX IF NOT EXISTS idx_count_history_last_counted ON count_history(last_counted_date DESC)',
+                'CREATE INDEX IF NOT EXISTS idx_count_history_accuracy ON count_history(is_accurate) WHERE is_accurate = FALSE'
+            ]
+        },
+        {
+            name: 'count_queue_priority',
+            sql: `CREATE TABLE IF NOT EXISTS count_queue_priority (
+                id SERIAL PRIMARY KEY,
+                catalog_object_id TEXT NOT NULL,
+                added_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                added_by TEXT,
+                notes TEXT,
+                completed BOOLEAN DEFAULT FALSE,
+                completed_date TIMESTAMPTZ,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                FOREIGN KEY (catalog_object_id) REFERENCES variations(id) ON DELETE CASCADE
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_count_queue_priority_merchant ON count_queue_priority(merchant_id)',
+                'CREATE INDEX IF NOT EXISTS idx_count_queue_catalog_id ON count_queue_priority(catalog_object_id)',
+                'CREATE INDEX IF NOT EXISTS idx_count_queue_completed ON count_queue_priority(completed) WHERE completed = FALSE'
+            ]
+        },
+        {
+            name: 'count_queue_daily',
+            sql: `CREATE TABLE IF NOT EXISTS count_queue_daily (
+                id SERIAL PRIMARY KEY,
+                catalog_object_id TEXT NOT NULL,
+                batch_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                added_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                completed BOOLEAN DEFAULT FALSE,
+                completed_date TIMESTAMPTZ,
+                notes TEXT,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                FOREIGN KEY (catalog_object_id) REFERENCES variations(id) ON DELETE CASCADE,
+                UNIQUE(catalog_object_id, batch_date, merchant_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_count_queue_daily_merchant ON count_queue_daily(merchant_id)',
+                'CREATE INDEX IF NOT EXISTS idx_count_queue_daily_catalog_id ON count_queue_daily(catalog_object_id)',
+                'CREATE INDEX IF NOT EXISTS idx_count_queue_daily_batch_date ON count_queue_daily(batch_date DESC)',
+                'CREATE INDEX IF NOT EXISTS idx_count_queue_daily_completed ON count_queue_daily(completed) WHERE completed = FALSE'
+            ]
+        },
+        {
+            name: 'count_sessions',
+            sql: `CREATE TABLE IF NOT EXISTS count_sessions (
+                id SERIAL PRIMARY KEY,
+                session_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                items_expected INTEGER NOT NULL DEFAULT 0,
+                items_completed INTEGER NOT NULL DEFAULT 0,
+                completion_rate DECIMAL(5,2),
+                started_at TIMESTAMPTZ DEFAULT NOW(),
+                completed_at TIMESTAMPTZ,
+                notes TEXT,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                UNIQUE(session_date, merchant_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_count_sessions_merchant ON count_sessions(merchant_id)',
+                'CREATE INDEX IF NOT EXISTS idx_count_sessions_date ON count_sessions(session_date DESC)'
+            ]
+        },
+        {
+            name: 'delivery_orders',
+            sql: `CREATE TABLE IF NOT EXISTS delivery_orders (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                square_order_id VARCHAR(255),
+                square_customer_id VARCHAR(255),
+                customer_name VARCHAR(255) NOT NULL,
+                address TEXT NOT NULL,
+                address_lat DECIMAL(10, 8),
+                address_lng DECIMAL(11, 8),
+                geocoded_at TIMESTAMPTZ,
+                phone VARCHAR(50),
+                customer_note TEXT,
+                notes TEXT,
+                square_order_data JSONB,
+                status VARCHAR(50) DEFAULT 'pending' CHECK (
+                    status IN ('pending', 'active', 'skipped', 'delivered', 'completed')
+                ),
+                route_id UUID,
+                route_position INTEGER,
+                route_date DATE,
+                square_synced_at TIMESTAMPTZ,
+                square_order_state VARCHAR(50),
+                needs_customer_refresh BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_delivery_orders_merchant_status ON delivery_orders(merchant_id, status)',
+                'CREATE INDEX IF NOT EXISTS idx_delivery_orders_route_date ON delivery_orders(merchant_id, route_date)',
+                'CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_orders_square_order ON delivery_orders(square_order_id, merchant_id) WHERE square_order_id IS NOT NULL',
+                'CREATE INDEX IF NOT EXISTS idx_delivery_orders_needs_geocoding ON delivery_orders(merchant_id, geocoded_at) WHERE geocoded_at IS NULL',
+                'CREATE INDEX IF NOT EXISTS idx_delivery_orders_needs_refresh ON delivery_orders(merchant_id, needs_customer_refresh) WHERE needs_customer_refresh = TRUE',
+                'CREATE INDEX IF NOT EXISTS idx_delivery_orders_customer ON delivery_orders(merchant_id, square_customer_id) WHERE square_customer_id IS NOT NULL'
+            ]
+        },
+        {
+            name: 'delivery_pod',
+            sql: `CREATE TABLE IF NOT EXISTS delivery_pod (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                delivery_order_id UUID NOT NULL REFERENCES delivery_orders(id) ON DELETE CASCADE,
+                photo_path TEXT NOT NULL,
+                original_filename VARCHAR(255),
+                file_size_bytes INTEGER,
+                mime_type VARCHAR(100),
+                captured_at TIMESTAMPTZ DEFAULT NOW(),
+                latitude DECIMAL(10, 8),
+                longitude DECIMAL(11, 8),
+                expires_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_delivery_pod_order ON delivery_pod(delivery_order_id)',
+                'CREATE INDEX IF NOT EXISTS idx_delivery_pod_expires ON delivery_pod(expires_at) WHERE expires_at IS NOT NULL'
+            ]
+        },
+        {
+            name: 'delivery_settings',
+            sql: `CREATE TABLE IF NOT EXISTS delivery_settings (
+                id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                start_address TEXT,
+                start_address_lat DECIMAL(10, 8),
+                start_address_lng DECIMAL(11, 8),
+                end_address TEXT,
+                end_address_lat DECIMAL(10, 8),
+                end_address_lng DECIMAL(11, 8),
+                same_day_cutoff TIME DEFAULT '17:00',
+                pod_retention_days INTEGER DEFAULT 180,
+                auto_ingest_ready_orders BOOLEAN DEFAULT TRUE,
+                openrouteservice_api_key TEXT,
+                ors_api_key_encrypted TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                CONSTRAINT delivery_settings_merchant_unique UNIQUE(merchant_id)
+            )`,
+            indexes: []
+        },
+        {
+            name: 'delivery_routes',
+            sql: `CREATE TABLE IF NOT EXISTS delivery_routes (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                route_date DATE NOT NULL,
+                generated_at TIMESTAMPTZ DEFAULT NOW(),
+                generated_by INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                total_stops INTEGER NOT NULL DEFAULT 0,
+                total_distance_km DECIMAL(10, 2),
+                estimated_duration_min INTEGER,
+                started_at TIMESTAMPTZ,
+                finished_at TIMESTAMPTZ,
+                status VARCHAR(50) DEFAULT 'active' CHECK (
+                    status IN ('active', 'finished', 'cancelled')
+                ),
+                route_geometry TEXT,
+                waypoint_order TEXT[],
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_delivery_routes_merchant_date ON delivery_routes(merchant_id, route_date)',
+                'CREATE INDEX IF NOT EXISTS idx_delivery_routes_active ON delivery_routes(merchant_id, status) WHERE status = \'active\''
+            ]
+        },
+        {
+            name: 'delivery_audit_log',
+            sql: `CREATE TABLE IF NOT EXISTS delivery_audit_log (
+                id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                action VARCHAR(100) NOT NULL,
+                delivery_order_id UUID REFERENCES delivery_orders(id) ON DELETE SET NULL,
+                route_id UUID REFERENCES delivery_routes(id) ON DELETE SET NULL,
+                details JSONB,
+                ip_address INET,
+                user_agent TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_delivery_audit_merchant ON delivery_audit_log(merchant_id, created_at DESC)'
+            ]
+        },
+        {
+            name: 'delivery_route_tokens',
+            sql: `CREATE TABLE IF NOT EXISTS delivery_route_tokens (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                route_id UUID NOT NULL REFERENCES delivery_routes(id) ON DELETE CASCADE,
+                token VARCHAR(64) NOT NULL UNIQUE,
+                status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'used', 'expired', 'revoked')),
+                created_by INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                expires_at TIMESTAMPTZ,
+                used_at TIMESTAMPTZ,
+                finished_at TIMESTAMPTZ,
+                driver_name VARCHAR(255),
+                driver_notes TEXT
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_route_tokens_token ON delivery_route_tokens(token)',
+                'CREATE INDEX IF NOT EXISTS idx_route_tokens_route ON delivery_route_tokens(route_id)',
+                'CREATE INDEX IF NOT EXISTS idx_route_tokens_merchant ON delivery_route_tokens(merchant_id, status)',
+                'CREATE UNIQUE INDEX IF NOT EXISTS idx_route_tokens_active_route ON delivery_route_tokens(route_id) WHERE status = \'active\''
+            ]
+        },
+        {
+            name: 'bundle_definitions',
+            sql: `CREATE TABLE IF NOT EXISTS bundle_definitions (
+                id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                bundle_variation_id TEXT NOT NULL,
+                bundle_item_id TEXT,
+                bundle_item_name TEXT NOT NULL,
+                bundle_variation_name TEXT,
+                bundle_sku TEXT,
+                bundle_cost_cents INTEGER NOT NULL,
+                bundle_sell_price_cents INTEGER,
+                vendor_id TEXT REFERENCES vendors(id) ON DELETE SET NULL,
+                vendor_code TEXT,
+                is_active BOOLEAN DEFAULT true,
+                notes TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(merchant_id, bundle_variation_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_bundle_defs_merchant ON bundle_definitions(merchant_id)',
+                'CREATE INDEX IF NOT EXISTS idx_bundle_defs_vendor ON bundle_definitions(merchant_id, vendor_id)',
+                'CREATE INDEX IF NOT EXISTS idx_bundle_defs_variation ON bundle_definitions(bundle_variation_id)'
+            ]
+        },
+        {
+            name: 'bundle_components',
+            sql: `CREATE TABLE IF NOT EXISTS bundle_components (
+                id SERIAL PRIMARY KEY,
+                bundle_id INTEGER NOT NULL REFERENCES bundle_definitions(id) ON DELETE CASCADE,
+                child_variation_id TEXT NOT NULL,
+                child_item_id TEXT,
+                quantity_in_bundle INTEGER NOT NULL DEFAULT 1,
+                child_item_name TEXT,
+                child_variation_name TEXT,
+                child_sku TEXT,
+                individual_cost_cents INTEGER,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(bundle_id, child_variation_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_bundle_components_child ON bundle_components(child_variation_id)',
+                'CREATE INDEX IF NOT EXISTS idx_bundle_components_bundle ON bundle_components(bundle_id)'
+            ]
+        },
+        {
+            name: 'loyalty_customers',
+            sql: `CREATE TABLE IF NOT EXISTS loyalty_customers (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                square_customer_id TEXT NOT NULL,
+                given_name TEXT,
+                family_name TEXT,
+                display_name TEXT,
+                phone_number TEXT,
+                email_address TEXT,
+                company_name TEXT,
+                birthday DATE,
+                first_seen_at TIMESTAMPTZ DEFAULT NOW(),
+                last_updated_at TIMESTAMPTZ DEFAULT NOW(),
+                last_order_at TIMESTAMPTZ,
+                total_orders INTEGER DEFAULT 0,
+                total_rewards_earned INTEGER DEFAULT 0,
+                has_active_rewards BOOLEAN DEFAULT FALSE,
+                CONSTRAINT uq_loyalty_customers_merchant_square UNIQUE (merchant_id, square_customer_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_loyalty_customers_merchant ON loyalty_customers(merchant_id)',
+                'CREATE INDEX IF NOT EXISTS idx_loyalty_customers_square_id ON loyalty_customers(square_customer_id)',
+                'CREATE INDEX IF NOT EXISTS idx_loyalty_customers_phone ON loyalty_customers(merchant_id, phone_number) WHERE phone_number IS NOT NULL',
+                'CREATE INDEX IF NOT EXISTS idx_loyalty_customers_email ON loyalty_customers(merchant_id, email_address) WHERE email_address IS NOT NULL',
+                'CREATE INDEX IF NOT EXISTS idx_loyalty_customers_name ON loyalty_customers(merchant_id, display_name) WHERE display_name IS NOT NULL',
+                'CREATE INDEX IF NOT EXISTS idx_loyalty_customers_birthday ON loyalty_customers(merchant_id, birthday) WHERE birthday IS NOT NULL'
+            ]
+        },
+        {
+            name: 'loyalty_processed_orders',
+            sql: `CREATE TABLE IF NOT EXISTS loyalty_processed_orders (
+                id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                square_order_id TEXT NOT NULL,
+                square_customer_id TEXT,
+                processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                result_type TEXT NOT NULL DEFAULT 'non_qualifying',
+                qualifying_items INTEGER DEFAULT 0,
+                total_line_items INTEGER DEFAULT 0,
+                trace_id TEXT,
+                source TEXT DEFAULT 'WEBHOOK',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT loyalty_processed_orders_unique UNIQUE(merchant_id, square_order_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_loyalty_processed_orders_lookup ON loyalty_processed_orders(merchant_id, square_order_id)',
+                'CREATE INDEX IF NOT EXISTS idx_loyalty_processed_orders_result ON loyalty_processed_orders(merchant_id, result_type, processed_at)'
+            ]
+        },
+        {
+            name: 'loyalty_audit_log',
+            sql: `CREATE TABLE IF NOT EXISTS loyalty_audit_log (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                square_customer_id TEXT,
+                order_id TEXT,
+                reward_id TEXT,
+                issue_type VARCHAR(50) NOT NULL CHECK (issue_type IN (
+                    'MISSING_REDEMPTION',
+                    'PHANTOM_REWARD',
+                    'DOUBLE_REDEMPTION'
+                )),
+                details JSONB,
+                resolved BOOLEAN NOT NULL DEFAULT FALSE,
+                resolved_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_loyalty_audit_log_merchant_resolved ON loyalty_audit_log(merchant_id, resolved, created_at DESC)',
+                'CREATE INDEX IF NOT EXISTS idx_loyalty_audit_log_order ON loyalty_audit_log(merchant_id, order_id) WHERE order_id IS NOT NULL',
+                'CREATE INDEX IF NOT EXISTS idx_loyalty_audit_log_customer ON loyalty_audit_log(merchant_id, square_customer_id) WHERE square_customer_id IS NOT NULL'
+            ]
+        },
+        {
+            name: 'seniors_discount_config',
+            sql: `CREATE TABLE IF NOT EXISTS seniors_discount_config (
+                id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                square_group_id TEXT,
+                square_discount_id TEXT,
+                square_product_set_id TEXT,
+                square_pricing_rule_id TEXT,
+                discount_percent INTEGER NOT NULL DEFAULT 10,
+                min_age INTEGER NOT NULL DEFAULT 60,
+                is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                day_of_month INTEGER NOT NULL DEFAULT 1,
+                last_verified_state TEXT,
+                last_verified_at TIMESTAMPTZ,
+                last_enabled_at TIMESTAMPTZ,
+                last_disabled_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT seniors_discount_config_merchant_unique UNIQUE(merchant_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_seniors_config_merchant ON seniors_discount_config(merchant_id)'
+            ]
+        },
+        {
+            name: 'seniors_group_members',
+            sql: `CREATE TABLE IF NOT EXISTS seniors_group_members (
+                id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                square_customer_id TEXT NOT NULL,
+                birthday DATE NOT NULL,
+                age_at_last_check INTEGER NOT NULL,
+                added_to_group_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                removed_from_group_at TIMESTAMPTZ,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                CONSTRAINT seniors_group_members_unique UNIQUE(merchant_id, square_customer_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_seniors_members_merchant_active ON seniors_group_members(merchant_id, is_active) WHERE is_active = TRUE'
+            ]
+        },
+        {
+            name: 'seniors_discount_audit_log',
+            sql: `CREATE TABLE IF NOT EXISTS seniors_discount_audit_log (
+                id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                action TEXT NOT NULL,
+                square_customer_id TEXT,
+                details JSONB,
+                triggered_by TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_seniors_audit_merchant_date ON seniors_discount_audit_log(merchant_id, created_at DESC)'
+            ]
+        },
+        {
+            name: 'cart_activity',
+            sql: `CREATE TABLE IF NOT EXISTS cart_activity (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                square_order_id VARCHAR(255) NOT NULL,
+                square_customer_id VARCHAR(255),
+                customer_id_hash VARCHAR(64),
+                phone_last4 VARCHAR(4),
+                cart_total_cents INTEGER,
+                item_count INTEGER,
+                items_json JSONB,
+                source_name VARCHAR(100),
+                location_id VARCHAR(255),
+                fulfillment_type VARCHAR(50),
+                shipping_estimate_cents INTEGER,
+                status VARCHAR(20) DEFAULT 'pending' CHECK (
+                    status IN ('pending', 'converted', 'abandoned', 'canceled')
+                ),
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                converted_at TIMESTAMPTZ,
+                CONSTRAINT cart_activity_unique_order UNIQUE (merchant_id, square_order_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_cart_activity_merchant_status ON cart_activity(merchant_id, status)',
+                'CREATE INDEX IF NOT EXISTS idx_cart_activity_merchant_created ON cart_activity(merchant_id, created_at DESC)',
+                'CREATE INDEX IF NOT EXISTS idx_cart_activity_pending_old ON cart_activity(merchant_id, created_at) WHERE status = \'pending\''
+            ]
+        },
+        {
+            name: 'label_templates',
+            sql: `CREATE TABLE IF NOT EXISTS label_templates (
+                id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                name VARCHAR(100) NOT NULL,
+                description VARCHAR(255),
+                label_width_mm INTEGER NOT NULL,
+                label_height_mm INTEGER NOT NULL,
+                dpi INTEGER NOT NULL DEFAULT 203,
+                template_zpl TEXT NOT NULL,
+                fields JSONB NOT NULL DEFAULT '[]',
+                is_default BOOLEAN DEFAULT false,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_label_templates_merchant_id ON label_templates(merchant_id)',
+                'CREATE UNIQUE INDEX IF NOT EXISTS idx_label_templates_merchant_default ON label_templates(merchant_id) WHERE is_default = true'
+            ]
+        },
+        {
+            name: 'catalog_location_health',
+            sql: `CREATE TABLE IF NOT EXISTS catalog_location_health (
+                id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                variation_id TEXT NOT NULL,
+                item_id TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('valid', 'mismatch')),
+                mismatch_type TEXT,
+                check_type TEXT NOT NULL DEFAULT 'location_mismatch'
+                    CHECK (check_type IN (
+                        'location_mismatch',
+                        'orphaned_variation',
+                        'deleted_parent',
+                        'category_orphan',
+                        'image_orphan',
+                        'modifier_orphan',
+                        'pricing_rule_orphan'
+                    )),
+                object_type TEXT,
+                parent_id TEXT,
+                severity TEXT NOT NULL DEFAULT 'error' CHECK (severity IN ('error', 'warn')),
+                detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                resolved_at TIMESTAMPTZ,
+                notes TEXT
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_catalog_location_health_merchant_variation_status ON catalog_location_health (merchant_id, variation_id, status)',
+                'CREATE INDEX IF NOT EXISTS idx_catalog_health_merchant_check_status ON catalog_location_health (merchant_id, check_type, status)'
+            ]
+        },
+        {
+            name: 'platform_settings',
+            sql: `CREATE TABLE IF NOT EXISTS platform_settings (
+                key VARCHAR(255) PRIMARY KEY,
+                value TEXT NOT NULL,
+                merchant_id INTEGER REFERENCES merchants(id),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_platform_settings_merchant ON platform_settings(merchant_id) WHERE merchant_id IS NOT NULL'
+            ]
+        }
+    ];
+
+    for (const tableSpec of coreTableChecks) {
+        try {
+            const tableExists = await query(`
+                SELECT EXISTS (SELECT FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = $1)
+            `, [tableSpec.name]);
+
+            if (!tableExists.rows[0].exists) {
+                logger.info(`Creating ${tableSpec.name} table...`);
+                await query(tableSpec.sql);
+                for (const idx of tableSpec.indexes) {
+                    await query(idx);
+                }
+                logger.info(`Created ${tableSpec.name} table`);
+                appliedCount++;
+            }
+        } catch (err) {
+            logger.error(`Failed to create ${tableSpec.name} table`, { error: err.message });
+        }
+    }
+
+    // Add delivery_orders route_id FK after delivery_routes is created
+    try {
+        const fkExists = await query(`
+            SELECT 1 FROM pg_constraint WHERE conname = 'delivery_orders_route_id_fkey'
+        `);
+        if (fkExists.rows.length === 0) {
+            const doExists = await query(`SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'delivery_orders')`);
+            if (doExists.rows[0].exists) {
+                await query(`ALTER TABLE delivery_orders ADD CONSTRAINT delivery_orders_route_id_fkey
+                    FOREIGN KEY (route_id) REFERENCES delivery_routes(id) ON DELETE SET NULL`);
+            }
+        }
+    } catch (err) { /* FK may already exist */ }
+
+    // Add vendor_name_normalized function and unique index for vendors (fresh install)
+    try {
+        await query(`
+            CREATE OR REPLACE FUNCTION vendor_name_normalized(name TEXT)
+            RETURNS TEXT AS $$
+            BEGIN RETURN LOWER(TRIM(name)); END;
+            $$ LANGUAGE plpgsql IMMUTABLE
+        `);
+        await query(`
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_vendors_merchant_name_unique
+            ON vendors (merchant_id, vendor_name_normalized(name))
+            WHERE merchant_id IS NOT NULL
+        `);
+    } catch (err) { /* May already exist */ }
+
     // ==================== COLUMN MIGRATIONS ====================
 
     const migrations = [
