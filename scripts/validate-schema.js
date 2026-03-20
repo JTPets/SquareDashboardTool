@@ -241,6 +241,8 @@ function typeCompatible(schemaType, dbType) {
         'boolean': ['boolean'],
         'timestamp with time zone': ['timestamp with time zone', 'timestamptz'],
         'timestamp without time zone': ['timestamp without time zone', 'timestamp'],
+        'time with time zone': ['time with time zone', 'timetz'],
+        'time without time zone': ['time without time zone', 'time'],
         'jsonb': ['jsonb', 'json'],
         'decimal': ['decimal', 'numeric', 'real', 'double precision'],
         'uuid': ['uuid'],

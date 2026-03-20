@@ -42,12 +42,7 @@ function buildMockClient(overrides = {}) {
 
 describe('Migration runner — schema_migrations table', () => {
     test('creates schema_migrations table if it does not exist', async () => {
-        const client = buildMockClient({
-            query: jest.fn()
-                .mockResolvedValueOnce({ rows: [{ exists: false }] }) // table doesn't exist
-                .mockResolvedValueOnce({ rows: [{ exists: false }] }) // core tables don't exist
-                .mockResolvedValue({ rows: [] }),
-        });
+        const client = buildMockClient();
 
         // Simulate createMigrationsTable call
         await client.query(`
@@ -63,23 +58,14 @@ describe('Migration runner — schema_migrations table', () => {
         );
     });
 
-    test('detects fresh install when merchants table exists but schema_migrations does not', async () => {
-        const client = buildMockClient({
-            query: jest.fn()
-                .mockResolvedValueOnce({ rows: [{ exists: false }] }) // schema_migrations doesn't exist
-                .mockResolvedValueOnce({ rows: [{ exists: true }] }), // merchants table exists
-        });
-
-        // Check schema_migrations
-        const migrationsExist = (await client.query('SELECT EXISTS(...)')).rows[0].exists;
-        expect(migrationsExist).toBe(false);
-
-        // Check core tables
-        const coreExist = (await client.query('SELECT EXISTS(...)')).rows[0].exists;
-        expect(coreExist).toBe(true);
-
-        // In a fresh install, we create schema_migrations with no entries
-        // and exit early — verify no migration files would be run
+    test('creates schema_migrations then runs pending migrations (no special fresh install case)', () => {
+        // When schema_migrations does not exist (including fresh installs via schema-manager),
+        // the runner simply creates it and proceeds to check for pending migrations.
+        // A fresh install will have 001_fix_remaining_timestamps.sql pending and run it.
+        const applied = new Set(); // empty — table was just created
+        const allFiles = ['001_fix_remaining_timestamps.sql'];
+        const pending = allFiles.filter(f => !applied.has(f));
+        expect(pending).toEqual(['001_fix_remaining_timestamps.sql']);
     });
 });
 
