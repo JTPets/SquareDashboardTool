@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Roadmap](./ROADMAP.md)
 >
-> **Last Updated**: 2026-03-04
+> **Last Updated**: 2026-03-20
 
 ---
 
@@ -10,22 +10,22 @@
 
 ```
 /home/user/SquareDashboardTool/
-├── server.js                 # ~1,000 lines - route setup, middleware
+├── server.js                 # ~1,112 lines - route setup, middleware
 ├── config/constants.js       # Centralized configuration
 ├── database/
-│   ├── schema.sql            # 51+ tables
-│   └── migrations/           # 003-063
-├── routes/                   # 28 route modules (~260+ routes total)
+│   ├── schema.sql            # 67 tables
+│   └── migrations/           # 001-002
+├── routes/                   # 28 route modules (~283 routes total)
 ├── middleware/
 │   ├── auth.js               # Authentication middleware
 │   ├── merchant.js           # Multi-tenant context + subscription enforcement
 │   ├── security.js           # Rate limiting, CORS, CSP
-│   └── validators/           # 26 validator modules
+│   └── validators/           # 28 validator modules
 ├── services/
 │   ├── webhook-processor.js  # Webhook routing
 │   ├── sync-queue.js         # Sync state (persisted to DB)
 │   ├── webhook-handlers/     # 8 event handlers
-│   ├── loyalty-admin/        # Modular loyalty admin (21 modules, 61 exports)
+│   ├── loyalty-admin/        # Modular loyalty admin (41 modules, 110 exports)
 │   ├── seniors/              # Seniors discount automation
 │   ├── catalog/              # Catalog data management
 │   ├── merchant/             # Settings service
@@ -37,7 +37,7 @@
 │   ├── reports/              # Report generation
 │   ├── square/               # Square API integration
 │   └── bundle-calculator.js  # Bundle order optimization
-├── jobs/                     # Cron tasks (12 files)
+├── jobs/                     # Cron tasks (16 files)
 │   ├── cron-scheduler.js     # Job scheduling
 │   ├── index.js              # Job exports
 │   ├── backup-job.js         # Database backups
@@ -56,8 +56,13 @@
 │   └── response-helper.js    # sendSuccess/sendError helpers
 └── public/
     ├── js/
-    │   └── event-delegation.js # CSP-compliant event handling
-    └── *.html                # Frontend pages
+    │   ├── event-delegation.js  # CSP-compliant event handling
+    │   └── utils/               # Shared frontend utilities
+    │       ├── escape.js        # HTML entity escaping
+    │       ├── date-format.js   # formatDate, formatDateTime
+    │       ├── format-currency.js # formatCurrency, formatDollars, formatNumber
+    │       └── toast.js         # Toast notifications
+    └── *.html                   # 35 frontend pages
 ```
 
 ---
@@ -221,25 +226,46 @@ services/                     # Business logic services
 │   ├── loyalty-handler.js
 │   └── oauth-handler.js
 │
-├── loyalty-admin/            # Modular loyalty admin (21 modules, 61 exports)
+├── loyalty-admin/            # Modular loyalty admin (41 modules, 110 exports)
 │   ├── index.js              # Public API (re-exports all modules)
 │   ├── constants.js          # RewardStatus, AuditActions, RedemptionTypes
 │   ├── shared-utils.js       # fetchWithTimeout, getSquareAccessToken, squareApiRequest, SquareApiError
 │   ├── square-api-client.js  # SquareApiClient class (unified, with 429 retry)
 │   ├── loyalty-queries.js    # Shared canonical SQL for offer/variation lookups
 │   ├── audit-service.js      # logAuditEvent, getAuditLogs
+│   ├── audit-stats-service.js      # Audit statistics and analysis
 │   ├── settings-service.js   # getSetting, updateSetting, initializeDefaults
 │   ├── offer-admin-service.js      # Offer CRUD
 │   ├── variation-admin-service.js  # Qualifying variation management
 │   ├── customer-cache-service.js   # Local customer cache
 │   ├── customer-admin-service.js   # Customer lookups, status, history
-│   ├── purchase-service.js         # Purchase processing, refunds, split-row rollover
+│   ├── customer-details-service.js # Customer detail views
+│   ├── customer-refresh-service.js # Customer data refresh from Square
+│   ├── customer-search-service.js  # Customer search functionality
+│   ├── customer-summary-service.js # Customer summary/aggregate data
+│   ├── purchase-service.js         # Purchase processing, split-row rollover
+│   ├── refund-service.js           # Refund processing
 │   ├── reward-service.js           # Reward redemption, progress tracking, detection
+│   ├── reward-progress-service.js  # Reward progress calculations
+│   ├── reward-split-service.js     # Multi-reward split handling
 │   ├── redemption-audit-service.js # Redemption audit logging and analysis
+│   ├── redemption-query-service.js # Redemption queries
 │   ├── order-intake.js             # Consolidated order processing entry point
+│   ├── order-processing-service.js # Order processing logic
+│   ├── order-history-audit-service.js # Order history auditing
+│   ├── line-item-filter.js         # Line item filtering logic
 │   ├── webhook-processing-service.js  # Webhook order processing (legacy — prefer order-intake)
+│   ├── discount-validation-service.js # Discount validity checks
 │   ├── square-discount-service.js  # Square Customer Group Discount ops
+│   ├── square-discount-catalog-service.js # Square discount catalog management
+│   ├── square-customer-group-service.js # Square customer group ops
+│   ├── square-reward-service.js    # Square reward API interactions
+│   ├── square-sync-service.js      # Square sync for loyalty data
+│   ├── square-sync-retry-service.js # Square sync retry logic
+│   ├── loyalty-event-prefetch-service.js # Loyalty event prefetching
+│   ├── manual-entry-service.js     # Manual loyalty entry processing
 │   ├── backfill-service.js         # Catchup, order history backfill
+│   ├── backfill-orchestration-service.js # Backfill orchestration
 │   ├── customer-identification-service.js  # 6-method customer ID from orders
 │   └── expiration-service.js       # Reward/offer expiration processing
 │
@@ -248,7 +274,11 @@ services/                     # Business logic services
 │   ├── item-service.js       # Locations, categories, items
 │   ├── variation-service.js  # Variations, costs, bulk updates
 │   ├── inventory-service.js  # Inventory, low stock, expirations
-│   └── audit-service.js      # Catalog audit, location fixes, enable items at locations
+│   ├── audit-service.js      # Catalog audit, location fixes, enable items at locations
+│   ├── catalog-health-service.js  # Catalog health checks
+│   ├── location-health-service.js # Location health monitoring
+│   ├── location-service.js   # Shared location lookups (BACKLOG-25)
+│   └── reorder-math.js       # Reorder calculation utilities
 │
 ├── merchant/                 # Merchant settings
 │   ├── index.js
@@ -307,7 +337,7 @@ services/                     # Business logic services
 
 ## Loyalty Admin Modules
 
-The `services/loyalty-admin/` directory contains 41 modular services for loyalty program administration. The legacy monolith and dead modern layer (`services/loyalty/`) have been fully eliminated (BACKLOG-31).
+The `services/loyalty-admin/` directory contains 41 modules (110 exports) for loyalty program administration. The legacy monolith and dead modern layer (`services/loyalty/`) have been fully eliminated (BACKLOG-31).
 
 **Import rule**: Always import from `services/loyalty-admin` (index.js):
 ```javascript
@@ -443,3 +473,51 @@ Scheduled in `jobs/cron-scheduler.js`:
 | `loyalty-audit-job.js` | Daily | Audit loyalty events vs redemption records |
 | `seniors-day-job.js` | Daily | Manage seniors discount pricing rules |
 | `cart-activity-cleanup-job.js` | Daily | Clean up stale cart activity records |
+| `catalog-health-job.js` | Periodic | Catalog health checks |
+| `catalog-location-health-job.js` | Periodic | Location health monitoring |
+| `loyalty-sync-retry-job.js` | Periodic | Retry failed loyalty syncs |
+| `trial-expiry-job.js` | Daily | Handle trial expiration |
+
+---
+
+## Frontend Pages
+
+35 HTML pages in `public/`. All application pages load `event-delegation.js` and `utils/escape.js` for CSP compliance.
+
+| Page | Description |
+|------|-------------|
+| `index.html` | Landing page — inventory management overview |
+| `login.html` | Authentication login form |
+| `set-password.html` | Set password for new/invited users |
+| `dashboard.html` | Main dashboard — stats, alerts, inventory summary |
+| `inventory.html` | Full inventory list with search and filtering |
+| `reorder.html` | Reorder suggestions based on sales velocity and stock |
+| `sales-velocity.html` | Sales velocity reports — fast/slow movers |
+| `cycle-count.html` | Active cycle count — scan and count inventory |
+| `cycle-count-history.html` | Cycle count history — accuracy and variance |
+| `expiry.html` | Expiration tracker — items with expiry data |
+| `expiry-discounts.html` | Expiry discount manager — automated discount rules |
+| `expiry-audit.html` | Expiry audit — discount application history |
+| `catalog-audit.html` | Catalog audit — detect and fix catalog issues |
+| `catalog-workflow.html` | Catalog workflow — AI content autofill for items |
+| `deleted-items.html` | Deleted and archived items from Square |
+| `bundle-manager.html` | Bundle manager — create/manage product bundles |
+| `loyalty.html` | Loyalty program manager — offers, customers, rewards |
+| `delivery.html` | Delivery scheduler — manage delivery orders |
+| `delivery-route.html` | Driver route — optimized delivery route view |
+| `delivery-history.html` | Delivery history — completed deliveries |
+| `delivery-settings.html` | Delivery settings — zones, fees, scheduling |
+| `driver.html` | Driver view — mobile-friendly route for drivers |
+| `cart-activity.html` | Cart activity — abandoned and active carts |
+| `purchase-orders.html` | Purchase orders — create and manage POs |
+| `vendor-dashboard.html` | Vendor dashboard — vendor overview and PO status |
+| `vendor-catalog.html` | Vendor catalog import — CSV/XLSX price comparison |
+| `gmc-feed.html` | Google Merchant Center feed — product and local inventory |
+| `settings.html` | Account settings — users, preferences |
+| `merchants.html` | Manage Square accounts (admin/platform owner) |
+| `admin-subscriptions.html` | Subscription management (admin) |
+| `logs.html` | System logs viewer |
+| `subscribe.html` | Subscription signup page |
+| `subscription-expired.html` | Subscription expired notice |
+| `upgrade.html` | Upgrade subscription — trial/expired redirect target |
+| `support.html` | Support page — help and contact |
