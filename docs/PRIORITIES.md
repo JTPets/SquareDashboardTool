@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Work Items](./WORK-ITEMS.md) | [Roadmap](./ROADMAP.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Updated**: 2026-03-19
+**Last Updated**: 2026-03-20
 
 ---
 
@@ -15,20 +15,8 @@
 | BACKLOG-61 | GMC v1beta → v1 migration — Google Merchant API v1beta discontinued Feb 28 2026. All product upserts failing with 409. Live store affected — organic Google Shopping visibility broken. **P0.** | Error logs 2026-03-09 | M |
 | BACKLOG-50 | Post-trial conversion — $1 first month. Capture payment method, prove intent. Decide Stripe vs Square for SaaS billing | CLAUDE.md | L |
 | BACKLOG-39 | Vendor bill-back tracking — track promotional discounts funded by vendors. Need `vendor_billbacks` table, reporting view for claim submission | CLAUDE.md | L |
-| BACKLOG-67 | Square orphan audit tool — scan loyalty customer groups/pricing rules, flag any with no matching active reward as orphaned | CLAUDE.md | M |
-| BACKLOG-68 | Square discount cleanup on redemption — `redeemReward()` and `detectRewardRedemptionFromOrder()` must call `cleanupSquareCustomerGroupDiscount()` | CLAUDE.md | S |
-
-### Security
-
-| ID | Description | Source | Effort |
-|----|-------------|--------|--------|
-| CRIT-3 (audit) | 288 innerHTML assignments in frontend JS — systematic XSS surface | AUDIT-2026-03-10 | L |
-
-### Reliability
-
-| ID | Description | Source | Effort |
-|----|-------------|--------|--------|
-| DB-1 | 14 core tables have nullable `merchant_id` — add NOT NULL constraint via migration | AUDIT-2026-02-28 | M |
+| BACKLOG-80 | Email alerts not visible — system sends from/to same email. Set up Cloudflare Email Routing + transactional sender | WORK-ITEMS | S |
+| BACKLOG-81 | Margin erosion alerts — alert when item margin drops due to cost/price changes | WORK-ITEMS | M |
 
 ---
 
@@ -47,6 +35,9 @@
 | BACKLOG-55 | VIP customer auto-discounts via Square customer groups | CLAUDE.md | M |
 | BACKLOG-4 | Customer birthday sync for marketing | CLAUDE.md | S |
 | BACKLOG-1 | Frontend polling rate limits | CLAUDE.md | S |
+| BACKLOG-82 | Customer purchase intelligence — purchase cycle baseline, RFM scoring, "due to reorder" dashboard | WORK-ITEMS | L |
+| BACKLOG-84 | Vendor performance scoring — fill rate, timeliness, price stability, credit notes | WORK-ITEMS | M |
+| BACKLOG-85 | Market basket analysis — product affinities for shelf placement and bundle suggestions | WORK-ITEMS | L |
 
 ### Data Integrity
 
@@ -59,9 +50,6 @@
 
 | ID | Description | Source | Effort |
 |----|-------------|--------|--------|
-| TEST-28 | Replace `subscriptions.test.js` — 849 lines testing JS operators, not app code | AUDIT-2026-02-28 | M |
-| T-1 | Financial/loyalty services have partial coverage | CODEBASE_AUDIT_2026-02-25 | L |
-| T-3 | Many routes untested — prioritize analytics.js, catalog.js, loyalty.js | CODEBASE_AUDIT_2026-02-25 | L |
 | T-4 | Background jobs mostly untested | CODEBASE_AUDIT_2026-02-25 | L |
 
 ---
@@ -90,11 +78,10 @@
 | BACKLOG-34 | Doc: Square reuses variation IDs on POS reorder | CLAUDE.md | S |
 | BACKLOG-40 | exceljs pulls deprecated transitive deps | CLAUDE.md | S |
 
-### Security/Infra (Low)
+### Infra (Low)
 
 | ID | Description | Source | Effort |
 |----|-------------|--------|--------|
-| SEC-12/13 | XSS in `logs.js` and `delivery-settings.js` — innerHTML without escaping | AUDIT-2026-02-28 | S |
 | BACKLOG-9 | In-memory global state — PM2 restart recovery | CLAUDE.md | S |
 
 ---
