@@ -21,7 +21,7 @@ jest.mock('../../../config/constants', () => ({
     SYNC: { BATCH_DELAY_MS: 0 }
 }));
 
-const { syncVendors, ensureVendorsExist } = require('../../../services/square/square-vendors');
+const { syncVendors, ensureVendorsExist, syncVariationVendors } = require('../../../services/square/square-vendors');
 const db = require('../../../utils/database');
 const { makeSquareRequest, sleep } = require('../../../services/square/square-client');
 
@@ -242,5 +242,194 @@ describe('ensureVendorsExist', () => {
         );
         // V2 should still be processed
         expect(makeSquareRequest).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('syncVariationVendors', () => {
+    const variationId = 'VAR_001';
+
+    test('returns 0 and does nothing when vendorInformation is undefined', async () => {
+        db.query.mockResolvedValue({ rows: [{ cnt: '0' }] });
+
+        const count = await syncVariationVendors(variationId, undefined, merchantId);
+
+        expect(count).toBe(0);
+        expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    test('returns 0 and does nothing when vendorInformation is empty array', async () => {
+        db.query.mockResolvedValue({ rows: [{ cnt: '0' }] });
+
+        const count = await syncVariationVendors(variationId, [], merchantId);
+
+        expect(count).toBe(0);
+        expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    test('returns 0 when vendorInformation has no real vendor_id (cost-only)', async () => {
+        db.query.mockResolvedValue({ rows: [{ cnt: '0' }] });
+
+        const vendorInfo = [{ unit_cost_money: { amount: 1000, currency: 'CAD' } }];
+        const count = await syncVariationVendors(variationId, vendorInfo, merchantId);
+
+        expect(count).toBe(0);
+        expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    test('preserves existing vendor links when vendorInformation is absent and links exist', async () => {
+        db.query.mockResolvedValue({ rows: [{ cnt: '2' }] });
+
+        const count = await syncVariationVendors(variationId, undefined, merchantId);
+
+        expect(count).toBe(0);
+        expect(logger.warn).toHaveBeenCalledWith(
+            'Vendor information absent — preserving existing vendor links',
+            expect.objectContaining({
+                variationId,
+                existingLinksPreserved: true
+            })
+        );
+    });
+
+    test('does not warn when vendorInformation is absent and no existing links', async () => {
+        db.query.mockResolvedValue({ rows: [{ cnt: '0' }] });
+
+        await syncVariationVendors(variationId, undefined, merchantId);
+
+        expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    test('calls ensureVendorsExist then DELETE+INSERT in transaction when valid vendors present', async () => {
+        // ensureVendorsExist is mocked at module level (already in mock setup)
+        // Need to mock db.query for the ensureVendorsExist internal call
+        db.query.mockResolvedValue({ rows: [{ id: 'VENDOR_A' }] });
+
+        const mockClient = {
+            query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 })
+        };
+        db.transaction.mockImplementation(async (fn) => fn(mockClient));
+
+        const vendorInfo = [
+            { vendor_id: 'VENDOR_A', vendor_code: 'VC-001', unit_cost_money: { amount: 2500, currency: 'CAD' } },
+            { vendor_id: 'VENDOR_B', vendor_code: 'VC-002', unit_cost_money: { amount: 3000, currency: 'USD' } }
+        ];
+
+        const count = await syncVariationVendors(variationId, vendorInfo, merchantId);
+
+        expect(count).toBe(2);
+        expect(db.transaction).toHaveBeenCalled();
+
+        // Verify DELETE was called first
+        const deleteCall = mockClient.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('DELETE FROM variation_vendors')
+        );
+        expect(deleteCall).toBeDefined();
+        expect(deleteCall[1]).toEqual([variationId, merchantId]);
+
+        // Verify INSERT calls for each vendor
+        const insertCalls = mockClient.query.mock.calls.filter(
+            c => typeof c[0] === 'string' && c[0].includes('INSERT INTO variation_vendors')
+        );
+        expect(insertCalls).toHaveLength(2);
+        expect(insertCalls[0][1][1]).toBe('VENDOR_A');
+        expect(insertCalls[1][1][1]).toBe('VENDOR_B');
+    });
+
+    test('skips cost-only entries (no vendor_id) within valid vendor_information', async () => {
+        db.query.mockResolvedValue({ rows: [{ id: 'VENDOR_A' }] });
+
+        const mockClient = {
+            query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 })
+        };
+        db.transaction.mockImplementation(async (fn) => fn(mockClient));
+
+        const vendorInfo = [
+            { vendor_id: 'VENDOR_A', vendor_code: 'VC-001', unit_cost_money: { amount: 2500, currency: 'CAD' } },
+            { unit_cost_money: { amount: 1000, currency: 'CAD' } } // cost-only, no vendor_id
+        ];
+
+        const count = await syncVariationVendors(variationId, vendorInfo, merchantId);
+
+        expect(count).toBe(1);
+        expect(logger.debug).toHaveBeenCalledWith(
+            'Vendor info without vendor_id (cost-only entry)',
+            expect.objectContaining({ variation_id: variationId })
+        );
+    });
+
+    test('handles vendor insert failure gracefully (logs warning, continues)', async () => {
+        db.query.mockResolvedValue({ rows: [{ id: 'VENDOR_GOOD' }] });
+
+        let vendorInsertCount = 0;
+        const mockClient = {
+            query: jest.fn().mockImplementation((sql) => {
+                if (sql.includes('INSERT INTO variation_vendors')) {
+                    vendorInsertCount++;
+                    if (vendorInsertCount === 2) {
+                        throw new Error('FK violation');
+                    }
+                }
+                return { rows: [], rowCount: 0 };
+            })
+        };
+        db.transaction.mockImplementation(async (fn) => fn(mockClient));
+
+        const vendorInfo = [
+            { vendor_id: 'VENDOR_GOOD', vendor_code: 'G1' },
+            { vendor_id: 'VENDOR_BAD', vendor_code: 'B1' }
+        ];
+
+        const count = await syncVariationVendors(variationId, vendorInfo, merchantId);
+
+        expect(count).toBe(1);
+        expect(logger.warn).toHaveBeenCalledWith(
+            expect.stringContaining('Skipping variation_vendor'),
+            expect.objectContaining({ vendor_id: 'VENDOR_BAD' })
+        );
+    });
+
+    test('passes correct currency and cost params to INSERT', async () => {
+        db.query.mockResolvedValue({ rows: [{ id: 'V1' }] });
+
+        const mockClient = {
+            query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 })
+        };
+        db.transaction.mockImplementation(async (fn) => fn(mockClient));
+
+        const vendorInfo = [
+            { vendor_id: 'V1', vendor_code: 'CODE-1', unit_cost_money: { amount: 4200, currency: 'USD' } }
+        ];
+
+        await syncVariationVendors(variationId, vendorInfo, merchantId);
+
+        const insertCall = mockClient.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('INSERT INTO variation_vendors')
+        );
+        expect(insertCall[1]).toEqual([
+            variationId, 'V1', 'CODE-1', 4200, 'USD', merchantId
+        ]);
+    });
+
+    test('defaults currency to CAD when not provided', async () => {
+        db.query.mockResolvedValue({ rows: [{ id: 'V1' }] });
+
+        const mockClient = {
+            query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 })
+        };
+        db.transaction.mockImplementation(async (fn) => fn(mockClient));
+
+        const vendorInfo = [
+            { vendor_id: 'V1', vendor_code: null }
+        ];
+
+        await syncVariationVendors(variationId, vendorInfo, merchantId);
+
+        const insertCall = mockClient.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('INSERT INTO variation_vendors')
+        );
+        // unit_cost_money is null, currency defaults to CAD
+        expect(insertCall[1]).toEqual([
+            variationId, 'V1', null, null, 'CAD', merchantId
+        ]);
     });
 });

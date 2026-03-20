@@ -226,7 +226,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
 | A-3 | Circular dependency — `middleware/merchant.js` ↔ `routes/square-oauth.js` via deferred `require()`. | Multiple | S | 2026-02-25 |
-| O-5 | Business logic leaking into API sync layer — vendor sync logic embedded in catalog sync. | `services/square/square-catalog-sync.js` | M | 2026-02-25 |
+| ~~O-5~~ | ~~Business logic leaking into API sync layer — vendor sync logic embedded in catalog sync.~~ **FIXED 2026-03-20** — Extracted `syncVariationVendors()` to `square-vendors.js`. | `services/square/square-vendors.js` | M | 2026-02-25 |
 
 ### Config
 

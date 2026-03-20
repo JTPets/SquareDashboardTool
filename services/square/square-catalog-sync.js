@@ -16,7 +16,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { getMerchantToken, makeSquareRequest, sleep } = require('./square-client');
-const { ensureVendorsExist } = require('./square-vendors');
+const { syncVariationVendors } = require('./square-vendors');
 
 const { SQUARE: { MAX_PAGINATION_ITERATIONS }, SYNC: { BATCH_DELAY_MS } } = require('../../config/constants');
 
@@ -970,82 +970,8 @@ async function syncVariation(obj, merchantId) {
         }
     }
 
-    // LOGIC CHANGE: Only DELETE + INSERT vendor links when vendor_information is present
-    // and contains at least one entry with a vendor_id. Full syncs fetch types=ITEM (not
-    // ITEM_VARIATION), so nested variations may omit vendor_information entirely. An
-    // unconditional DELETE would destroy vendor links that cannot be recreated because the
-    // data was never returned in the API response. (BACKLOG-62: transaction wraps DELETE+INSERT)
-    const hasValidVendorInfo = Array.isArray(data.vendor_information) &&
-        data.vendor_information.length > 0 &&
-        data.vendor_information.some(vi => vi.vendor_id); // LOGIC CHANGE: require at least one real vendor_id
-
-    if (hasValidVendorInfo) {
-        // Ensure referenced vendors exist locally before inserting (prevents FK violations
-        // when deltaSyncCatalog runs before vendor webhooks are processed)
-        const vendorIds = data.vendor_information
-            .map(vi => vi.vendor_id)
-            .filter(Boolean);
-        await ensureVendorsExist(vendorIds, merchantId);
-
-        // LOGIC CHANGE (BACKLOG-62): Wrap DELETE + INSERT in transaction for atomicity
-        await db.transaction(async (client) => {
-            await client.query('DELETE FROM variation_vendors WHERE variation_id = $1 AND merchant_id = $2', [obj.id, merchantId]);
-
-            for (const vendorInfo of data.vendor_information) {
-                // Skip entries without vendor_id - these are just cost data without a linked vendor
-                // (This is normal for items with costs but no vendor assigned)
-                if (!vendorInfo.vendor_id) {
-                    logger.debug('Vendor info without vendor_id (cost-only entry)', {
-                        variation_id: obj.id,
-                        has_unit_cost_money: !!vendorInfo.unit_cost_money
-                    });
-                    continue;
-                }
-                try {
-                    await client.query(`
-                        INSERT INTO variation_vendors (
-                            variation_id, vendor_id, vendor_code, unit_cost_money, currency, merchant_id, updated_at
-                        )
-                        VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
-                        ON CONFLICT (variation_id, vendor_id, merchant_id) DO UPDATE SET
-                            vendor_code = EXCLUDED.vendor_code,
-                            unit_cost_money = EXCLUDED.unit_cost_money,
-                            currency = EXCLUDED.currency,
-                            updated_at = CURRENT_TIMESTAMP
-                    `, [
-                        obj.id,
-                        vendorInfo.vendor_id,
-                        vendorInfo.vendor_code || null,
-                        vendorInfo.unit_cost_money?.amount ?? null,
-                        vendorInfo.unit_cost_money?.currency || 'CAD',
-                        merchantId
-                    ]);
-                    vendorCount++;
-                } catch (error) {
-                    // Vendor deleted from Square and on-demand fetch also failed — skip this link
-                    logger.warn('Skipping variation_vendor — vendor not in DB after on-demand fetch', {
-                        vendor_id: vendorInfo.vendor_id, variation_id: obj.id, error: error.message
-                    });
-                }
-            }
-        });
-    } else {
-        // LOGIC CHANGE: vendor_information absent/null/empty — check if existing links exist
-        // and warn so the gap is visible for investigation without touching data
-        const existingLinks = await db.query(
-            'SELECT COUNT(*) as cnt FROM variation_vendors WHERE variation_id = $1 AND merchant_id = $2',
-            [obj.id, merchantId]
-        );
-        if (parseInt(existingLinks.rows[0].cnt, 10) > 0) {
-            logger.warn('Vendor information absent — preserving existing vendor links', {
-                event: 'vendor_information_absent_skipping_vendor_sync',
-                variationId: obj.id,
-                merchantId,
-                vendorInformationPresent: false,
-                existingLinksPreserved: true
-            });
-        }
-    }
+    // Vendor sync delegated to square-vendors.js (O-5 extraction)
+    vendorCount = await syncVariationVendors(obj.id, data.vendor_information, merchantId);
 
     // Sync custom attributes from Square (Square is source of truth)
     if (obj.custom_attribute_values) {
