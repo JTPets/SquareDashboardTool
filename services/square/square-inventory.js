@@ -20,12 +20,13 @@ const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { getMerchantToken, makeSquareRequest, sleep, generateIdempotencyKey } = require('./square-client');
 
-const { SQUARE: { MAX_PAGINATION_ITERATIONS }, SYNC: { BATCH_DELAY_MS, INTER_BATCH_DELAY_MS } } = require('../../config/constants');
+// LOGIC CHANGE: use centralized cache/retry config from constants (C-1)
+const { SQUARE: { MAX_PAGINATION_ITERATIONS }, SYNC: { BATCH_DELAY_MS, INTER_BATCH_DELAY_MS }, CACHE: { INVOICES_SCOPE_TTL_MS }, RETRY: { MAX_ATTEMPTS } } = require('../../config/constants');
 
 // Cache for merchants without INVOICES_READ scope (avoid repeated API calls and log spam)
 // Map<merchantId, timestamp> - expires after 1 hour
 const merchantsWithoutInvoicesScope = new Map();
-const INVOICES_SCOPE_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const INVOICES_SCOPE_CACHE_TTL = INVOICES_SCOPE_TTL_MS;
 
 // Prune expired cache entries to prevent memory leaks
 function pruneInvoicesScopeCache() {
@@ -280,7 +281,8 @@ async function setSquareInventoryCount(catalogObjectId, locationId, quantity, re
  */
 async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, threshold, options = {}) {
     const { merchantId } = options;
-    const MAX_RETRIES = 3;
+    // LOGIC CHANGE: use centralized retry config (C-1)
+    const MAX_RETRIES = MAX_ATTEMPTS;
 
     if (!merchantId) {
         throw new Error('merchantId is required for setSquareInventoryAlertThreshold');

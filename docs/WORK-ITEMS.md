@@ -204,8 +204,8 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
 | PERF-6 | Reorder suggestions query: 11-table JOIN with 4 correlated subqueries. Moved from `routes/analytics.js` to `services/catalog/reorder-service.js:135+` but still complex. | `services/catalog/reorder-service.js` | M | 2026-02-28 |
-| P-5 | Google OAuth token listener — guard (`listenerCount`) prevents duplication, but same pattern repeated across calls. | `services/gmc/merchant-service.js:65-80` | S | 2026-02-25 |
-| P-8 | Follow-up syncs fire-and-forget — async but not fully non-blocking within request handler. | `services/sync-queue.js:232-242` | S | 2026-02-25 |
+| ~~P-5~~ | ~~FIXED 2026-03-20~~ — Added `listenerCount` guard to `utils/google-auth.js:getAuthenticatedClient()` to match merchant-service pattern. Added error handling in listener. | `utils/google-auth.js`, `services/gmc/merchant-service.js` | S | 2026-02-25 |
+| ~~P-8~~ | ~~FIXED 2026-03-20~~ — Documented why follow-up syncs must be sequential (pending flag depends on main sync completion). Pattern is already non-blocking via fire-and-forget. | `services/sync-queue.js:232-242` | S | 2026-02-25 |
 
 ### Dead Code / Cleanup
 
@@ -232,7 +232,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | Effort | Discovered |
 |----|-------------|--------|------------|
-| C-1 | ~20 hardcoded timeouts, batch sizes, retention limits — should be in `config/constants.js`. | M | 2026-02-25 |
+| ~~C-1~~ | ~~FIXED 2026-03-20~~ — Moved repeated magic numbers (MAX_RETRIES, RETRY_DELAY_MS, BATCH_SIZE, INTER_BATCH_DELAY_MS) to `config/constants.js`. Updated 10 callers. | M | 2026-02-25 |
 | C-4 | Backups not encrypted at rest, no post-backup verification, local only. | M | 2026-02-25 |
 
 ### Features (Low)
@@ -273,8 +273,8 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | BACKLOG-47 | Multi-channel inventory sync — Shopify, WooCommerce, BigCommerce. | XL | 2026-02-01 |
 | BACKLOG-48 | Clover POS integration. | XL | 2026-02-01 |
 | BACKLOG-49 | Stripe payment integration. | L | 2026-02-01 |
-| BACKLOG-57 | Expiry discount daily re-apply noise — unnecessary Square API calls and audit log entries. | S | 2026-03-15 |
-| BACKLOG-58 | Inventory increase should trigger expiry re-verification for AUTO25/AUTO50 items. | S | 2026-03-15 |
+| ~~BACKLOG-57~~ | ~~FIXED 2026-03-20~~ — `applyDiscounts()` now skips DB update and DISCOUNT_APPLIED audit log when variation is already at correct tier and price. | S | 2026-03-15 |
+| ~~BACKLOG-58~~ | ~~FIXED 2026-03-20~~ — Inventory webhook handler now flags AUTO25/AUTO50 items for manual review (`needs_manual_review=TRUE`) when inventory changes. Next cron run re-evaluates. | S | 2026-03-15 |
 | EXPIRY-REORDER-AUDIT | Clearance items receiving new PO/restock should be flagged for re-audit. No trigger exists. | S | 2026-03-15 |
 
 ---

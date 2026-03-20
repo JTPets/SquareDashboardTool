@@ -87,6 +87,43 @@ class InventoryHandler {
             };
             logger.info('Inventory sync completed via webhook', { count: syncResult.result });
 
+            // LOGIC CHANGE: flag AUTO25/AUTO50 items for expiry re-audit on inventory increase (BACKLOG-58)
+            // When inventory increases, items with active expiry discounts may need re-evaluation
+            // (e.g., new batch with later expiry). We flag them for the next cron run rather than
+            // auto-removing discounts, to avoid premature tier changes.
+            const catalogObjectId = inventoryChange?.catalog_object_id;
+            if (catalogObjectId) {
+                try {
+                    const flagResult = await db.query(`
+                        UPDATE variation_discount_status
+                        SET needs_manual_review = TRUE,
+                            updated_at = NOW()
+                        WHERE variation_id = $1
+                          AND merchant_id = $2
+                          AND current_tier_id IN (
+                              SELECT id FROM expiry_discount_tiers
+                              WHERE tier_code IN ('AUTO25', 'AUTO50')
+                                AND merchant_id = $2
+                          )
+                          AND needs_manual_review = FALSE
+                    `, [catalogObjectId, merchantId]);
+                    if (flagResult.rowCount > 0) {
+                        logger.info('Flagged expiry-discounted item for re-audit after inventory increase', {
+                            merchantId,
+                            catalogObjectId,
+                            flaggedCount: flagResult.rowCount
+                        });
+                    }
+                } catch (flagError) {
+                    // Non-blocking — don't fail the inventory sync for this
+                    logger.warn('Failed to flag item for expiry re-audit', {
+                        merchantId,
+                        catalogObjectId,
+                        error: flagError.message
+                    });
+                }
+            }
+
             // Follow-up syncs (when webhooks arrive during sync) now fire async
             // and do not block the result — no followUpResult to process
         }

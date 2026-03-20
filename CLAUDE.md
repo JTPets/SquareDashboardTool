@@ -311,8 +311,8 @@ See [docs/WORK-ITEMS.md](docs/WORK-ITEMS.md) for the complete consolidated work 
 | Low | BACKLOG-47 | Multi-channel inventory sync (Shopify, WooCommerce, BigCommerce) |
 | Low | BACKLOG-48 | Clover POS integration |
 | Low | BACKLOG-49 | Stripe payment integration |
-| Low | BACKLOG-57 | Expiry discount daily re-apply noise |
-| Low | BACKLOG-58 | Inventory increase should trigger expiry re-verification |
+| ~~Low~~ | ~~BACKLOG-57~~ | ~~Expiry discount daily re-apply noise~~ **FIXED** |
+| ~~Low~~ | ~~BACKLOG-58~~ | ~~Inventory increase should trigger expiry re-verification~~ **FIXED** |
 | Low | BACKLOG-66 | Customer email bounce tracking |
 | Low | BACKLOG-70 | `syncRewardDiscountPrices` only updates upward |
 

@@ -19,8 +19,8 @@ const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { getMerchantToken, makeSquareRequest, sleep, generateIdempotencyKey } = require('../square/square-client');
 
-const SQUARE_BATCH_SIZE = 100;
-const BATCH_DELAY_MS = 200;
+// LOGIC CHANGE: use centralized batch config from constants (C-1)
+const { SYNC: { CATALOG_BATCH_SIZE: SQUARE_BATCH_SIZE, INTER_BATCH_DELAY_MS: BATCH_DELAY_MS } } = require('../../config/constants');
 
 /**
  * Fetch active tax IDs for a merchant from Square Catalog API

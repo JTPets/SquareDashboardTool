@@ -90,7 +90,8 @@ async function loggedSync(syncType, syncFunction, merchantId) {
                 WHERE sync_type = $3 AND started_at = $4 AND merchant_id = $5
             `, [error.message, durationSeconds, syncType, startedAt, merchantId]);
         } catch (updateError) {
-            logger.error('Failed to update sync history', { error: updateError.message });
+            // LOGIC CHANGE: added merchantId to error log context (L-2)
+            logger.error('Failed to update sync history', { error: updateError.message, merchantId });
         }
 
         throw error;
@@ -417,8 +418,9 @@ router.post('/sync', requireAuth, requireMerchant, validators.sync, asyncHandler
             feedUrl: gmcFeedResult.feedUrl
         });
     } catch (gmcError) {
+        // LOGIC CHANGE: added merchantId to error log context (L-2)
         logger.error('GMC feed generation failed (non-blocking)', {
-            error: gmcError.message
+            error: gmcError.message, merchantId
         });
         gmcFeedResult = { error: gmcError.message };
     }

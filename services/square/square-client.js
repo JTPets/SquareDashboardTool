@@ -24,10 +24,8 @@ const { generateIdempotencyKey } = require('../../utils/idempotency');
 // Square API configuration
 const SQUARE_BASE_URL = 'https://connect.squareup.com';
 
-// Rate limiting and retry configuration
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 1000;
-const { SQUARE: { API_VERSION: SQUARE_API_VERSION } } = require('../../config/constants');
+// LOGIC CHANGE: use centralized retry config from constants (C-1)
+const { SQUARE: { API_VERSION: SQUARE_API_VERSION }, RETRY: { MAX_ATTEMPTS: MAX_RETRIES, BASE_DELAY_MS: RETRY_DELAY_MS } } = require('../../config/constants');
 
 /**
  * Get decrypted access token for a merchant

@@ -11,6 +11,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { deleteCatalogObjects } = require('../../utils/square-catalog-cleanup');
+const { SYNC: { SQUARE_BATCH_RETRIEVE_LIMIT } } = require('../../config/constants');
 
 // Lazy-load square-api to avoid circular dependency
 let squareApi = null;
@@ -745,6 +746,29 @@ async function applyDiscounts(options = {}) {
                         const originalPrice = row.original_price_cents || row.current_price_cents;
                         const discountedPrice = Math.round(originalPrice * (1 - tier.discount_percent / 100));
 
+                        // LOGIC CHANGE: skip re-apply when already at correct tier and price (BACKLOG-57)
+                        // This prevents noisy DISCOUNT_APPLIED audit logs on daily re-runs
+                        const existingDiscountedPrice = row.original_price_cents
+                            ? Math.round(row.original_price_cents * (1 - tier.discount_percent / 100))
+                            : null;
+                        if (row.original_price_cents && existingDiscountedPrice === discountedPrice) {
+                            // Check if discount is already applied at this price
+                            const statusCheck = await db.query(`
+                                SELECT discounted_price_cents, discount_applied_at
+                                FROM variation_discount_status
+                                WHERE variation_id = $1 AND merchant_id = $2
+                            `, [row.variation_id, merchantId]);
+                            const currentStatus = statusCheck.rows[0];
+                            if (currentStatus?.discount_applied_at &&
+                                currentStatus.discounted_price_cents === discountedPrice) {
+                                results.unchanged.push({
+                                    variationId: row.variation_id,
+                                    tierCode: tier.tier_code
+                                });
+                                continue;
+                            }
+                        }
+
                         await db.query(`
                             UPDATE variation_discount_status
                             SET discounted_price_cents = $1,
@@ -868,8 +892,8 @@ async function filterValidVariations(variationIds, accessToken, merchantId) {
     const validIds = [];
     const invalidIds = [];
 
-    // Square batch retrieve has a limit of 1000 objects per request
-    const batchSize = 1000;
+    // LOGIC CHANGE: use centralized batch limit from constants (C-1)
+    const batchSize = SQUARE_BATCH_RETRIEVE_LIMIT;
     for (let i = 0; i < variationIds.length; i += batchSize) {
         const batch = variationIds.slice(i, i + batchSize);
 

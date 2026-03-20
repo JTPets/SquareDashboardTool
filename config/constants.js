@@ -38,6 +38,19 @@ module.exports = {
         BATCH_DELAY_MS: 100,                         // Delay between batches to avoid rate limiting
         INTER_BATCH_DELAY_MS: 200,                   // Delay for write operations
         NEW_VARIATION_DAYS: 7,                        // Variations younger than this show velocity warning
+        SQUARE_BATCH_RETRIEVE_LIMIT: 1000,           // Square batch-retrieve API max objects per call
+    },
+
+    // Webhook processing settings
+    WEBHOOK: {
+        RETRY_DELAY_MS: 2000,                        // Delay between retries for webhook-triggered jobs
+    },
+
+    // AI autofill batch settings
+    AI_AUTOFILL: {
+        BATCH_SIZE: 10,                              // Items per Claude API call
+        BATCH_DELAY_MS: 20000,                       // Delay between batches
+        RATE_LIMIT_RETRY_DELAY_MS: 60000,            // Delay on rate-limit (429)
     },
 
     // Time intervals (in milliseconds)

@@ -329,10 +329,11 @@ ${variationInfo}`;
 // VIOLATION: 630+ lines — batch machinery (callClaudeApi, mapChunkResults,
 // generateContentBatched) should extract to services/ai-autofill-batch.js.
 // Refactor-on-touch per CLAUDE.md policy.
-const BATCH_SIZE = 10;
-const BATCH_DELAY_MS = 20000;
-const RATE_LIMIT_RETRY_DELAY_MS = 60000;
-const MAX_RETRIES = 3;
+// LOGIC CHANGE: use centralized config from constants (C-1)
+const { AI_AUTOFILL, RETRY: { MAX_ATTEMPTS: MAX_RETRIES } } = require('../config/constants');
+const BATCH_SIZE = AI_AUTOFILL.BATCH_SIZE;
+const BATCH_DELAY_MS = AI_AUTOFILL.BATCH_DELAY_MS;
+const RATE_LIMIT_RETRY_DELAY_MS = AI_AUTOFILL.RATE_LIMIT_RETRY_DELAY_MS;
 
 /**
  * Call Claude API for a single chunk of items with retry logic

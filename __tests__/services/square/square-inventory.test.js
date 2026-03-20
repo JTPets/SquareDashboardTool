@@ -23,7 +23,9 @@ jest.mock('../../../services/square/square-client', () => ({
 }));
 jest.mock('../../../config/constants', () => ({
     SQUARE: { MAX_PAGINATION_ITERATIONS: 50 },
-    SYNC: { BATCH_DELAY_MS: 0, INTER_BATCH_DELAY_MS: 0 }
+    SYNC: { BATCH_DELAY_MS: 0, INTER_BATCH_DELAY_MS: 0 },
+    CACHE: { INVOICES_SCOPE_TTL_MS: 3600000 },
+    RETRY: { MAX_ATTEMPTS: 3, BASE_DELAY_MS: 1000, MAX_DELAY_MS: 30000 }
 }));
 
 const {

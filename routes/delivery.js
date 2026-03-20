@@ -422,10 +422,12 @@ router.post('/orders/:id/complete', deliveryRateLimit, requireAuth, requireMerch
                 }
             } catch (squareError) {
                 squareSyncError = squareError.message;
+                // LOGIC CHANGE: added merchantId to error log context (L-2)
                 logger.error('Failed to sync completion to Square', {
                     error: squareError.message,
                     orderId: order.id,
-                    squareOrderId: order.square_order_id
+                    squareOrderId: order.square_order_id,
+                    merchantId
                 });
                 // Continue anyway - mark as complete locally
             }

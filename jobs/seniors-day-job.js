@@ -17,8 +17,8 @@ const emailNotifier = require('../utils/email-notifier');
 const { SeniorsService } = require('../services/seniors');
 const { SENIORS_DISCOUNT } = require('../config/constants');
 
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 2000;
+// LOGIC CHANGE: use centralized config from constants (C-1)
+const { RETRY: { MAX_ATTEMPTS: MAX_RETRIES }, WEBHOOK: { RETRY_DELAY_MS } } = require('../config/constants');
 
 /**
  * Get today's date components in America/Toronto timezone

@@ -352,14 +352,21 @@ async function getAuthenticatedClient(merchantId) {
 
     client.setCredentials(tokens);
 
-    // Handle token refresh
-    client.on('tokens', async (newTokens) => {
-        logger.info('Google OAuth tokens refreshed for merchant', { merchantId });
-        await saveTokens(merchantId, {
-            ...tokens,
-            ...newTokens
+    // LOGIC CHANGE: guard against duplicate listeners to prevent leak (P-5)
+    // Matches the pattern in services/gmc/merchant-service.js:getAuthClient
+    if (!client.listenerCount('tokens')) {
+        client.on('tokens', async (newTokens) => {
+            try {
+                logger.info('Google OAuth tokens refreshed for merchant', { merchantId });
+                await saveTokens(merchantId, {
+                    ...tokens,
+                    ...newTokens
+                });
+            } catch (err) {
+                logger.error('Failed to save refreshed tokens', { error: err.message, merchantId });
+            }
         });
-    });
+    }
 
     return client;
 }

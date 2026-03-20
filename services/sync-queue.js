@@ -229,7 +229,13 @@ class SyncQueue {
         try {
             const result = await syncFn();
 
-            // Check if webhooks arrived during sync - fire follow-up async (non-blocking)
+            // LOGIC CHANGE: documented why follow-up fires sequentially, not via Promise.allSettled (P-8)
+            // The follow-up sync MUST run after the main sync completes because:
+            // 1. The pending flag is set by webhooks arriving DURING the main sync
+            // 2. The follow-up catches data that changed after the main sync's read snapshot
+            // 3. Running them concurrently would miss the very changes the follow-up exists to capture
+            // The follow-up is already non-blocking (fire-and-forget via .catch), so it doesn't
+            // delay the response to the caller.
             if (isPending()) {
                 logger.info(`Webhooks arrived during ${type} sync - scheduling follow-up sync`, {
                     merchantId
