@@ -373,9 +373,10 @@ logger.info('Subscription enforcement middleware enabled (System A — merchant-
 // Gates paid feature modules. Base module routes are always accessible.
 // Must run AFTER loadMerchantContext (needs req.merchantContext.features).
 const { requireFeature } = require('./middleware/feature-gate');
+const { requirePermission } = require('./middleware/require-permission');
 
 // Path-specific gates for routers mounted at /api
-app.use('/api/cycle-counts', requireFeature('cycle_counts'));
+app.use('/api/cycle-counts', requireFeature('cycle_counts'), requirePermission('cycle_counts', 'read'));
 app.use('/api/expiry-discounts', requireFeature('expiry'));
 app.use('/api/expirations', requireFeature('expiry'));
 app.use('/api/vendors', requireFeature('reorder'));
@@ -384,7 +385,7 @@ app.use('/api/vendor-dashboard', requireFeature('reorder'));
 app.use('/api/sales-velocity', requireFeature('reorder'));
 app.use('/api/reorder-suggestions', requireFeature('reorder'));
 app.use('/api/labels', requireFeature('reorder'));
-app.use('/api/seniors', requireFeature('loyalty'));
+app.use('/api/seniors', requireFeature('loyalty'), requirePermission('loyalty', 'read'));
 app.use('/api/deleted-items', requireFeature('loyalty'));
 app.use('/api/google', requireFeature('gmc'));
 logger.info('Feature module gating enabled');
@@ -438,7 +439,7 @@ app.use('/api', subscriptionsRoutes);
 
 // ==================== LOYALTY ROUTES ====================
 // Frequent Buyer Program - digitizes brand-defined loyalty programs
-app.use('/api/loyalty', requireFeature('loyalty'), loyaltyRoutes);
+app.use('/api/loyalty', requireFeature('loyalty'), requirePermission('loyalty', 'read'), loyaltyRoutes);
 
 // ==================== GMC ROUTES ====================
 // Google Merchant Center feed generation and management
@@ -446,7 +447,7 @@ app.use('/api/gmc', requireFeature('gmc'), gmcRoutes);
 
 // ==================== DELIVERY ROUTES ====================
 // Delivery order management, POD photos, route optimization
-app.use('/api/delivery', requireFeature('delivery'), deliveryRoutes);
+app.use('/api/delivery', requireFeature('delivery'), requirePermission('delivery', 'read'), deliveryRoutes);
 
 // ==================== CART ACTIVITY ROUTES ====================
 // Shopping cart tracking for DRAFT orders from Square Online
@@ -494,9 +495,9 @@ app.use('/api', seniorsRoutes);
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/square/oauth', squareOAuthRoutes);
 app.use('/api/v1/purchase-orders', requireFeature('reorder'), purchaseOrdersRoutes);
-app.use('/api/v1/loyalty', requireFeature('loyalty'), loyaltyRoutes);
+app.use('/api/v1/loyalty', requireFeature('loyalty'), requirePermission('loyalty', 'read'), loyaltyRoutes);
 app.use('/api/v1/gmc', requireFeature('gmc'), gmcRoutes);
-app.use('/api/v1/delivery', requireFeature('delivery'), deliveryRoutes);
+app.use('/api/v1/delivery', requireFeature('delivery'), requirePermission('delivery', 'read'), deliveryRoutes);
 app.use('/api/v1/webhooks', webhooksSquareRoute);
 app.use('/api/v1', driverApiRoutes);
 app.use('/api/v1', subscriptionsRoutes);
