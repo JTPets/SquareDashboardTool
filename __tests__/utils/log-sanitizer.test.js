@@ -116,6 +116,43 @@ describe('log-sanitizer', () => {
         });
     });
 
+    describe('Symbol preservation', () => {
+        it('preserves Symbol properties on sanitized copy', () => {
+            const levelSym = Symbol.for('level');
+            const meta = { [levelSym]: 'info', message: 'hello', email: 'user@example.com' };
+            const result = sanitize(meta);
+            expect(result[levelSym]).toBe('info');
+            expect(result.email).toBe('***@example.com');
+            expect(result.message).toBe('hello');
+        });
+
+        it('piiSanitizer pattern preserves Symbol.for("level") on info object', () => {
+            // Simulates the piiSanitizer Winston format transform logic
+            // from utils/logger.js without requiring the winston module
+            const levelSym = Symbol.for('level');
+
+            function piiSanitizerTransform(info) {
+                const sanitized = sanitize(info);
+                for (const key of Object.keys(sanitized)) {
+                    info[key] = sanitized[key];
+                }
+                return info;
+            }
+
+            const info = {
+                [levelSym]: 'info',
+                level: 'info',
+                message: 'test log',
+                email: 'secret@example.com',
+            };
+
+            const result = piiSanitizerTransform(info);
+            expect(result[levelSym]).toBe('info');
+            expect(result.email).toBe('***@example.com');
+            expect(result.message).toBe('test log');
+        });
+    });
+
     describe('PII_FIELDS', () => {
         it('contains expected field names', () => {
             expect(PII_FIELDS.has('email')).toBe(true);
