@@ -66,11 +66,12 @@ desktop.ini
 
 # Output of 'npm pack'
 *.tgz
+# Runtime data directories
+storage/pod/
+public/feeds/
+
+# Historical cleanup (files accidentally created in repo root, never committed)
 .env.save
 core
 FETCH_HEAD
-et -a
-2026-*
 check_invoice.js
-storage/pod/
-public/feeds/

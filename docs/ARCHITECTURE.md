@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Roadmap](./ROADMAP.md)
 >
-> **Last Updated**: 2026-03-20
+> **Last Updated**: 2026-03-22
 
 ---
 
@@ -97,6 +97,60 @@ Request → requireAuth → loadMerchantContext → requireMerchant → requireV
 - NULL `trial_ends_at`: Grandfathered (full access — pre-trial merchants)
 
 `services/subscription-bridge.js` syncs payment events from the `subscribers` table (System B) to `merchants.subscription_status` (System A). Webhook handlers update both tables on subscription lifecycle events.
+
+---
+
+## Security Posture
+
+### Authentication
+- Session-based auth with bcrypt-12, PostgreSQL-backed session store
+- Session regeneration on login (session fixation prevention)
+- SHA-256 hashed password reset tokens with attempt limiting (5 attempts, 1hr expiry)
+- Account lockout: 5 failed attempts = 30-minute lockout
+
+### Multi-Tenant Isolation
+- `merchant_id` on every tenant-scoped table and every query
+- Merchant context derived from server-side session, never from request params
+- `requireMerchantAccess` middleware on admin routes accessing other merchants
+- Platform owners (`subscription_status = 'platform_owner'`) have cross-merchant access
+
+### Encryption
+- AES-256-GCM for Square OAuth tokens, Google OAuth tokens, and Claude API keys at rest
+- HMAC-SHA256 webhook signature verification with `crypto.timingSafeEqual()`
+
+### Rate Limiting
+
+| Limiter | Rate | Applied To |
+|---------|------|------------|
+| General | 100/15min per IP | All routes |
+| Login | 5/15min per IP+email | `/api/auth/login` |
+| AI Autofill | 10/15min per merchant | `/api/ai-autofill/*` |
+| Webhook | 100/min per merchant | `/api/webhooks/square` |
+| Delivery | 30/5min per user | Delivery endpoints |
+| Sensitive Ops | 5/hr per merchant | Password changes, token regen |
+| Subscription | 5/hr per IP | Create/status endpoints |
+| Password Reset | 5/15min per token | `/api/auth/reset-password` |
+
+### Request Correlation
+- UUID v4 `requestId` generated per request (or reused from `X-Request-ID` header)
+- Attached to `req.requestId` and `req.log` (Winston child logger)
+- Echoed in `X-Request-ID` response header
+- Included in all `sendError()` response bodies for support reference
+
+### PII Protection
+- `utils/log-sanitizer.js` automatically redacts emails, phone numbers, and customer names from all Winston log output
+- Safe fields preserved: merchantId, userId, squareCustomerId, orderId
+
+### Input Validation
+- 28 express-validator modules (1:1 with route files)
+- All SQL parameterized ($1, $2) — zero string concatenation
+- `escapeHtml()` and `escapeAttr()` on all user-controlled data in frontend innerHTML
+- CSP headers block inline scripts
+
+### Off-Site Backup
+- Cloudflare R2 upload after pg_dump (when `BACKUP_R2_ENABLED=true`)
+- Last 7 daily backups retained in R2
+- AWS Signature V4 signing with native HTTPS (no SDK)
 
 ---
 
