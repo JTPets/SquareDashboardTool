@@ -69,6 +69,7 @@ DROP TABLE IF EXISTS categories CASCADE;
 DROP TABLE IF EXISTS vendors CASCADE;
 DROP TABLE IF EXISTS locations CASCADE;
 DROP TABLE IF EXISTS sync_history CASCADE;
+DROP TABLE IF EXISTS staff_invitations CASCADE;
 DROP TABLE IF EXISTS user_merchants CASCADE;
 DROP TABLE IF EXISTS merchant_invitations CASCADE;
 DROP TABLE IF EXISTS oauth_states CASCADE;
@@ -2398,6 +2399,42 @@ CREATE TABLE IF NOT EXISTS merchant_features (
 
 CREATE INDEX IF NOT EXISTS idx_merchant_features_lookup
     ON merchant_features(merchant_id, feature_key, enabled);
+
+-- ==================== MULTI-TENANT ACCESS TABLES ====================
+
+CREATE TABLE IF NOT EXISTS user_merchants (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    role TEXT NOT NULL DEFAULT 'user',
+    is_primary BOOLEAN DEFAULT FALSE,
+    invited_by INTEGER REFERENCES users(id),
+    invited_at TIMESTAMPTZ DEFAULT NOW(),
+    accepted_at TIMESTAMPTZ,
+    UNIQUE(user_id, merchant_id),
+    CONSTRAINT valid_role CHECK (role IN ('owner', 'manager', 'clerk', 'readonly', 'user'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_merchants_user ON user_merchants(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_merchants_merchant ON user_merchants(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_user_merchants_primary ON user_merchants(user_id, is_primary) WHERE is_primary = TRUE;
+
+CREATE TABLE IF NOT EXISTS staff_invitations (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    accepted_at TIMESTAMPTZ,
+    invited_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(merchant_id, email),
+    CONSTRAINT valid_invitation_role CHECK (role IN ('manager', 'clerk', 'readonly'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_staff_invitations_merchant ON staff_invitations(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_staff_invitations_token_hash ON staff_invitations(token_hash);
 
 -- ========================================
 -- FINAL: Schema creation complete

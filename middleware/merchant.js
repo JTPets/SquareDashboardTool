@@ -106,7 +106,9 @@ async function loadMerchantContext(req, res, next) {
             squareMerchantId: m.square_merchant_id,
             businessName: m.business_name,
             businessEmail: m.business_email,
-            userRole: m.user_role,
+            userRole: m.subscription_status === 'platform_owner'
+                ? 'owner'
+                : (m.user_role || 'user'),
             subscriptionStatus: m.subscription_status,
             trialEndsAt: m.trial_ends_at,
             subscriptionEndsAt: m.subscription_ends_at,

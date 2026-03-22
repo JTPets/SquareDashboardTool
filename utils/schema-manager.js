@@ -1859,7 +1859,7 @@ async function ensureSchema() {
                 invited_at TIMESTAMPTZ DEFAULT NOW(),
                 accepted_at TIMESTAMPTZ,
                 UNIQUE(user_id, merchant_id),
-                CONSTRAINT valid_role CHECK (role IN ('owner', 'admin', 'user', 'readonly'))
+                CONSTRAINT valid_role CHECK (role IN ('owner', 'manager', 'clerk', 'readonly', 'user'))
             )
         `);
         await query('CREATE INDEX IF NOT EXISTS idx_user_merchants_user ON user_merchants(user_id)');
@@ -1891,6 +1891,32 @@ async function ensureSchema() {
         await query('CREATE INDEX IF NOT EXISTS idx_merchant_invitations_email ON merchant_invitations(email)');
         await query('CREATE INDEX IF NOT EXISTS idx_merchant_invitations_merchant ON merchant_invitations(merchant_id)');
         logger.info('Created merchant_invitations table');
+        appliedCount++;
+    }
+
+    // Staff invitations (role-based access control)
+    const staffInvitationsTableCheck = await query(`
+        SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'staff_invitations')
+    `);
+    if (!staffInvitationsTableCheck.rows[0].exists) {
+        await query(`
+            CREATE TABLE IF NOT EXISTS staff_invitations (
+                id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                email TEXT NOT NULL,
+                role TEXT NOT NULL,
+                token_hash TEXT NOT NULL,
+                expires_at TIMESTAMPTZ NOT NULL,
+                accepted_at TIMESTAMPTZ,
+                invited_by INTEGER REFERENCES users(id),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE(merchant_id, email),
+                CONSTRAINT valid_invitation_role CHECK (role IN ('manager', 'clerk', 'readonly'))
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_staff_invitations_merchant ON staff_invitations(merchant_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_staff_invitations_token_hash ON staff_invitations(token_hash)');
+        logger.info('Created staff_invitations table');
         appliedCount++;
     }
 
