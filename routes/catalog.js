@@ -50,8 +50,8 @@ const { sendSuccess, sendError } = require('../utils/response-helper');
  */
 router.get('/locations', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const locations = await catalogService.getLocations(merchantId);
-    sendSuccess(res, { locations });
+    const result = await catalogService.getLocations(merchantId);
+    sendSuccess(res, result);
 }));
 
 /**
