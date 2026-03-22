@@ -10,6 +10,7 @@
  *   POST /api/admin/merchants/:merchantId/deactivate   - Deactivate merchant (expire trial)
  *   GET  /api/admin/settings                           - List all platform settings
  *   PUT  /api/admin/settings/:key                      - Update a platform setting
+ *   POST /api/admin/test-email                          - Test email configuration
  */
 
 const express = require('express');
@@ -22,6 +23,7 @@ const { requireMerchantAccess } = require('../middleware/merchant-access');
 const asyncHandler = require('../middleware/async-handler');
 const platformSettings = require('../services/platform-settings');
 const validators = require('../middleware/validators/admin');
+const emailNotifier = require('../utils/email-notifier');
 const { sendSuccess, sendError } = require('../utils/response-helper');
 
 /**
@@ -140,6 +142,23 @@ router.put('/settings/:key', requireAuth, requireAdmin, validators.updateSetting
     sendSuccess(res, {
         setting: { key, value }
     });
+}));
+
+/**
+ * POST /api/admin/test-email
+ * Send a test email to verify email configuration
+ */
+router.post('/test-email', requireAuth, requireAdmin, validators.testEmail, asyncHandler(async (req, res) => {
+    try {
+        await emailNotifier.testEmail();
+        sendSuccess(res, {
+            message: 'Test email sent successfully',
+            provider: emailNotifier.getProvider()
+        });
+    } catch (error) {
+        logger.error('Test email failed', { error: error.message });
+        return sendError(res, error.message, 400, 'EMAIL_SEND_FAILED');
+    }
 }));
 
 module.exports = router;

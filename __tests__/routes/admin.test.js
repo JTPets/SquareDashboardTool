@@ -6,6 +6,7 @@
  * - Trial extension
  * - Merchant deactivation
  * - Platform settings CRUD
+ * - Test email endpoint
  */
 
 jest.mock('../../utils/logger', () => ({
@@ -36,6 +37,15 @@ jest.mock('../../services/platform-settings', () => ({
     setSetting: jest.fn(),
     getAllSettings: jest.fn(),
     clearCache: jest.fn(),
+}));
+
+jest.mock('../../utils/email-notifier', () => ({
+    testEmail: jest.fn().mockResolvedValue(),
+    getProvider: jest.fn().mockReturnValue('smtp'),
+    sendCritical: jest.fn().mockResolvedValue(),
+    sendAlert: jest.fn().mockResolvedValue(),
+    sendHeartbeat: jest.fn().mockResolvedValue(),
+    enabled: false,
 }));
 
 // Mock merchant-access middleware — pass through in route-level tests
@@ -274,6 +284,44 @@ describe('Admin Routes', () => {
                 .put('/api/admin/settings/INVALID-KEY!')
                 .send({ value: 'test' })
                 .expect(400);
+        });
+    });
+
+    describe('POST /api/admin/test-email', () => {
+        it('should send test email and return provider info', async () => {
+            const emailNotifier = require('../../utils/email-notifier');
+            emailNotifier.testEmail.mockResolvedValueOnce();
+
+            const res = await request(app)
+                .post('/api/admin/test-email')
+                .expect(200);
+
+            expect(res.body.success).toBe(true);
+            expect(res.body.message).toContain('Test email sent');
+            expect(res.body.provider).toBe('smtp');
+            expect(emailNotifier.testEmail).toHaveBeenCalledTimes(1);
+        });
+
+        it('should return 400 when email sending fails', async () => {
+            const emailNotifier = require('../../utils/email-notifier');
+            emailNotifier.testEmail.mockRejectedValueOnce(
+                new Error('Email notifications are disabled. Set EMAIL_ENABLED=true in .env')
+            );
+
+            const res = await request(app)
+                .post('/api/admin/test-email')
+                .expect(400);
+
+            expect(res.body.success).toBe(false);
+            expect(res.body.error).toContain('EMAIL_ENABLED');
+            expect(res.body.code).toBe('EMAIL_SEND_FAILED');
+        });
+
+        it('should require admin role', async () => {
+            const nonAdminApp = createTestApp('user');
+            await request(nonAdminApp)
+                .post('/api/admin/test-email')
+                .expect(403);
         });
     });
 });

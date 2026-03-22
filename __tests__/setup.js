@@ -27,8 +27,15 @@ jest.mock('../utils/email-notifier', () => ({
     sendCritical: jest.fn().mockResolvedValue(),
     sendAlert: jest.fn().mockResolvedValue(),
     sendInfo: jest.fn().mockResolvedValue(),
+    sendHeartbeat: jest.fn().mockResolvedValue(),
+    sendBackup: jest.fn().mockResolvedValue(),
+    sendBackupNotification: jest.fn().mockResolvedValue(),
+    testEmail: jest.fn().mockResolvedValue(),
     _resolveRecipient: jest.fn().mockResolvedValue('test@example.com'),
+    _send: jest.fn().mockResolvedValue(),
+    getProvider: jest.fn().mockReturnValue('smtp'),
     enabled: false,
+    provider: 'smtp',
 }));
 
 // Mock database to prevent actual PostgreSQL connections during tests

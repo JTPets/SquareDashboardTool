@@ -28,6 +28,7 @@ const { runScheduledReconciliation } = require('./committed-inventory-reconcilia
 const { runScheduledTrialExpiryNotifications } = require('./trial-expiry-job');
 const { runScheduledLoyaltySyncRetry } = require('./loyalty-sync-retry-job');
 const { runScheduledHealthCheck } = require('./catalog-health-job');
+const { runScheduledHeartbeat } = require('./email-heartbeat-job');
 const syncQueue = require('../services/sync-queue');
 
 // Store cron task references for graceful shutdown
@@ -156,6 +157,14 @@ function initializeCronJobs() {
         timezone: 'America/Toronto'
     }));
     logger.info('Catalog health cron job scheduled', { schedule: catalogHealthSchedule, timezone: 'America/Toronto' });
+
+    // 16. Email heartbeat — daily "system alive" email
+    // Only enabled when EMAIL_HEARTBEAT_ENABLED=true
+    const heartbeatSchedule = process.env.EMAIL_HEARTBEAT_CRON || '0 8 * * *';
+    cronTasks.push(cron.schedule(heartbeatSchedule, runScheduledHeartbeat, {
+        timezone: 'America/Toronto'
+    }));
+    logger.info('Email heartbeat cron job scheduled', { schedule: heartbeatSchedule, timezone: 'America/Toronto' });
 
     return cronTasks;
 }
