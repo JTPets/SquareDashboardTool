@@ -20,18 +20,18 @@
 | 7 | Error Handling & Information Leakage | **A** | Global handler sanitizes production errors. Two low-severity response helper bypasses noted. |
 | 8 | Logging & Observability | **C+** | Structured JSON logging, proper levels. PII in logs (emails on every request, customer names/phones/addresses). No request correlation. |
 | 9 | Dependency Risk | **A** | Zero npm audit vulnerabilities, all permissive licenses, lean dep count. node-fetch v2 approaching EOL. |
-| 10 | Testing | **A** | 4,035 tests, all critical paths covered, tests exercise real logic. 7/27 admin routes untested. |
+| 10 | Testing | **C+** | 4,035 tests but 54% statement coverage. Payment test file (849 lines) is entirely tautological. Validators at 0%. Loyalty excellent (94.5%). |
 | 11 | Documentation | **B+** | README.md and .env.example (316 lines) both comprehensive. CLAUDE.md accurate with minor drift. Missing 3 env vars, no CONTRIBUTING.md. |
 | 12 | Deployment & Operations | **C+** | PM2 config, migration runner, deploy script all solid. No off-site backup, no rollback procedure, no external monitoring. |
 | 13 | Compliance | **B-** | PCI-DSS clean, Square terms followed. PIPEDA gaps: no data retention policy, no DSAR procedure. |
 
 ---
 
-## Overall Grade: **B+**
+## Overall Grade: **B**
 
-The application's **core security posture is strong** — parameterized queries, tenant isolation, authentication, encryption, and error handling are all well-implemented. The weaknesses are in **operational maturity** (logging hygiene, deployment hardening, documentation, compliance procedures) rather than in code security.
+The application's **core security posture is strong** — parameterized queries, tenant isolation, authentication, encryption, and error handling are all well-implemented. The weaknesses are in **operational maturity** (logging hygiene, deployment hardening, compliance procedures) and **test coverage** (payment path has zero real tests, validators untested, 54% overall statement coverage).
 
-For a production SaaS handling real merchant data: the code is safe, but the operational wrapper needs work before scaling beyond a single tenant.
+For a production SaaS handling real merchant data: the code is safe, but the operational wrapper and test coverage need work before scaling beyond a single tenant.
 
 ---
 
@@ -39,11 +39,11 @@ For a production SaaS handling real merchant data: the code is safe, but the ope
 
 ```
 A+ : 4 sections (Multi-Tenant, Auth, Injection, Data Integrity)
-A  : 4 sections (API Integration, Error Handling, Dependencies, Testing)
+A  : 3 sections (API Integration, Error Handling, Dependencies)
 B+ : 1 section  (Documentation)
 B  : 1 section  (Secret Scan)
 B- : 1 section  (Compliance)
-C+ : 2 sections (Logging, Deployment)
+C+ : 3 sections (Testing, Logging, Deployment)
 F  : 0 sections
 ```
 
@@ -53,18 +53,18 @@ F  : 0 sections
 
 | # | Finding | Section | Severity | Effort | Description |
 |---|---------|---------|----------|--------|-------------|
-| 1 | Off-site database backup | 12 | **CRITICAL** | 2-4 hrs | Backups stored on same SD card as database. Card failure = total data loss. Rsync to cloud or second device. |
-| 2 | Remove PII from request logs | 8 | **HIGH** | 30 min | `server.js:251` logs user email on every HTTP request. Replace with userId. |
-| 3 | Add missing env vars to `.env.example` | 11 | **MEDIUM** | 10 min | `OPENROUTESERVICE_API_KEY`, `ADMIN_EMAIL`/`ADMIN_PASSWORD` missing from otherwise comprehensive .env.example. |
+| 1 | Rewrite subscription/payment tests | 10 | **CRITICAL** | 8-12 hrs | `subscriptions.test.js` is 849 lines of tautological tests. Zero lines of payment route code exercised. The most critical path has zero real test coverage. |
+| 2 | Off-site database backup | 12 | **CRITICAL** | 2-4 hrs | Backups stored on same SD card as database. Card failure = total data loss. Rsync to cloud or second device. |
+| 3 | Remove PII from request logs | 8 | **HIGH** | 30 min | `server.js:251` logs user email on every HTTP request. Replace with userId. |
 | 4 | Data retention policy + automated PII cleanup | 13 | **HIGH** | 4-8 hrs | PIPEDA requires defined retention. delivery_orders and loyalty tables retain customer PII indefinitely. |
 | 5 | Add request correlation middleware | 8 | **HIGH** | 2-4 hrs | No request ID in log entries. Cannot trace a single request across log files. Use AsyncLocalStorage + Winston format. |
-| 6 | External uptime monitoring | 12 | **MEDIUM** | 1 hr | No external service polls /api/health. If Pi goes down completely, nobody is notified. Set up UptimeRobot or similar. |
+| 6 | Add validator tests | 10 | **HIGH** | 6-8 hrs | 28 validator files in `middleware/validators/` at 0% coverage. Input validation is a security boundary. |
 | 7 | Token refresh race condition lock | 5 | **MEDIUM** | 2 hrs | Concurrent requests can trigger simultaneous token refreshes for same merchant. Add per-merchant mutex. |
-| 8 | Harden .gitignore | 1 | **MEDIUM** | 30 min | Suspicious entries suggest past accidental file creation. Clean up and add proactive patterns. |
+| 8 | External uptime monitoring | 12 | **MEDIUM** | 1 hr | No external service polls /api/health. If Pi goes down completely, nobody is notified. |
 | 9 | DSAR procedure for customer data | 13 | **MEDIUM** | 4-6 hrs | PIPEDA requires ability to access/correct/delete customer PII on request. No endpoint or procedure exists. |
 | 10 | Document rollback + disaster recovery procedure | 12 | **MEDIUM** | 3-4 hrs | No runbook for reverting a bad deploy or recovering from hardware failure. |
 
-**Total estimated effort: ~20-35 hours**
+**Total estimated effort: ~35-50 hours**
 
 ---
 
@@ -74,16 +74,16 @@ F  : 0 sections
 
 | Item | Effort | Impact |
 |------|--------|--------|
+| Rewrite `subscriptions.test.js` with real tests | 8-12 hrs | Payment path has zero real coverage |
 | Off-site database backup | 2-4 hrs | Prevents total data loss |
 | Remove email from request logs | 30 min | Stops ongoing PII accumulation |
-| Add missing env vars to .env.example | 10 min | Prevents delivery route failure on new deploy |
 | External uptime monitoring | 1 hr | Alerts when Pi is unreachable |
-| Harden .gitignore | 30 min | Prevents future accidents |
 
 ### Short-term (within 30 days)
 
 | Item | Effort | Impact |
 |------|--------|--------|
+| Add validator tests (28 files at 0%) | 6-8 hrs | Security boundary untested |
 | Request correlation middleware | 2-4 hrs | Production debugging capability |
 | Token refresh lock | 2 hrs | Prevents token race condition |
 | Data retention policy | 4-8 hrs | PIPEDA compliance |
@@ -94,10 +94,9 @@ F  : 0 sections
 | Item | Effort | Impact |
 |------|--------|--------|
 | DSAR procedure | 4-6 hrs | Full PIPEDA compliance |
-| README.md | 2-3 hrs | Developer onboarding |
+| Increase test coverage to 70%+ | 16-24 hrs | vendor/merchant/seniors services critically low |
 | Integration tests with real DB | 8-16 hrs | Higher confidence testing |
 | Migrate node-fetch to native fetch | 2-4 hrs | Remove unmaintained dep |
-| Contributing guide + PR templates | 2-3 hrs | Contributor onboarding |
 | Encrypt gmc_feed_token | 1 hr | Consistent encryption policy |
 | Add jest coverage threshold to CI | 1 hr | Prevent coverage regression |
 
