@@ -497,4 +497,4 @@ To maintain ongoing compliance with Square App Marketplace requirements, SqTools
 
 ---
 
-*Last Updated: January 2026*
+*Last Updated: 2026-03-22*

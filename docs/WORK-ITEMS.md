@@ -3,7 +3,7 @@
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
 **Last Validated**: 2026-03-22
-**Total Open Items**: ~35
+**Total Open Items**: ~53
 
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
@@ -221,12 +221,6 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | BACKLOG-92 | Category performance audit for dead stock and shrink management — identify underperforming categories or subcategories by combining sales velocity, margin, and inventory age. Example: canned cat food section is out of room. Tool surfaces slow movers (low velocity), low margin items, and items with high days-on-shelf. Actions: mark for clearance (triggers expiry discount system at a custom tier), flag as "do not reorder" (adds friction to PO generation for these items), or discontinue (remove from next vendor order). Builds on existing sales velocity, margin data, and expiry automation. Critical for space-constrained stores optimizing shelf allocation. | New service + routes, `services/expiry/`, `services/purchase-orders/` | M | 2026-03-20 |
 | BACKLOG-93 | Emergency expiry flag by UPC scan — staff finds a product on the shelf that's close to or already expired. Scan the barcode, system pulls up the item, staff enters the expiry date and immediately flags it for discount tier evaluation. Item enters the expiry automation pipeline (25%/50%/pull) right away instead of waiting for the next daily cron. Use case: "I just found this on the floor and it expires in 3 days, sticker it now." Mobile-friendly single-scan workflow, similar to cycle count's "Mark as Counted" flow but for expiry. Builds on existing `variation_expiration` table and `applyDiscounts()` in `discount-service.js`. | `services/expiry/`, `routes/`, `public/js/` | M | 2026-03-20 |
 
-### Data Integrity
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| ~~Backfill~~ | ~~Historical `loyalty_purchase_events` with incorrect quantity — pre-2026-03-07 dedup bug.~~ **WON'T FIX 2026-03-20** — Old paper card conversion data, likely untracked or already redeemed. No business impact. Quantity inaccuracies in pre-dedup-fix events do not affect current loyalty calculations (dedup fix deployed 2026-03-07 prevents new occurrences). Historical data is reference-only. | `purchase-service.js` | M | 2026-03-07 |
-
 ### Multi-Tenant Gaps
 
 | ID | Description | Effort | Discovered |
@@ -237,50 +231,12 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | MT-9 | Health check picks arbitrary merchant for Square status via `LIMIT 1`. | S | 2026-03-08 |
 | MT-11 | Single global `TOKEN_ENCRYPTION_KEY` for all merchants — no per-merchant key derivation. | S | 2026-03-08 |
 
-### Testing
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| ~~T-4~~ | ~~Background jobs mostly untested — 2 of 16 jobs have tests (`cron-scheduler`, `trial-expiry-job`). 13 jobs untested.~~ **FIXED 2026-03-20** — Added test files for all 13 untested jobs: backup, cart-activity-cleanup, catalog-health, catalog-location-health, committed-inventory-reconciliation, cycle-count, expiry-discount, loyalty-audit, loyalty-catchup, loyalty-sync-retry, seniors-day, sync, webhook-retry. Each covers: import check, empty data handling, DB error handling, merchant_id scoping. | `jobs/`, `__tests__/jobs/` | L | 2026-02-25 |
-
-
 ## Low Priority
-
-### Performance
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| ~~PERF-6~~ | ~~FIXED 2026-03-20~~ — Replaced 3 sales_velocity JOINs with 1 LATERAL (conditional aggregation), replaced 3 correlated primary-vendor subqueries with 1 LATERAL JOIN. Net: 8 JOINs + 2 LATERAL + 1 subquery (was 11 JOINs + 4 subqueries). Added 3 composite indexes. Query duration now logged. | `services/catalog/reorder-service.js` | M | 2026-02-28 |
-| ~~PERF-7~~ | ~~FIXED 2026-03-20~~ — N+1 bundle component inserts replaced with single multi-row VALUES INSERT in `_batchInsertComponents()`. Fixed during A-2 service extraction. | `services/bundle-service.js` | S | 2026-02-28 |
-| ~~P-5~~ | ~~FIXED 2026-03-20~~ — Added `listenerCount` guard to `utils/google-auth.js:getAuthenticatedClient()` to match merchant-service pattern. Added error handling in listener. | `utils/google-auth.js`, `services/gmc/merchant-service.js` | S | 2026-02-25 |
-| ~~P-8~~ | ~~FIXED 2026-03-20~~ — Documented why follow-up syncs must be sequential (pending flag depends on main sync completion). Pattern is already non-blocking via fire-and-forget. | `services/sync-queue.js:232-242` | S | 2026-02-25 |
-
-### Dead Code / Cleanup
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| ~~BACKLOG-89~~ | ~~FIXED 2026-03-20~~ — `supplier_item_number` removed from schema, reports, allowlist. Migration `002_drop_supplier_item_number.sql` drops column. | `loyalty-reports.js`, `variation-service.js`, migration | S | 2026-03-19 |
-
-### Code Quality
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| ~~Velocity~~ | ~~FIXED 2026-03-20~~ — `return_amounts` replaced with correct `total_money` field. | `square-velocity.js` | S | 2026-03-15 |
-| ~~Vendor~~ | ~~`reconcileVendorId` silent no-op — vendor name changes don't propagate until next full sync.~~ **FIXED 2026-03-20** — Returns boolean, callers check it, name casing updates applied. | `services/square/square-vendors.js:53-80` | S | 2026-03-15 |
-| ~~Google~~ | ~~FIXED 2026-03-20~~ — `loadTokens()` now force-rotates plaintext tokens to encrypted on read (fire-and-forget). | `utils/google-auth.js` | S | 2026-03-15 |
-
-### Architecture
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| ~~A-3~~ | ~~Circular dependency — `middleware/merchant.js` ↔ `routes/square-oauth.js` via deferred `require()`.~~ **FIXED 2026-03-20** — Moved deferred require to top-level in merchant.js; removed re-export from square-oauth.js. `refreshMerchantToken` lives in `utils/square-token.js`. | Multiple | S | 2026-02-25 |
-| ~~O-5~~ | ~~Business logic leaking into API sync layer — vendor sync logic embedded in catalog sync.~~ **FIXED 2026-03-20** — Extracted `syncVariationVendors()` to `square-vendors.js`. | `services/square/square-vendors.js` | M | 2026-02-25 |
 
 ### Config
 
 | ID | Description | Effort | Discovered |
 |----|-------------|--------|------------|
-| ~~C-1~~ | ~~FIXED 2026-03-20~~ — Moved repeated magic numbers (MAX_RETRIES, RETRY_DELAY_MS, BATCH_SIZE, INTER_BATCH_DELAY_MS) to `config/constants.js`. Updated 10 callers. | M | 2026-02-25 |
 | C-4 | Backups not encrypted at rest, no post-backup verification, local only. | M | 2026-02-25 |
 
 ### Features (Low)
@@ -308,22 +264,10 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | Effort | Discovered |
 |----|-------------|--------|------------|
-| ~~BACKLOG-3~~ | ~~Response format standardization.~~ **FIXED 2026-03-20** — All 35 route files (including 10 loyalty sub-routes) converted to use `sendSuccess`/`sendError`/`sendPaginated` from `utils/response-helper.js`. Helper uses flat-merge pattern (`{ success: true, ...data }`) to preserve existing response shapes while adding consistent `success` flag. Error responses standardized to `{ success: false, error, code }`. File downloads, redirects, and binary responses left unchanged. `sendPaginated` added for paginated endpoints. | M | 2026-01-01 |
-| ~~BACKLOG-17~~ | ~~Customer lookup helpers duplicated (DEDUP L-4).~~ **FIXED 2026-03-20** — customer-admin-service delegates to customer-details-service. | M | 2026-02-17 |
-| ~~BACKLOG-23~~ | ~~Currency formatting — no shared helper (DEDUP G-3).~~ **FIXED 2026-03-20** | S | 2026-02-17 |
-| ~~BACKLOG-25~~ | ~~Location lookup queries repeated across 6 routes (DEDUP G-5).~~ **FIXED 2026-03-20** | S | 2026-02-17 |
-| ~~BACKLOG-26~~ | ~~Date string formatting pattern repeated 12 times (DEDUP G-7).~~ **FIXED 2026-03-20** | S | 2026-02-17 |
-| ~~BACKLOG-27~~ | ~~Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8).~~ **FIXED 2026-03-20** | S | 2026-02-17 |
-| ~~BACKLOG-34~~ | ~~Doc: Square reuses variation IDs on POS reorder delete/recreate.~~ **DOCUMENTED 2026-03-20** — Added to ARCHITECTURE.md. | S | 2026-02-24 |
-| ~~BACKLOG-40~~ | ~~exceljs pulls deprecated transitive deps — evaluate lighter library.~~ **INVESTIGATED 2026-03-20** — No swap needed; no active vulnerabilities. Re-evaluate if transitive deps become security risks. | S | 2026-03-01 |
-| ~~BACKLOG-9~~ | ~~In-memory global state — PM2 restart recovery.~~ **DOCUMENTED 2026-03-20** — All in-memory state audited; all are self-healing caches or already DB-persisted. Comments added. | S | 2026-01-26 |
 | BACKLOG-46 | QuickBooks daily sync. | L | 2026-02-01 |
 | BACKLOG-47 | Multi-channel inventory sync — Shopify, WooCommerce, BigCommerce. | XL | 2026-02-01 |
 | BACKLOG-48 | Clover POS integration. | XL | 2026-02-01 |
 | BACKLOG-49 | Stripe payment integration. | L | 2026-02-01 |
-| ~~BACKLOG-57~~ | ~~FIXED 2026-03-20~~ — `applyDiscounts()` now skips DB update and DISCOUNT_APPLIED audit log when variation is already at correct tier and price. | S | 2026-03-15 |
-| ~~BACKLOG-58~~ | ~~FIXED 2026-03-20~~ — Inventory webhook handler now flags AUTO25/AUTO50 items for manual review (`needs_manual_review=TRUE`) when inventory changes. Next cron run re-evaluates. | S | 2026-03-15 |
-| ~~EXPIRY-REORDER-AUDIT~~ | ~~Clearance items receiving new PO/restock should be flagged for re-audit. No trigger exists.~~ **FIXED 2026-03-20** — PO receive route flags AUTO25/AUTO50 items for manual review. | S | 2026-03-15 |
 
 ---
 
@@ -333,9 +277,9 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 |------|-------|
 | Critical | 0 |
 | High | 4 |
-| Medium | ~25 |
-| Low | ~17 |
-| Nice to Have | 13 |
-| **Total** | **~41** |
+| Medium | ~35 |
+| Low | ~10 |
+| Nice to Have | 4 |
+| **Total** | **~53** |
 
-**Validation delta**: ~95 → ~65 → ~49 → ~44 → ~37 → ~34 → ~31 items. **90 items purged** across six validations (2026-03-15: 46 items, 2026-03-17/19: 26 items, 2026-03-20: 5 items, 2026-03-20b: 7 items, 2026-03-20c: 3 items, 2026-03-20d: 3 items).
+**Validation delta**: ~95 → ~65 → ~49 → ~44 → ~37 → ~34 → ~31 → ~53 items. **90+ items purged** across seven validations. 2026-03-22: removed all strikethrough/FIXED entries from active tables (consolidated into purge log). New medium-priority feature items added in 2026-03-18–20 sessions account for the count increase.

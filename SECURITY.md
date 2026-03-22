@@ -15,6 +15,9 @@ This document describes the security architecture, controls, and testing practic
 | Token Security | ✅ Encrypted | AES-256-GCM for OAuth tokens at rest |
 | Webhook Security | ✅ Verified | HMAC-SHA256 signature validation |
 | Dependency Security | ✅ Audited | 0 npm vulnerabilities |
+| PII Protection | ✅ Redacted | Log sanitizer strips emails, phones, names |
+| Request Correlation | ✅ Enabled | UUID per request in logs and error responses |
+| Off-Site Backup | ✅ Available | Cloudflare R2 (when configured) |
 
 ---
 
@@ -101,9 +104,14 @@ This document describes the security architecture, controls, and testing practic
 ### Rate Limiting
 | Endpoint Type | Limit | Window |
 |---------------|-------|--------|
-| Login | 5 requests | 15 minutes |
-| General API | 100 requests | 1 minute |
-| Sensitive Operations | 5 requests | 1 hour |
+| General | 100 requests | 15 minutes per IP |
+| Login | 5 requests | 15 minutes per IP+email |
+| AI Autofill | 10 requests | 15 minutes per merchant |
+| Webhook | 100 requests | 1 minute per merchant |
+| Delivery | 30 requests | 5 minutes per user |
+| Sensitive Operations | 5 requests | 1 hour per merchant |
+| Subscription | 5 requests | 1 hour per IP |
+| Password Reset | 5 requests | 15 minutes per token |
 
 ### Security Headers (Helmet.js)
 - `Content-Security-Policy` — Script source restrictions
@@ -190,7 +198,10 @@ File uploads validated by actual file content, not just MIME type:
 | Auth middleware | 38 | ~85% |
 | Multi-tenant isolation | 27 | ~30% |
 | File validation | 30 | 100% |
-| **Total** | **194** | Security-critical paths |
+| Background jobs | 170 | — |
+| Schema integrity | 46 | — |
+| Frontend utility validation | 36 | — |
+| **Total** | **4,500+** | **219 suites** |
 
 ### Running Tests
 ```bash
@@ -269,4 +280,14 @@ For security concerns or vulnerability reports, contact: security@sqtools.ca
 
 ---
 
-*Last Updated: January 2026*
+## Security Audit History
+
+| Date | Scope | Grade | Auditor |
+|------|-------|-------|---------|
+| 2026-03-22 | 13-section full audit (secrets, tenant isolation, auth, injection, API safety, data integrity, error handling, logging, dependencies, testing, docs, deployment, compliance) | B+ | Automated (Claude) |
+
+Key findings: Zero CRITICAL, zero HIGH. 5 MEDIUM items all remediated same day. Core security (sections 2-4, 6) rated A+. Operational areas (logging, deployment, compliance) identified as improvement areas for multi-tenant scaling.
+
+---
+
+*Last Updated: 2026-03-22*

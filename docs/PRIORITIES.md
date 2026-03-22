@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Work Items](./WORK-ITEMS.md) | [Roadmap](./ROADMAP.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Updated**: 2026-03-20
+**Last Updated**: 2026-03-22
 
 ---
 
@@ -46,12 +46,6 @@
 | BACKLOG-64 | Audit Square `sold_out` flag vs inventory = 0 | CLAUDE.md | M |
 | BACKLOG-65 | Sync Square Online Store category assignments | CLAUDE.md | M |
 
-### Testing
-
-| ID | Description | Source | Effort |
-|----|-------------|--------|--------|
-| T-4 | Background jobs mostly untested | CODEBASE_AUDIT_2026-02-25 | L |
-
 ---
 
 ## LOW Priority
@@ -69,20 +63,8 @@
 
 | ID | Description | Source | Effort |
 |----|-------------|--------|--------|
-| BACKLOG-3 | Response format standardization | CLAUDE.md | M |
-| BACKLOG-17 | Customer lookup helpers duplicated (DEDUP L-4) | CLAUDE.md | M |
-| BACKLOG-23 | Currency formatting — no shared helper, 14+ files (DEDUP G-3) | CLAUDE.md | S |
-| BACKLOG-25 | Location lookup queries repeated across 6 routes (DEDUP G-5) | CLAUDE.md | S |
-| BACKLOG-26 | Date string formatting pattern repeated 12 times (DEDUP G-7) | CLAUDE.md | S |
-| BACKLOG-27 | Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8) | CLAUDE.md | S |
 | BACKLOG-34 | Doc: Square reuses variation IDs on POS reorder | CLAUDE.md | S |
 | BACKLOG-40 | exceljs pulls deprecated transitive deps | CLAUDE.md | S |
-
-### Infra (Low)
-
-| ID | Description | Source | Effort |
-|----|-------------|--------|--------|
-| BACKLOG-9 | In-memory global state — PM2 restart recovery | CLAUDE.md | S |
 
 ---
 

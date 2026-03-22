@@ -11,14 +11,14 @@ Custom multi-tenant SaaS platform extending Square POS with loyalty, delivery, v
 | Component | Details |
 |-----------|---------|
 | **Runtime** | Node.js 18+ with Express.js |
-| **Database** | PostgreSQL 15 (67 tables, 70 migrations) |
+| **Database** | PostgreSQL 15 (67 tables, 3 active migrations (66 archived)) |
 | **External APIs** | Square SDK v43.2.1, Google APIs v144, Claude API |
 | **Auth** | Session-based, bcrypt (12 rounds), AES-256-GCM token encryption |
 | **Process Mgmt** | PM2 with clustering support |
 | **Infrastructure** | Raspberry Pi 5, Cloudflare Tunnel |
-| **Tests** | 4,035 across 187 suites, 0 failures (Jest) |
-| **Endpoints** | ~260 across 28 route modules |
-| **Frontend** | 33 HTML pages, CSP-compliant (no inline scripts) |
+| **Tests** | 4,500+ across 219 suites, 0 failures (Jest) |
+| **Endpoints** | ~283 across 28 route modules |
+| **Frontend** | 35 HTML pages, CSP-compliant (no inline scripts) |
 
 ---
 
@@ -88,14 +88,14 @@ POST /api/webhooks/square → HMAC verify → idempotency check → merchant res
 
 ### Project Structure
 ```
-routes/              28 route modules (~260 endpoints)
+routes/              28 route modules (~283 endpoints)
 middleware/          Auth, merchant context, security, 26 validator modules
 services/            Business logic (loyalty-admin, catalog, webhooks, reports, square, delivery, expiry, gmc, vendor, seniors, inventory, merchant)
 utils/               Database, logging, encryption, Square/Google API helpers
-public/              33 HTML frontend pages + JS
-database/            Schema (67 tables) + 70 migrations
+public/              35 HTML frontend pages + JS
+database/            Schema (67 tables) + 3 active migrations (66 archived)
 jobs/                12 cron tasks (velocity sync, expiry audit, backups, loyalty catchup, etc.)
-__tests__/           4,035 tests (Jest)
+__tests__/           4,500+ tests (Jest)
 ```
 
 ---
@@ -107,9 +107,10 @@ __tests__/           4,035 tests (Jest)
 | Loyalty-admin | 857+ | — |
 | Security (auth, encryption, validation) | 194 | — |
 | Routes, services, webhooks | ~2,900+ | — |
-| **Total** | **4,035** | **187** |
+| **Total** | **4,500+** | **219** |
+| **Security Audit** | B+ overall, A+ core security (2026-03-22) |
 
-*As of 2026-03-15. 0 failures. ~9% of source files without dedicated test files (validators tested through routes, scripts with dry-run, barrel files).*
+*As of 2026-03-22. 0 failures. ~9% of source files without dedicated test files (validators tested through routes, scripts with dry-run, barrel files).*
 
 ---
 
@@ -137,10 +138,10 @@ set -a && source .env && set +a && \
   PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f database/schema.sql
 
 # Run migrations
-for f in database/migrations/*.sql; do
-  set -a && source .env && set +a && \
-    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$f"
-done
+npm run migrate
+
+# Optional: verify schema matches expected definitions
+node scripts/validate-schema.js
 
 # Start development server
 npm run dev
