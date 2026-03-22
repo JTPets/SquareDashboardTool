@@ -180,7 +180,7 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 # Development
 npm start                    # Production
 npm run dev                  # Development with --watch
-pm2 restart square-dashboard-addon  # After code changes
+pm2 restart sqtools  # After code changes
 npm test                     # Run tests
 
 # View logs
@@ -250,7 +250,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | "relation does not exist" | Run missing migration |
 | "Cannot find module" | `npm install` |
 | "merchant_id cannot be null" | Add `requireMerchant` middleware |
-| Session issues after deploy | `pm2 restart square-dashboard-addon` |
+| Session issues after deploy | `pm2 restart sqtools` |
 | Square API "ITEM_AT_LOCATION not found" | Use `POST /api/catalog-audit/enable-item-at-locations` to enable item at all active locations |
 
 ---

@@ -16,7 +16,7 @@
 
 module.exports = {
   apps: [{
-    name: 'square-dashboard-addon',
+    name: 'sqtools',
     script: 'server.js',
 
     // Watch mode configuration

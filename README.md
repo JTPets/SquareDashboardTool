@@ -118,7 +118,7 @@ __tests__/           4,500+ tests (Jest)
 
 - **Development**: Claude Code on GitHub, feature branches from `main`
 - **Review**: Manual merge to `main`
-- **Deploy**: `pm2 restart square-dashboard-addon` on Raspberry Pi 5
+- **Deploy**: `pm2 restart sqtools` on Raspberry Pi 5
 - **Access**: Cloudflare Tunnel for external HTTPS
 
 ---
