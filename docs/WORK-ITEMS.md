@@ -171,6 +171,19 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 ---
 
+## In Progress — Feature Module Architecture
+
+Phase 1 of Feature Module Architecture. Execution plan: define feature registry (config only) → subscription enforcement middleware → frontend gating → billing integration.
+
+| Phase | Description | Status | File(s) |
+|-------|-------------|--------|---------|
+| Phase 1 | Feature registry — module definitions, route/page mapping, helper functions | DONE | `config/feature-registry.js`, `__tests__/config/feature-registry.test.js` |
+| Phase 2 | Subscription enforcement middleware — gate routes by active modules | TODO | `middleware/` |
+| Phase 3 | Frontend page gating — redirect to upgrade page for locked modules | TODO | `middleware/`, `public/` |
+| Phase 4 | Billing integration — Stripe/Square subscription management | TODO | New routes + services |
+
+---
+
 ## High Priority
 
 ### Business
