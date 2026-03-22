@@ -447,6 +447,38 @@ function configureSubscriptionRateLimit() {
     });
 }
 
+// LOGIC CHANGE: dedicated AI autofill rate limiter (Audit 3.4.1)
+// AI endpoints skip the global rate limiter but need their own limit
+// because Claude API calls are expensive per-request
+/**
+ * Configure rate limiting for AI autofill endpoints
+ * 10 requests per 15 minutes per merchant (Claude API calls are expensive)
+ */
+function configureAiAutofillRateLimit() {
+    return rateLimit({
+        windowMs: 15 * 60 * 1000,  // 15 minutes
+        max: 10,  // 10 AI requests per 15 minutes per merchant
+        message: {
+            error: 'Too many AI autofill requests, please try again later',
+            code: 'AI_AUTOFILL_RATE_LIMITED'
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        handler: (req, res, next, options) => {
+            logger.warn('AI autofill rate limit exceeded', {
+                ip: req.ip,
+                path: req.path,
+                merchantId: req.merchantContext?.id
+            });
+            res.status(429).json(options.message);
+        },
+        // Key by merchant ID — AI costs are per-merchant
+        keyGenerator: (req) => {
+            return req.merchantContext?.id ? `ai-${req.merchantContext.id}` : req.ip;
+        }
+    });
+}
+
 module.exports = {
     configureHelmet,
     configurePermissionsPolicy,
@@ -458,6 +490,7 @@ module.exports = {
     configureDeliveryStrictRateLimit,
     configureSensitiveOperationRateLimit,
     configureSubscriptionRateLimit,
+    configureAiAutofillRateLimit,
     configureCors,
     corsErrorHandler
 };

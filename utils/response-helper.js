@@ -27,6 +27,7 @@ function sendSuccess(res, data, statusCode = 200) {
 
 /**
  * Send an error response
+ * LOGIC CHANGE: includes requestId when available for support correlation (Audit 8.x)
  * @param {Object} res - Express response object
  * @param {string} message - Error message
  * @param {number} [statusCode=400] - HTTP status code
@@ -39,6 +40,10 @@ function sendError(res, message, statusCode = 400, code = null) {
     };
     if (code) {
         response.code = code;
+    }
+    // Include requestId so users can reference it in support requests
+    if (res.req?.requestId) {
+        response.requestId = res.req.requestId;
     }
     res.status(statusCode).json(response);
 }

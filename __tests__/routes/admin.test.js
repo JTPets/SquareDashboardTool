@@ -38,6 +38,12 @@ jest.mock('../../services/platform-settings', () => ({
     clearCache: jest.fn(),
 }));
 
+// Mock merchant-access middleware — pass through in route-level tests
+// (dedicated merchant-access tests in __tests__/middleware/merchant-access.test.js)
+jest.mock('../../middleware/merchant-access', () => ({
+    requireMerchantAccess: (req, res, next) => next(),
+}));
+
 const request = require('supertest');
 const express = require('express');
 const session = require('express-session');

@@ -7,6 +7,11 @@ jest.mock('../../middleware/auth', () => ({
 jest.mock('../../middleware/merchant', () => ({
     requireMerchant: (req, res, next) => { if (!req.merchantContext) return res.status(400).json({ error: 'Merchant context required' }); next(); },
 }));
+// Mock rate limiter — pass through in route-level tests
+// (dedicated rate limit tests in __tests__/middleware/ai-autofill-rate-limit.test.js)
+jest.mock('../../middleware/security', () => ({
+    configureAiAutofillRateLimit: () => (req, res, next) => next(),
+}));
 
 jest.mock('../../utils/database', () => ({ query: jest.fn() }));
 jest.mock('../../services/ai-autofill-service', () => ({
