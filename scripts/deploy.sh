@@ -27,7 +27,7 @@ log "Pull complete."
 
 # 2. Install dependencies
 log "Installing dependencies..."
-npm ci
+NODE_ENV=development npm ci
 log "Dependencies installed."
 
 # 3. Run database migrations
@@ -37,7 +37,7 @@ log "Migrations complete."
 
 # 4. Run tests
 log "Running tests..."
-if npm test; then
+if NODE_ENV=test npm test; then
     log "Tests passed."
 else
     log "ERROR: Tests failed. Aborting deploy."
