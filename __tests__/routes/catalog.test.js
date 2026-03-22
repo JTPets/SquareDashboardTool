@@ -129,9 +129,10 @@ describe('Catalog Routes', () => {
 
     describe('GET /api/locations', () => {
         it('should return locations for merchant', async () => {
-            mockCatalogService.getLocations.mockResolvedValueOnce([
-                { id: 'loc_1', name: 'Main Store' }
-            ]);
+            mockCatalogService.getLocations.mockResolvedValueOnce({
+                count: 1,
+                locations: [{ id: 'loc_1', name: 'Main Store' }]
+            });
             const res = await request(app).get('/api/locations');
             expect(res.status).toBe(200);
             expect(res.body.locations).toHaveLength(1);
