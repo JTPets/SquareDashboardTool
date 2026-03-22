@@ -17,6 +17,7 @@ const committedInventoryJob = require('./committed-inventory-reconciliation-job'
 const trialExpiryJob = require('./trial-expiry-job');
 const loyaltySyncRetryJob = require('./loyalty-sync-retry-job');
 const catalogHealthJob = require('./catalog-health-job');
+const emailHeartbeatJob = require('./email-heartbeat-job');
 const cronScheduler = require('./cron-scheduler');
 
 module.exports = {
@@ -72,6 +73,10 @@ module.exports = {
 
     // Catalog health job
     runScheduledHealthCheck: catalogHealthJob.runScheduledHealthCheck,
+
+    // Email heartbeat job (BACKLOG-80)
+    runScheduledHeartbeat: emailHeartbeatJob.runScheduledHeartbeat,
+    isHeartbeatEnabled: emailHeartbeatJob.isHeartbeatEnabled,
 
     // Cron scheduler
     initializeCronJobs: cronScheduler.initializeCronJobs,

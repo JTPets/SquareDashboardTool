@@ -55,10 +55,13 @@ const updateSetting = [
     handleValidationErrors
 ];
 
+const testEmail = [handleValidationErrors];
+
 module.exports = {
     listMerchants,
     extendTrial,
     deactivateMerchant,
     listSettings,
-    updateSetting
+    updateSetting,
+    testEmail
 };
