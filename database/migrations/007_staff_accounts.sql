@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS staff_invitations (
     token_hash TEXT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     accepted_at TIMESTAMPTZ,
-    invited_by INTEGER REFERENCES users(id),
+    invited_by INTEGER REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(merchant_id, email),
     CONSTRAINT valid_invitation_role CHECK (role IN ('manager', 'clerk', 'readonly'))

@@ -1855,7 +1855,7 @@ async function ensureSchema() {
                 merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
                 role TEXT NOT NULL DEFAULT 'user',
                 is_primary BOOLEAN DEFAULT FALSE,
-                invited_by INTEGER REFERENCES users(id),
+                invited_by INTEGER REFERENCES users(id) ON DELETE CASCADE,
                 invited_at TIMESTAMPTZ DEFAULT NOW(),
                 accepted_at TIMESTAMPTZ,
                 UNIQUE(user_id, merchant_id),
@@ -1908,7 +1908,7 @@ async function ensureSchema() {
                 token_hash TEXT NOT NULL,
                 expires_at TIMESTAMPTZ NOT NULL,
                 accepted_at TIMESTAMPTZ,
-                invited_by INTEGER REFERENCES users(id),
+                invited_by INTEGER REFERENCES users(id) ON DELETE CASCADE,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 UNIQUE(merchant_id, email),
                 CONSTRAINT valid_invitation_role CHECK (role IN ('manager', 'clerk', 'readonly'))
