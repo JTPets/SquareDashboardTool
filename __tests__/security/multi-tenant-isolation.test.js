@@ -139,6 +139,8 @@ describe('Multi-Tenant Isolation', () => {
             // When activeMerchantId is already set, middleware skips primary lookup
             // and goes directly to full merchant context load
             db.query.mockResolvedValueOnce({ rows: [MERCHANT_A] });
+            // Features query (Phase 2 — merchant_features table)
+            db.query.mockResolvedValueOnce({ rows: [] });
 
             await loadMerchantContext(req, res, next);
 

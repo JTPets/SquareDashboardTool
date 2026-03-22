@@ -369,6 +369,55 @@ const subscriptionEnforcementMiddleware = async (req, res, next) => {
 app.use('/api', subscriptionEnforcementMiddleware);
 logger.info('Subscription enforcement middleware enabled (System A — merchant-level trials)');
 
+// ==================== FEATURE MODULE GATING ====================
+// Gates paid feature modules. Base module routes are always accessible.
+// Must run AFTER loadMerchantContext (needs req.merchantContext.features).
+const { requireFeature } = require('./middleware/feature-gate');
+
+// Path-specific gates for routers mounted at /api
+app.use('/api/cycle-counts', requireFeature('cycle_counts'));
+app.use('/api/expiry-discounts', requireFeature('expiry'));
+app.use('/api/expirations', requireFeature('expiry'));
+app.use('/api/vendors', requireFeature('reorder'));
+app.use('/api/vendor-catalog', requireFeature('reorder'));
+app.use('/api/vendor-dashboard', requireFeature('reorder'));
+app.use('/api/sales-velocity', requireFeature('reorder'));
+app.use('/api/reorder-suggestions', requireFeature('reorder'));
+app.use('/api/labels', requireFeature('reorder'));
+app.use('/api/seniors', requireFeature('loyalty'));
+app.use('/api/deleted-items', requireFeature('loyalty'));
+app.use('/api/google', requireFeature('gmc'));
+logger.info('Feature module gating enabled');
+
+// ==================== MERCHANT FEATURES ENDPOINT ====================
+const featureRegistry = require('./config/feature-registry');
+const { sendSuccess } = require('./utils/response-helper');
+
+app.get('/api/merchant/features', requireMerchant, async (req, res) => {
+    try {
+        const isPlatformOwner = req.merchantContext.subscriptionStatus === 'platform_owner';
+        const enabledFeatures = isPlatformOwner
+            ? featureRegistry.getPaidModules().map(m => m.key)
+            : (req.merchantContext.features || []);
+
+        const available = featureRegistry.getPaidModules().map(mod => ({
+            key: mod.key,
+            name: mod.name,
+            price_cents: mod.price_cents,
+            enabled: isPlatformOwner || enabledFeatures.includes(mod.key)
+        }));
+
+        sendSuccess(res, {
+            enabled: enabledFeatures,
+            available,
+            is_platform_owner: isPlatformOwner
+        });
+    } catch (error) {
+        logger.error('Failed to load merchant features', { error: error.message, merchantId: req.merchantContext.id });
+        res.status(500).json({ success: false, error: 'Failed to load features' });
+    }
+});
+
 // ==================== ADMIN ROUTES ====================
 // Platform administration endpoints (merchant management, settings)
 app.use('/api/admin', adminRoutes);
@@ -381,7 +430,7 @@ app.use('/api', driverApiRoutes);
 
 // ==================== PURCHASE ORDERS ROUTES ====================
 // Financial operations for managing purchase orders
-app.use('/api/purchase-orders', purchaseOrdersRoutes);
+app.use('/api/purchase-orders', requireFeature('reorder'), purchaseOrdersRoutes);
 
 // ==================== SUBSCRIPTIONS ROUTES ====================
 // SaaS subscription management (Square Subscriptions API)
@@ -389,19 +438,19 @@ app.use('/api', subscriptionsRoutes);
 
 // ==================== LOYALTY ROUTES ====================
 // Frequent Buyer Program - digitizes brand-defined loyalty programs
-app.use('/api/loyalty', loyaltyRoutes);
+app.use('/api/loyalty', requireFeature('loyalty'), loyaltyRoutes);
 
 // ==================== GMC ROUTES ====================
 // Google Merchant Center feed generation and management
-app.use('/api/gmc', gmcRoutes);
+app.use('/api/gmc', requireFeature('gmc'), gmcRoutes);
 
 // ==================== DELIVERY ROUTES ====================
 // Delivery order management, POD photos, route optimization
-app.use('/api/delivery', deliveryRoutes);
+app.use('/api/delivery', requireFeature('delivery'), deliveryRoutes);
 
 // ==================== CART ACTIVITY ROUTES ====================
 // Shopping cart tracking for DRAFT orders from Square Online
-app.use('/api/cart-activity', cartActivityRoutes);
+app.use('/api/cart-activity', requireFeature('loyalty'), cartActivityRoutes);
 
 // ==================== WEBHOOK ROUTES ====================
 // Webhook subscription CRUD operations
@@ -422,7 +471,7 @@ app.use('/api', vendorCatalogRoutes);
 app.use('/api', cycleCountsRoutes);
 app.use('/api', syncRoutes);
 app.use('/api', catalogRoutes);
-app.use('/api/ai-autofill', aiAutofillRoutes);
+app.use('/api/ai-autofill', requireFeature('ai_tools'), aiAutofillRoutes);
 app.use('/api', squareAttributesRoutes);
 app.use('/api', googleOAuthRoutes);
 app.use('/api', analyticsRoutes);
@@ -444,10 +493,10 @@ app.use('/api', seniorsRoutes);
 // New integrations should use /api/v1/*, existing clients can continue using /api/*
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/square/oauth', squareOAuthRoutes);
-app.use('/api/v1/purchase-orders', purchaseOrdersRoutes);
-app.use('/api/v1/loyalty', loyaltyRoutes);
-app.use('/api/v1/gmc', gmcRoutes);
-app.use('/api/v1/delivery', deliveryRoutes);
+app.use('/api/v1/purchase-orders', requireFeature('reorder'), purchaseOrdersRoutes);
+app.use('/api/v1/loyalty', requireFeature('loyalty'), loyaltyRoutes);
+app.use('/api/v1/gmc', requireFeature('gmc'), gmcRoutes);
+app.use('/api/v1/delivery', requireFeature('delivery'), deliveryRoutes);
 app.use('/api/v1/webhooks', webhooksSquareRoute);
 app.use('/api/v1', driverApiRoutes);
 app.use('/api/v1', subscriptionsRoutes);
@@ -457,7 +506,7 @@ app.use('/api/v1', vendorCatalogRoutes);
 app.use('/api/v1', cycleCountsRoutes);
 app.use('/api/v1', syncRoutes);
 app.use('/api/v1', catalogRoutes);
-app.use('/api/v1/ai-autofill', aiAutofillRoutes);
+app.use('/api/v1/ai-autofill', requireFeature('ai_tools'), aiAutofillRoutes);
 app.use('/api/v1', squareAttributesRoutes);
 app.use('/api/v1', googleOAuthRoutes);
 app.use('/api/v1', analyticsRoutes);

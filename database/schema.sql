@@ -2381,6 +2381,23 @@ CREATE INDEX IF NOT EXISTS idx_catalog_health_merchant_check_status
 COMMENT ON TABLE catalog_location_health IS 'Permanent audit trail of Square catalog health issues (location mismatches, orphans, etc.)';
 
 -- ========================================
+-- MIGRATION 004: Feature Modules
+-- ========================================
+CREATE TABLE IF NOT EXISTS merchant_features (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    feature_key TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    enabled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    disabled_at TIMESTAMPTZ,
+    source TEXT NOT NULL DEFAULT 'manual',
+    UNIQUE(merchant_id, feature_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_merchant_features_lookup
+    ON merchant_features(merchant_id, feature_key, enabled);
+
+-- ========================================
 -- FINAL: Schema creation complete
 -- ========================================
 DO $$
@@ -2395,8 +2412,8 @@ BEGIN
     RAISE NOTICE 'Loyalty tables: 11 (incl. customers cache, processed orders, audit log)';
     RAISE NOTICE 'Seniors tables: 3';
     RAISE NOTICE 'Bundle tables: 2';
-    RAISE NOTICE 'Platform tables: 5 (webhook_events, oauth_states, merchant_settings, cart_activity, label_templates)';
+    RAISE NOTICE 'Platform tables: 6 (webhook_events, oauth_states, merchant_settings, cart_activity, label_templates, merchant_features)';
     RAISE NOTICE 'Catalog health: 1';
-    RAISE NOTICE 'Total tables: 47+';
+    RAISE NOTICE 'Total tables: 48+';
     RAISE NOTICE '============================================';
 END $$;
