@@ -208,6 +208,45 @@ describe('Purchase Orders Routes', () => {
             expect(res.status).toBe(201);
         });
 
+        test('returns 400 when below vendor minimum without force (BACKLOG-91)', async () => {
+            // vendor check with minimum_order_amount = $500.00 (50000 cents)
+            db.query.mockResolvedValueOnce({ rows: [{ id: 5, minimum_order_amount: '500.00' }] });
+            // location check
+            db.query.mockResolvedValueOnce({ rows: [{ id: 'loc-1' }] });
+
+            // PO total = (10 * 1500) + (5 * 800) = 19000 cents = $190, below $500
+            const res = await request(app)
+                .post('/api/purchase-orders')
+                .send(createPayload);
+
+            expect(res.status).toBe(400);
+            expect(res.body.code).toBe('BELOW_VENDOR_MINIMUM');
+            expect(res.body.error).toContain('below vendor minimum');
+        });
+
+        test('succeeds with force=true when below vendor minimum (BACKLOG-91)', async () => {
+            db.query.mockResolvedValueOnce({ rows: [{ id: 5, minimum_order_amount: '500.00' }] });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 'loc-1' }] });
+            db.query.mockResolvedValueOnce({ rows: [{ count: '0' }] });
+
+            db.transaction.mockImplementation(async (fn) => {
+                const client = { query: jest.fn() };
+                client.query.mockResolvedValueOnce({ rows: [{ id: 1, po_number: 'PO-20260315-001', status: 'DRAFT', vendor_id: 5 }] });
+                client.query.mockResolvedValueOnce({ rows: [] });
+                return fn(client);
+            });
+
+            db.query.mockResolvedValueOnce({ rows: [] }); // expiry check
+
+            const res = await request(app)
+                .post('/api/purchase-orders')
+                .send({ ...createPayload, force: true });
+
+            expect(res.status).toBe(201);
+            expect(res.body.data.minimum_warning).toBeDefined();
+            expect(res.body.data.minimum_warning.shortfall_cents).toBeGreaterThan(0);
+        });
+
         test('returns 403 when vendor not found', async () => {
             db.query.mockResolvedValueOnce({ rows: [] });
 
@@ -380,21 +419,45 @@ describe('Purchase Orders Routes', () => {
     });
 
     describe('POST /:id/receive - Receive Purchase Order', () => {
+        // Helper: mock transaction for receive handler including vendor cost update queries
+        function mockReceiveTransaction(opts = {}) {
+            const {
+                itemCount = 2,
+                allReceived = true,
+                vendorId = 'V1',
+                costDiffs = []  // [{variation_id, unit_cost_cents, current_vendor_cost}]
+            } = opts;
+            db.transaction.mockImplementation(async (fn) => {
+                const client = { query: jest.fn() };
+                // update received quantities
+                for (let i = 0; i < itemCount; i++) {
+                    client.query.mockResolvedValueOnce({ rows: [] });
+                }
+                // vendor cost update: fetch PO vendor_id
+                client.query.mockResolvedValueOnce({ rows: [{ vendor_id: vendorId }] });
+                // vendor cost update: fetch cost diffs
+                client.query.mockResolvedValueOnce({ rows: costDiffs });
+                // vendor cost update: upsert for each diff where costs differ
+                for (const d of costDiffs) {
+                    if (d.unit_cost_cents !== d.current_vendor_cost) {
+                        client.query.mockResolvedValueOnce({ rows: [] });
+                    }
+                }
+                // check if all items received
+                const total = String(itemCount);
+                const received = allReceived ? total : '0';
+                client.query.mockResolvedValueOnce({ rows: [{ total, received }] });
+                // update PO status
+                client.query.mockResolvedValueOnce({ rows: [] });
+                return fn(client);
+            });
+        }
+
         test('records received quantities successfully', async () => {
             // poCheck query
             db.query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
 
-            db.transaction.mockImplementation(async (fn) => {
-                const client = { query: jest.fn() };
-                // update received quantities (2 items)
-                client.query.mockResolvedValueOnce({ rows: [] });
-                client.query.mockResolvedValueOnce({ rows: [] });
-                // check if all items received
-                client.query.mockResolvedValueOnce({ rows: [{ total: '2', received: '2' }] });
-                // update PO status to RECEIVED
-                client.query.mockResolvedValueOnce({ rows: [] });
-                return fn(client);
-            });
+            mockReceiveTransaction({ itemCount: 2, costDiffs: [] });
 
             // EXPIRY-REORDER-AUDIT: expiry flag query
             db.query.mockResolvedValueOnce({ rowCount: 0 });
@@ -408,17 +471,92 @@ describe('Purchase Orders Routes', () => {
             expect(res.status).toBe(200);
         });
 
-        test('flags expiry-discounted items for re-audit on receive (EXPIRY-REORDER-AUDIT)', async () => {
+        test('PO receive updates vendor cost when PO cost differs (0b)', async () => {
             // poCheck query
             db.query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
 
+            const costDiffs = [
+                { variation_id: 'VAR1', unit_cost_cents: 1200, current_vendor_cost: 1000 }
+            ];
+
+            let clientRef;
             db.transaction.mockImplementation(async (fn) => {
                 const client = { query: jest.fn() };
-                client.query.mockResolvedValueOnce({ rows: [] }); // update item 1
+                clientRef = client;
+                // update received quantities (1 item)
+                client.query.mockResolvedValueOnce({ rows: [] });
+                // vendor cost update: fetch PO vendor_id
+                client.query.mockResolvedValueOnce({ rows: [{ vendor_id: 'V1' }] });
+                // vendor cost update: fetch cost diffs
+                client.query.mockResolvedValueOnce({ rows: costDiffs });
+                // vendor cost update: upsert (cost differs)
+                client.query.mockResolvedValueOnce({ rows: [] });
+                // check if all items received
+                client.query.mockResolvedValueOnce({ rows: [{ total: '1', received: '1' }] });
+                // update PO status
+                client.query.mockResolvedValueOnce({ rows: [] });
+                return fn(client);
+            });
+
+            // EXPIRY-REORDER-AUDIT
+            db.query.mockResolvedValueOnce({ rowCount: 0 });
+            // final SELECT
+            db.query.mockResolvedValueOnce({ rows: [{ ...samplePO, status: 'RECEIVED' }] });
+
+            const res = await request(app)
+                .post('/api/purchase-orders/1/receive')
+                .send({ items: [{ id: 1, received_quantity: 10 }] });
+
+            expect(res.status).toBe(200);
+
+            // Verify the vendor cost upsert was called with new cost
+            const upsertCall = clientRef.query.mock.calls.find(c =>
+                typeof c[0] === 'string' && c[0].includes('INSERT INTO variation_vendors')
+            );
+            expect(upsertCall).toBeDefined();
+            expect(upsertCall[1]).toEqual(['VAR1', 'V1', 1200, 10]); // variation_id, vendor_id, cost, merchantId
+        });
+
+        test('PO receive skips vendor cost update when costs match (0b)', async () => {
+            db.query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
+
+            const costDiffs = [
+                { variation_id: 'VAR1', unit_cost_cents: 1000, current_vendor_cost: 1000 }
+            ];
+
+            let clientRef;
+            db.transaction.mockImplementation(async (fn) => {
+                const client = { query: jest.fn() };
+                clientRef = client;
+                client.query.mockResolvedValueOnce({ rows: [] }); // update received qty
+                client.query.mockResolvedValueOnce({ rows: [{ vendor_id: 'V1' }] }); // PO vendor
+                client.query.mockResolvedValueOnce({ rows: costDiffs }); // cost diffs
+                // No upsert expected — costs match
                 client.query.mockResolvedValueOnce({ rows: [{ total: '1', received: '1' }] }); // check
                 client.query.mockResolvedValueOnce({ rows: [] }); // update status
                 return fn(client);
             });
+
+            db.query.mockResolvedValueOnce({ rowCount: 0 }); // expiry flag
+            db.query.mockResolvedValueOnce({ rows: [{ ...samplePO, status: 'RECEIVED' }] }); // final
+
+            const res = await request(app)
+                .post('/api/purchase-orders/1/receive')
+                .send({ items: [{ id: 1, received_quantity: 10 }] });
+
+            expect(res.status).toBe(200);
+            // No INSERT INTO variation_vendors should have been called
+            const upsertCall = clientRef.query.mock.calls.find(c =>
+                typeof c[0] === 'string' && c[0].includes('INSERT INTO variation_vendors')
+            );
+            expect(upsertCall).toBeUndefined();
+        });
+
+        test('flags expiry-discounted items for re-audit on receive (EXPIRY-REORDER-AUDIT)', async () => {
+            // poCheck query
+            db.query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
+
+            mockReceiveTransaction({ itemCount: 1, costDiffs: [] });
 
             // EXPIRY-REORDER-AUDIT: expiry flag query — 1 item flagged
             db.query.mockResolvedValueOnce({ rowCount: 1 });
@@ -430,7 +568,7 @@ describe('Purchase Orders Routes', () => {
                 .send({ items: [{ id: 1, received_quantity: 10 }] });
 
             expect(res.status).toBe(200);
-            // Verify the expiry flag UPDATE was called (3rd db.query call: poCheck, flag, final SELECT)
+            // Verify the expiry flag UPDATE was called
             const flagCall = db.query.mock.calls.find(call =>
                 typeof call[0] === 'string' && call[0].includes('needs_manual_review')
             );
@@ -442,13 +580,7 @@ describe('Purchase Orders Routes', () => {
             // poCheck query
             db.query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
 
-            db.transaction.mockImplementation(async (fn) => {
-                const client = { query: jest.fn() };
-                client.query.mockResolvedValueOnce({ rows: [] });
-                client.query.mockResolvedValueOnce({ rows: [{ total: '1', received: '1' }] });
-                client.query.mockResolvedValueOnce({ rows: [] });
-                return fn(client);
-            });
+            mockReceiveTransaction({ itemCount: 1, costDiffs: [] });
 
             // EXPIRY-REORDER-AUDIT: expiry flag query fails
             db.query.mockRejectedValueOnce(new Error('DB connection lost'));

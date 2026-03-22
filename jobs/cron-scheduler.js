@@ -8,6 +8,31 @@
  * job execution timing. Per-merchant timezone handling is done inside each
  * job's handler function, not in the cron schedule itself.
  *
+ * BACKLOG-79: Cron Schedule Audit (2026-03-22)
+ * Daily batch jobs rescheduled to 2:00–6:00 AM ET window so failures appear
+ * in morning logs before the store opens (typically 9–10 AM).
+ *
+ * Schedule Map (Current):
+ *
+ * | #  | Job                         | Default Schedule     | Window | Notes                              |
+ * |----|-----------------------------|-----------------------|--------|-------------------------------------|
+ * |  1 | Cycle count                 | 0 3 * * *  (3:00 AM) | Batch  | Moved from 1 AM                    |
+ * |  2 | Webhook retry               | */5 * * * * (5 min)  | Freq   | Must run frequently                |
+ * |  3 | Webhook cleanup             | 0 4 * * *  (4:00 AM) | Batch  | No change                          |
+ * |  4 | Database smart sync         | 0 * * * *  (hourly)  | Freq   | Must run frequently                |
+ * |  5 | GMC sync                    | (env only)           | Batch  | User-configured, typically 11 PM   |
+ * |  6 | Database backup             | 0 2 * * 0  (Sun 2AM) | Batch  | No change                          |
+ * |  7 | Expiry discount             | 0 5 * * *  (5:00 AM) | Batch  | Moved from 6 AM to avoid overlap   |
+ * |  8 | Loyalty catchup             | */30 * * * * (30 min)| Freq   | Must run frequently                |
+ * |  9 | Loyalty audit               | 0 2 * * *  (2:00 AM) | Batch  | No change                          |
+ * | 10 | Cart activity cleanup       | 0 3 * * *  (3:00 AM) | Batch  | No change                          |
+ * | 11 | Seniors discount            | 30 2 * * * (2:30 AM) | Batch  | Moved from 12:30 AM                |
+ * | 12 | Committed inv reconciliation| 0 */2 * * * (2 hr)   | Freq   | Must run frequently                |
+ * | 13 | Trial expiry notifications  | 0 5 * * *  (5:00 AM) | Batch  | Moved from midnight                |
+ * | 14 | Loyalty sync retry          | */15 * * * * (15 min)| Freq   | Must run frequently                |
+ * | 15 | Catalog health              | 0 4 * * *  (4:00 AM) | Batch  | Moved from 2 AM to avoid overlap   |
+ * | 16 | Email heartbeat             | 0 6 * * *  (6:00 AM) | Batch  | Moved from 8 AM to catch AM issues |
+ *
  * @module jobs/cron-scheduler
  */
 
@@ -43,14 +68,14 @@ function initializeCronJobs() {
     logger.info('Initializing cron jobs');
 
     // 1. Cycle count daily batch generation
-    // Runs every day at 1:00 AM
-    const cycleCountSchedule = process.env.CYCLE_COUNT_CRON || '0 1 * * *';
+    // LOGIC CHANGE: moved from 1 AM to 3 AM (BACKLOG-79 — 2-6 AM window)
+    const cycleCountSchedule = process.env.CYCLE_COUNT_CRON || '0 3 * * *';
     cronTasks.push(cron.schedule(cycleCountSchedule, runScheduledBatchGeneration));
     logger.info('Cycle count cron job scheduled', { schedule: cycleCountSchedule });
 
     // 2. Webhook retry processor
-    // Runs every minute to process failed webhooks with exponential backoff
-    const webhookRetrySchedule = process.env.WEBHOOK_RETRY_CRON_SCHEDULE || '* * * * *';
+    // Runs every 5 minutes to process failed webhooks with exponential backoff
+    const webhookRetrySchedule = process.env.WEBHOOK_RETRY_CRON_SCHEDULE || '*/5 * * * *';
     cronTasks.push(cron.schedule(webhookRetrySchedule, runScheduledWebhookRetry));
     logger.info('Webhook retry cron job scheduled', { schedule: webhookRetrySchedule });
 
@@ -83,8 +108,8 @@ function initializeCronJobs() {
     logger.info('Database backup cron job scheduled', { schedule: backupSchedule });
 
     // 7. Expiry discount automation
-    // Runs daily at 6:00 AM EST by default
-    const expirySchedule = process.env.EXPIRY_DISCOUNT_CRON || '0 6 * * *';
+    // LOGIC CHANGE: moved from 6 AM to 5 AM (BACKLOG-79 — 2-6 AM window, avoid overlap with heartbeat)
+    const expirySchedule = process.env.EXPIRY_DISCOUNT_CRON || '0 5 * * *';
     cronTasks.push(cron.schedule(expirySchedule, runScheduledExpiryDiscount, {
         timezone: 'America/Toronto'  // EST timezone
     }));
@@ -117,9 +142,9 @@ function initializeCronJobs() {
     logger.info('Cart activity cleanup cron job scheduled', { schedule: cartActivityCleanupSchedule, timezone: 'America/Toronto' });
 
     // 11. Seniors Day discount management
-    // Runs daily at 12:30 AM to manage pricing rule before store opens
+    // LOGIC CHANGE: moved from 12:30 AM to 2:30 AM (BACKLOG-79 — 2-6 AM window)
     // 1st of month: enable + local age sweep, 2nd: disable, other days: verify state
-    const seniorsSchedule = process.env.SENIORS_DISCOUNT_CRON || '30 0 * * *';
+    const seniorsSchedule = process.env.SENIORS_DISCOUNT_CRON || '30 2 * * *';
     cronTasks.push(cron.schedule(seniorsSchedule, runScheduledSeniorsDiscount, {
         timezone: 'America/Toronto'
     }));
@@ -135,8 +160,8 @@ function initializeCronJobs() {
     logger.info('Committed inventory reconciliation cron job scheduled', { schedule: committedInvSchedule, timezone: 'America/Toronto' });
 
     // 13. Trial expiry notifications (subscription enforcement)
-    // Runs daily at 7:00 AM ET — notifies admin of expiring and recently expired trials
-    const trialExpirySchedule = process.env.TRIAL_EXPIRY_CRON || '0 7 * * *';
+    // LOGIC CHANGE: moved from 7 AM to 5 AM (BACKLOG-79 — 2-6 AM window)
+    const trialExpirySchedule = process.env.TRIAL_EXPIRY_CRON || '0 5 * * *';
     cronTasks.push(cron.schedule(trialExpirySchedule, runScheduledTrialExpiryNotifications, {
         timezone: 'America/Toronto'
     }));
@@ -151,16 +176,16 @@ function initializeCronJobs() {
     logger.info('Loyalty sync retry cron job scheduled', { schedule: loyaltySyncRetrySchedule, timezone: 'America/Toronto' });
 
     // 15. Catalog health check (debug — merchant 3 only)
-    // Runs daily at 2:00 AM — full catalog health monitor (8 check types)
-    const catalogHealthSchedule = process.env.CATALOG_HEALTH_CRON || '0 2 * * *';
+    // LOGIC CHANGE: moved from 2 AM to 4 AM (BACKLOG-79 — avoid overlap with loyalty audit at 2 AM)
+    const catalogHealthSchedule = process.env.CATALOG_HEALTH_CRON || '0 4 * * *';
     cronTasks.push(cron.schedule(catalogHealthSchedule, runScheduledHealthCheck, {
         timezone: 'America/Toronto'
     }));
     logger.info('Catalog health cron job scheduled', { schedule: catalogHealthSchedule, timezone: 'America/Toronto' });
 
     // 16. Email heartbeat — daily "system alive" email
-    // Only enabled when EMAIL_HEARTBEAT_ENABLED=true
-    const heartbeatSchedule = process.env.EMAIL_HEARTBEAT_CRON || '0 8 * * *';
+    // LOGIC CHANGE: moved from 8 AM to 6 AM (BACKLOG-79 — catch AM issues before store opens)
+    const heartbeatSchedule = process.env.EMAIL_HEARTBEAT_CRON || '0 6 * * *';
     cronTasks.push(cron.schedule(heartbeatSchedule, runScheduledHeartbeat, {
         timezone: 'America/Toronto'
     }));

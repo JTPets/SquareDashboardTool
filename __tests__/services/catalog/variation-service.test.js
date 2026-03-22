@@ -730,16 +730,16 @@ describe('variation-service', () => {
             db.query.mockResolvedValueOnce({ rowCount: 1 });
 
             const updates = [
-                { sku: 'SKU-001', shelf_location: 'A1', last_cost_cents: 500 }
+                { sku: 'SKU-001', shelf_location: 'A1', replacement_variation_id: 'VAR-X' }
             ];
 
             const result = await bulkUpdateExtendedFields(merchantId, updates);
 
             expect(result.success).toBe(true);
-            // last_cost_cents is in ALLOWED_EXTENDED_FIELDS but NOT in ALLOWED_BULK_FIELDS
+            // replacement_variation_id is in ALLOWED_EXTENDED_FIELDS but NOT in ALLOWED_BULK_FIELDS
             const [updateQuery] = db.query.mock.calls[1];
             expect(updateQuery).toContain('shelf_location');
-            expect(updateQuery).not.toContain('last_cost_cents');
+            expect(updateQuery).not.toContain('replacement_variation_id');
         });
 
         it('syncs case_pack to Square during bulk update', async () => {
@@ -859,7 +859,7 @@ describe('variation-service', () => {
             });
 
             const updates = [
-                { sku: 'SKU-001', last_cost_cents: 500 } // not in ALLOWED_BULK_FIELDS
+                { sku: 'SKU-001', replacement_variation_id: 'VAR-X' } // not in ALLOWED_BULK_FIELDS
             ];
 
             const result = await bulkUpdateExtendedFields(merchantId, updates);

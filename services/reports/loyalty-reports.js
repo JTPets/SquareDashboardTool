@@ -177,18 +177,20 @@ async function getRedemptionDetails(rewardId, merchantId) {
             qv.item_name,
             qv.variation_name,
             qv.sku,
-            v.last_cost_cents as wholesale_cost_cents,
-            -- LOGIC CHANGE: removed supplier_item_number fallback (BACKLOG-89) — column has 0 rows populated
+            -- Primary vendor cost from variation_vendors
+            vv.unit_cost_money as wholesale_cost_cents,
             vv.vendor_code as vendor_item_number,
             vv.unit_cost_money as vendor_unit_cost
         FROM loyalty_purchase_events pe
         LEFT JOIN loyalty_qualifying_variations qv
             ON pe.variation_id = qv.variation_id AND qv.merchant_id = pe.merchant_id
-        LEFT JOIN variations v
-            ON pe.variation_id = v.id
-        LEFT JOIN variation_vendors vv
-            ON pe.variation_id = vv.variation_id
-            AND vv.merchant_id = pe.merchant_id
+        LEFT JOIN LATERAL (
+            SELECT unit_cost_money, vendor_code
+            FROM variation_vendors
+            WHERE variation_id = pe.variation_id AND merchant_id = pe.merchant_id
+            ORDER BY unit_cost_money ASC NULLS LAST, created_at ASC
+            LIMIT 1
+        ) vv ON TRUE
         WHERE pe.reward_id = $1 AND pe.merchant_id = $2
         ORDER BY pe.purchased_at ASC
     `, [rewardId, merchantId]);
@@ -536,16 +538,20 @@ async function generateVendorReceipt(rewardId, merchantId) {
                 let redeemedVendorCode = null;
                 let redeemedWholesaleCostCents = null;
                 if (freeItemVariationId) {
+                    // LOGIC CHANGE: last_cost_cents dropped (0a) — use primary vendor cost from variation_vendors
                     const vendorResult = await db.query(`
                         SELECT
-                            -- LOGIC CHANGE: removed supplier_item_number fallback (BACKLOG-89) — column has 0 rows populated
                             vv.vendor_code as vendor_item_number,
-                            v.last_cost_cents as wholesale_cost_cents,
+                            vv.unit_cost_money as wholesale_cost_cents,
                             vv.unit_cost_money as vendor_unit_cost
                         FROM variations v
-                        LEFT JOIN variation_vendors vv
-                            ON v.id = vv.variation_id
-                            AND vv.merchant_id = $2
+                        LEFT JOIN LATERAL (
+                            SELECT unit_cost_money, vendor_code
+                            FROM variation_vendors
+                            WHERE variation_id = v.id AND merchant_id = $2
+                            ORDER BY unit_cost_money ASC NULLS LAST, created_at ASC
+                            LIMIT 1
+                        ) vv ON TRUE
                         WHERE v.id = $1 AND v.merchant_id = $2
                     `, [freeItemVariationId, merchantId]);
                     redeemedVendorCode = vendorResult.rows[0]?.vendor_item_number || null;

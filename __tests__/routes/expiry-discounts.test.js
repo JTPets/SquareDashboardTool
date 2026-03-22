@@ -321,6 +321,51 @@ describe('Expiry Discounts Routes', () => {
         });
     });
 
+    describe('PATCH /api/expiry-discounts/variations/:variationId/quantity (BACKLOG-94)', () => {
+        test('sets expiring_quantity for a variation', async () => {
+            db.query.mockResolvedValueOnce({
+                rows: [{ variation_id: 'VAR-1', expiring_quantity: 12, units_sold_at_discount: 0 }],
+            });
+            const res = await request(app)
+                .patch('/api/expiry-discounts/variations/VAR-1/quantity')
+                .send({ expiring_quantity: 12 });
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.expiring_quantity).toBe(12);
+            expect(db.query).toHaveBeenCalledWith(
+                expect.stringContaining('expiring_quantity'),
+                [12, 'VAR-1', 1]
+            );
+        });
+
+        test('clears expiring_quantity with null (unlimited)', async () => {
+            db.query.mockResolvedValueOnce({
+                rows: [{ variation_id: 'VAR-1', expiring_quantity: null, units_sold_at_discount: 0 }],
+            });
+            const res = await request(app)
+                .patch('/api/expiry-discounts/variations/VAR-1/quantity')
+                .send({ expiring_quantity: null });
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.expiring_quantity).toBeNull();
+        });
+
+        test('returns 400 for invalid quantity', async () => {
+            const res = await request(app)
+                .patch('/api/expiry-discounts/variations/VAR-1/quantity')
+                .send({ expiring_quantity: -5 });
+            expect(res.status).toBe(400);
+        });
+
+        test('returns 404 when variation not found', async () => {
+            db.query.mockResolvedValueOnce({ rows: [] });
+            const res = await request(app)
+                .patch('/api/expiry-discounts/variations/VAR-NOPE/quantity')
+                .send({ expiring_quantity: 10 });
+            expect(res.status).toBe(404);
+        });
+    });
+
     describe('POST /api/expiry-discounts/flagged/resolve', () => {
         test('resolves a flagged variation successfully', async () => {
             expiryService.resolveFlaggedVariation.mockResolvedValueOnce({ success: true, resolved: true });

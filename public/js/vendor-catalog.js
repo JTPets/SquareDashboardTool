@@ -361,6 +361,9 @@
             injectPrinterControls('#result-content');
           }
 
+          // LOGIC CHANGE: Show suggested vendor links section (BACKLOG-90)
+          renderSuggestedLinks(result.stats.suggestedLinks || []);
+
           // Refresh stats
           loadStats();
         } else {
@@ -411,11 +414,84 @@
       document.getElementById('import-progress').style.display = 'none';
       document.getElementById('preview-progress').style.display = 'none';
       document.getElementById('import-result').classList.remove('show', 'success', 'error');
+      document.getElementById('suggested-links-section').style.display = 'none';
       document.getElementById('file-info').style.display = 'none';
       document.getElementById('file-input').value = '';
       document.getElementById('import-vendor').value = '';
       document.getElementById('import-name').value = '';
       document.getElementById('mapping-body').innerHTML = '';
+    }
+
+    // LOGIC CHANGE: Suggested vendor links rendering (BACKLOG-90)
+    let pendingSuggestedLinks = [];
+
+    function renderSuggestedLinks(links) {
+      const section = document.getElementById('suggested-links-section');
+      const tbody = document.getElementById('suggested-links-body');
+      pendingSuggestedLinks = links;
+
+      if (!links || links.length === 0) {
+        section.style.display = 'none';
+        return;
+      }
+
+      section.style.display = 'block';
+      let rows = '';
+      links.forEach((link, idx) => {
+        rows += `
+          <tr style="border-bottom: 1px solid #e5e7eb;">
+            <td style="padding: 6px;"><input type="checkbox" class="link-checkbox" data-idx="${idx}" checked></td>
+            <td style="padding: 6px;">${escapeHtml(link.vendor_product_name)}<br><small style="color:#6b7280;">${escapeHtml(link.vendor_code || '')}</small></td>
+            <td style="padding: 6px;">${escapeHtml(link.matched_item_name || '')}<br><small style="color:#6b7280;">${escapeHtml(link.matched_variation_name || '')}</small></td>
+            <td style="padding: 6px;"><code>${escapeHtml(link.matched_upc || '')}</code></td>
+            <td style="padding: 6px; text-align: right;">${link.vendor_cost_cents != null ? formatCurrency(link.vendor_cost_cents) : '-'}</td>
+            <td style="padding: 6px; text-align: right;">${link.current_cost_cents != null ? formatCurrency(link.current_cost_cents) : '-'}</td>
+            <td style="padding: 6px;">${escapeHtml(link.current_vendor_name || 'None')}</td>
+          </tr>`;
+      });
+      tbody.innerHTML = rows;
+    }
+
+    function toggleSelectAllLinks() {
+      const selectAll = document.getElementById('select-all-links');
+      document.querySelectorAll('.link-checkbox').forEach(cb => { cb.checked = selectAll.checked; });
+    }
+
+    async function confirmSuggestedLinks() {
+      const selected = [];
+      document.querySelectorAll('.link-checkbox:checked').forEach(cb => {
+        const link = pendingSuggestedLinks[parseInt(cb.dataset.idx)];
+        if (link) {
+          selected.push({
+            variation_id: link.variation_id,
+            vendor_id: link.vendor_id,
+            vendor_code: link.vendor_code,
+            cost_cents: link.vendor_cost_cents
+          });
+        }
+      });
+
+      if (selected.length === 0) {
+        showToast('No links selected', 'warning');
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/vendor-catalog/confirm-links', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ links: selected })
+        });
+        const result = await response.json();
+        if (result.success) {
+          showToast(`${result.created} vendor link(s) created`, 'success');
+          document.getElementById('suggested-links-section').style.display = 'none';
+        } else {
+          showToast(result.error || 'Failed to create links', 'error');
+        }
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+      }
     }
 
     // Populate import vendor dropdown
@@ -1552,3 +1628,6 @@
     window.toggleSelectAllPricesFromCheckbox = toggleSelectAllPricesFromCheckbox;
     window.updatePushButtonCount = updatePushButtonCount;
     window.printSelectedLabels = printSelectedLabels;
+    // LOGIC CHANGE: Suggested vendor links (BACKLOG-90)
+    window.confirmSuggestedLinks = confirmSuggestedLinks;
+    window.toggleSelectAllLinks = toggleSelectAllLinks;

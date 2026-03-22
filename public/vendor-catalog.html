@@ -775,6 +775,37 @@
             <div id="result-content"></div>
           </div>
 
+          <!-- LOGIC CHANGE: Suggested Vendor Links section (BACKLOG-90) -->
+          <div id="suggested-links-section" style="display: none; margin-top: 20px;">
+            <div style="background: #eff6ff; border: 1px solid #93c5fd; border-radius: 8px; padding: 15px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h4 style="color: #1e40af; margin: 0;">Suggested Vendor Links</h4>
+                <button id="confirm-links-btn" data-action="confirmSuggestedLinks"
+                        style="padding: 8px 16px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                  Link Selected
+                </button>
+              </div>
+              <p style="color: #3b82f6; font-size: 13px; margin-bottom: 10px;">
+                These items matched by UPC but are not yet linked to this vendor. Select items to create vendor links.
+                Removing a vendor catalog does not affect existing vendor links or costs.
+              </p>
+              <table id="suggested-links-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <thead>
+                  <tr style="background: #dbeafe;">
+                    <th style="padding: 8px; text-align: left; width: 30px;"><input type="checkbox" id="select-all-links" data-change="toggleSelectAllLinks"></th>
+                    <th style="padding: 8px; text-align: left;">Vendor Item</th>
+                    <th style="padding: 8px; text-align: left;">Matched Variation</th>
+                    <th style="padding: 8px; text-align: left;">UPC</th>
+                    <th style="padding: 8px; text-align: right;">Vendor Cost</th>
+                    <th style="padding: 8px; text-align: right;">Current Cost</th>
+                    <th style="padding: 8px; text-align: left;">Current Vendor</th>
+                  </tr>
+                </thead>
+                <tbody id="suggested-links-body"></tbody>
+              </table>
+            </div>
+          </div>
+
         </div>
       </div>
 

@@ -303,8 +303,7 @@ CREATE TABLE variations (
     discontinue_date DATE,
     replacement_variation_id TEXT,
     -- LOGIC CHANGE: supplier_item_number removed (BACKLOG-89) — vendor codes stored in variation_vendors.vendor_code
-    last_cost_cents INTEGER,
-    last_cost_date DATE,
+    -- LOGIC CHANGE: last_cost_cents/last_cost_date dropped (0a) — dead columns, vendor costs in variation_vendors.unit_cost_money
     notes TEXT,
     merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -955,6 +954,9 @@ CREATE TABLE IF NOT EXISTS variation_discount_status (
     manually_overridden BOOLEAN DEFAULT FALSE,
     manual_override_at TIMESTAMPTZ,
     manual_override_note TEXT,
+    -- LOGIC CHANGE: Expiry quantity tracking (BACKLOG-94)
+    expiring_quantity INTEGER,                 -- Expected units to sell at discount (NULL = all inventory)
+    units_sold_at_discount INTEGER DEFAULT 0,  -- Count of units sold at discounted price
     merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),

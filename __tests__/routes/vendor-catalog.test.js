@@ -804,4 +804,75 @@ describe('Vendor Catalog Routes', () => {
             expect(verifyCall[1]).toContain(55);
         });
     });
+
+    // ============================================================================
+    // BACKLOG-90: Confirm suggested vendor links
+    // ============================================================================
+
+    describe('POST /api/vendor-catalog/confirm-links (BACKLOG-90)', () => {
+        test('creates variation_vendors rows for confirmed links', async () => {
+            db.query.mockResolvedValue({ rows: [] });
+
+            const app = createTestApp();
+            const res = await request(app)
+                .post('/api/vendor-catalog/confirm-links')
+                .send({
+                    links: [
+                        { variation_id: 'VAR1', vendor_id: 'V1', vendor_code: 'ABC-123', cost_cents: 1500 },
+                        { variation_id: 'VAR2', vendor_id: 'V1', vendor_code: 'ABC-456', cost_cents: 2000 }
+                    ]
+                });
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.created).toBe(2);
+            expect(res.body.failed).toBe(0);
+
+            // Verify INSERT INTO variation_vendors was called for each link
+            const insertCalls = db.query.mock.calls.filter(c =>
+                typeof c[0] === 'string' && c[0].includes('INSERT INTO variation_vendors')
+            );
+            expect(insertCalls).toHaveLength(2);
+            expect(insertCalls[0][1]).toEqual(['VAR1', 'V1', 'ABC-123', 1500, 1]);
+        });
+
+        test('handles partial failures gracefully', async () => {
+            db.query
+                .mockResolvedValueOnce({ rows: [] }) // first link succeeds
+                .mockRejectedValueOnce(new Error('FK violation')); // second link fails
+
+            const app = createTestApp();
+            const res = await request(app)
+                .post('/api/vendor-catalog/confirm-links')
+                .send({
+                    links: [
+                        { variation_id: 'VAR1', vendor_id: 'V1', cost_cents: 1500 },
+                        { variation_id: 'INVALID', vendor_id: 'V1', cost_cents: 2000 }
+                    ]
+                });
+
+            expect(res.status).toBe(200);
+            expect(res.body.created).toBe(1);
+            expect(res.body.failed).toBe(1);
+            expect(res.body.errors).toHaveLength(1);
+        });
+
+        test('existing link not re-suggested — ON CONFLICT updates', async () => {
+            // ON CONFLICT DO UPDATE means existing links get updated, not duplicated
+            db.query.mockResolvedValue({ rows: [] });
+
+            const app = createTestApp();
+            const res = await request(app)
+                .post('/api/vendor-catalog/confirm-links')
+                .send({
+                    links: [{ variation_id: 'VAR1', vendor_id: 'V1', vendor_code: 'NEW-CODE', cost_cents: 1800 }]
+                });
+
+            expect(res.status).toBe(200);
+            expect(res.body.created).toBe(1);
+
+            const insertCall = db.query.mock.calls[0];
+            expect(insertCall[0]).toContain('ON CONFLICT');
+        });
+    });
 });

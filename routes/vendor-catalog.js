@@ -489,19 +489,85 @@ router.post('/vendor-catalog/push-price-changes', requireAuth, requireMerchant, 
 }));
 
 /**
+ * GET /api/vendor-catalog/merchant-taxes
+ * LOGIC CHANGE: Returns available tax configurations for bulk item creation (BACKLOG-88)
+ */
+router.get('/vendor-catalog/merchant-taxes', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const { getMerchantToken, makeSquareRequest } = require('../services/square/square-client');
+
+    try {
+        const accessToken = await getMerchantToken(merchantId);
+        const data = await makeSquareRequest('/v2/catalog/list?types=TAX', { accessToken });
+        const taxes = (data.objects || [])
+            .filter(obj => !obj.is_deleted)
+            .map(obj => ({
+                id: obj.id,
+                name: obj.tax_data?.name || 'Unknown Tax',
+                percentage: obj.tax_data?.percentage || null,
+                enabled: obj.tax_data?.enabled !== false
+            }));
+        sendSuccess(res, { taxes });
+    } catch (error) {
+        logger.warn('Failed to fetch merchant taxes', { merchantId, error: error.message });
+        sendSuccess(res, { taxes: [] });
+    }
+}));
+
+/**
+ * POST /api/vendor-catalog/confirm-links
+ * LOGIC CHANGE: Confirm suggested vendor links after import review (BACKLOG-90)
+ * Staff reviews suggested links from import and selects which to create.
+ * Body: { links: [{ variation_id, vendor_id, vendor_code, cost_cents }] }
+ */
+router.post('/vendor-catalog/confirm-links', requireAuth, requireMerchant, validators.confirmLinks, asyncHandler(async (req, res) => {
+    const { links } = req.body;
+    const merchantId = req.merchantContext.id;
+
+    logger.info('Confirming vendor links from import review', { count: links.length, merchantId });
+
+    let created = 0;
+    const errors = [];
+
+    for (const link of links) {
+        try {
+            await db.query(`
+                INSERT INTO variation_vendors (variation_id, vendor_id, vendor_code, unit_cost_money, currency, merchant_id, updated_at)
+                VALUES ($1, $2, $3, $4, 'CAD', $5, CURRENT_TIMESTAMP)
+                ON CONFLICT (variation_id, vendor_id, merchant_id) DO UPDATE SET
+                    vendor_code = EXCLUDED.vendor_code,
+                    unit_cost_money = EXCLUDED.unit_cost_money,
+                    updated_at = CURRENT_TIMESTAMP
+            `, [link.variation_id, link.vendor_id, link.vendor_code || null, link.cost_cents || null, merchantId]);
+            created++;
+        } catch (error) {
+            errors.push({ variation_id: link.variation_id, error: error.message });
+            logger.error('Failed to create vendor link', { variation_id: link.variation_id, error: error.message, merchantId });
+        }
+    }
+
+    sendSuccess(res, { created, failed: errors.length, errors });
+}));
+
+/**
  * POST /api/vendor-catalog/create-items
  * LOGIC CHANGE: bulk create items from vendor catalog
  * Create Square catalog items from unmatched vendor catalog entries
  * Body: { vendorCatalogIds: [1, 2, 3, ...] }
  */
 router.post('/vendor-catalog/create-items', requireAuth, requireMerchant, validators.createItems, asyncHandler(async (req, res) => {
-    const { vendorCatalogIds } = req.body;
+    const { vendorCatalogIds, tax_ids } = req.body;
     const merchantId = req.merchantContext.id;
 
     logger.info('Bulk create Square items from vendor catalog', { count: vendorCatalogIds.length, merchantId });
 
     const { bulkCreateSquareItems } = require('../services/vendor/catalog-create-service');
-    const result = await bulkCreateSquareItems(vendorCatalogIds, merchantId);
+    // LOGIC CHANGE: Pass tax_ids if provided (BACKLOG-88)
+    const options = {};
+    if (tax_ids !== undefined) {
+        options.tax_ids = tax_ids;
+    }
+    const result = await bulkCreateSquareItems(vendorCatalogIds, merchantId, options);
 
     sendSuccess(res, {
         created: result.created,

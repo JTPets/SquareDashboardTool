@@ -282,7 +282,8 @@ describe('Fix 3: variation_vendors merchant_id filter', () => {
 
         expect(purchaseQueryCalls.length).toBeGreaterThan(0);
         const sql = purchaseQueryCalls[0][0];
-        expect(sql).toContain('vv.merchant_id = pe.merchant_id');
+        // LATERAL subquery uses unaliased merchant_id inside WHERE clause
+        expect(sql).toContain('merchant_id = pe.merchant_id');
     });
 
     test('getRedemptionDetails redemptions JOIN includes merchant_id', async () => {
@@ -587,5 +588,77 @@ describe('Fix 5: getMerchantLocaleConfig', () => {
         expect(config.timezone).toBe('America/Toronto');
         expect(config.currency).toBe('CAD');
         expect(config.locale).toBe('en-CA');
+    });
+});
+
+// ============================================================================
+// Fix 6: last_cost_cents dropped — vendor cost JOIN uses variation_vendors
+// ============================================================================
+
+describe('Fix 6: Vendor cost from variation_vendors (0a)', () => {
+    const merchantId = 1;
+    const rewardId = 'reward-uuid-123';
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    test('getRedemptionDetails query uses variation_vendors LATERAL JOIN for wholesale cost', async () => {
+        const baseRedemption = {
+            id: rewardId, merchant_id: merchantId, offer_id: 1,
+            square_customer_id: 'CUST_1', redeemed_at: '2026-03-01',
+            square_order_id: 'ORDER_1', current_quantity: 8, required_quantity: 8,
+            window_start_date: '2025-12-01', window_end_date: '2026-06-01',
+            earned_at: '2026-02-28', offer_name: 'Buy 8', brand_name: 'Acme',
+            size_group: 'Large', window_months: 6, vendor_id: 'V1',
+            vendor_name: 'Acme', business_name: 'Test', business_email: 'a@b.com',
+            given_name: 'Jane', family_name: 'Doe', redeemed_variation_id: 'VAR_1',
+            redeemed_value_cents: 5999
+        };
+
+        db.query.mockImplementation((sql) => {
+            if (sql.includes('FROM loyalty_rewards r')) return { rows: [baseRedemption] };
+            if (sql.includes('FROM loyalty_purchase_events pe')) return { rows: [] };
+            if (sql.includes('MIN(unit_price_cents)')) return { rows: [{ lowest_price_cents: 5999 }] };
+            if (sql.includes('FROM loyalty_qualifying_variations')) return { rows: [{ variation_id: 'VAR_1' }] };
+            if (sql.includes('FROM variations v')) return { rows: [{ vendor_item_number: 'VN-001', wholesale_cost_cents: 3500, vendor_unit_cost: 3500 }] };
+            return { rows: [] };
+        });
+
+        mockSquareClient.merchants.get.mockRejectedValue(new Error('test'));
+        mockSquareClient.locations.list.mockRejectedValue(new Error('test'));
+        mockSquareClient.orders.get.mockRejectedValue(new Error('test'));
+
+        await getRedemptionDetails(rewardId, merchantId);
+
+        // The standalone purchase events query (not the one nested in the rewards LATERAL)
+        // should use LATERAL JOIN to variation_vendors, not v.last_cost_cents
+        const purchaseEventCall = db.query.mock.calls.find(c =>
+            c[0].includes('FROM loyalty_purchase_events pe') && c[0].includes('pe.*')
+        );
+        expect(purchaseEventCall).toBeDefined();
+        const sql = purchaseEventCall[0];
+        expect(sql).not.toContain('last_cost_cents');
+        expect(sql).toContain('variation_vendors');
+        expect(sql).toContain('LATERAL');
+    });
+
+    test('loyalty-reports.js source does not reference last_cost_cents', () => {
+        // Static verification: the source file should not reference last_cost_cents
+        // (the column was dropped in 0a migration)
+        const fs = require('fs');
+        const source = fs.readFileSync(
+            require.resolve('../../services/reports/loyalty-reports.js'), 'utf8'
+        );
+        // No references to the dropped column in actual SQL (comments are ok)
+        const sqlBlocks = source.match(/db\.query\(`[\s\S]*?`/g) || [];
+        for (const block of sqlBlocks) {
+            // Strip SQL comments before checking
+            const withoutComments = block.replace(/--.*$/gm, '');
+            expect(withoutComments).not.toContain('last_cost_cents');
+        }
+        // Verify both vendor cost queries use LATERAL JOIN to variation_vendors
+        const lateralCount = (source.match(/LATERAL[\s\S]*?variation_vendors/g) || []).length;
+        expect(lateralCount).toBeGreaterThanOrEqual(2);
     });
 });

@@ -25,7 +25,8 @@ const ALLOWED_EXTENDED_FIELDS = [
     'reorder_multiple', 'discontinued', 'discontinue_date',
     'replacement_variation_id',
     // LOGIC CHANGE: removed supplier_item_number (BACKLOG-89) — column dropped, vendor codes in variation_vendors
-    'last_cost_cents', 'last_cost_date', 'notes'
+    // LOGIC CHANGE: removed last_cost_cents/last_cost_date (0a) — dead columns, vendor costs in variation_vendors.unit_cost_money
+    'notes'
 ];
 
 // Allowed fields for bulk updates (subset of extended fields)

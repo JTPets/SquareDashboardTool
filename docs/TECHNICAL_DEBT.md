@@ -12,18 +12,22 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 
 | Category | Open Items |
 |----------|-----------|
-| Code Quality Observations | 1 |
+| Code Quality Observations | 2 |
 | Square Online Store | 4 |
 | Logging | 1 |
 | Config | 1 |
 | Architecture | 1 |
 | Multi-Tenant Gaps | 5 |
 | Audit Findings (2026-03-22) | 7 |
-| **Total** | **~20** |
+| **Total** | **~21** |
 
 ---
 
 ## Code Quality Observations
+
+### Square API does not expose default/primary vendor flag
+
+**Scope**: Square Catalog API `CatalogItemVariation.item_variation_vendor_infos` is an array of vendor links (vendor_id, vendor_code, unit_cost_money). There is no `is_default`, `is_primary`, or priority field. When a variation has multiple vendors, there is no API-level way to determine which vendor the merchant considers "primary." Our system uses cheapest cost as the tiebreaker (LATERAL JOIN ORDER BY unit_cost_money ASC). If Square adds a default vendor flag in the future, update the LATERAL JOIN in `services/reports/loyalty-reports.js` and the reorder page vendor selection logic. **Discovered**: 2026-03-22 (vendor integrity audit, item 0c).
 
 ### OSS locale sweep — remaining frontend hardcoded locale
 

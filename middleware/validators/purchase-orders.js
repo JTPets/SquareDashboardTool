@@ -62,6 +62,8 @@ const createPurchaseOrder = [
     validateOptionalPositiveInt('supply_days_override', { min: 1, max: 365 }),
     validateOptionalString('notes', { maxLength: 2000 }),
     validateOptionalString('created_by', { maxLength: 255 }),
+    // LOGIC CHANGE: force parameter for manual PO creation below vendor minimum (BACKLOG-91)
+    body('force').optional().isBoolean().withMessage('force must be a boolean'),
     handleValidationErrors
 ];
 

@@ -1163,3 +1163,77 @@ describe('getFlaggedVariations', () => {
         expect(flagged[0].calculated_tier_code).toBe('AUTO25'); // 60 days
     });
 });
+
+// ----------------------------------------------------------------------------
+// trackExpiryDiscountSale (BACKLOG-94)
+// ----------------------------------------------------------------------------
+
+describe('trackExpiryDiscountSale', () => {
+    it('increments units_sold_at_discount and returns tracked=true', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{ units_sold_at_discount: 3, expiring_quantity: 10, needs_manual_review: false }]
+        });
+
+        const result = await discountService.trackExpiryDiscountSale('VAR-1', 2, MERCHANT_ID);
+
+        expect(result).toEqual({ tracked: true, flagged: false });
+        expect(db.query).toHaveBeenCalledWith(
+            expect.stringContaining('units_sold_at_discount'),
+            [2, 'VAR-1', MERCHANT_ID]
+        );
+    });
+
+    it('flags for manual review when threshold reached', async () => {
+        // First query: UPDATE RETURNING — units_sold now equals expiring_quantity
+        db.query.mockResolvedValueOnce({
+            rows: [{ units_sold_at_discount: 10, expiring_quantity: 10, needs_manual_review: false }]
+        });
+        // Second query: SET needs_manual_review = TRUE
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
+        // Third query: logAuditEvent INSERT
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+        const result = await discountService.trackExpiryDiscountSale('VAR-1', 2, MERCHANT_ID);
+
+        expect(result).toEqual({ tracked: true, flagged: true });
+        expect(db.query).toHaveBeenCalledTimes(3);
+        // Verify the flag update query
+        expect(db.query).toHaveBeenNthCalledWith(2,
+            expect.stringContaining('needs_manual_review = TRUE'),
+            ['VAR-1', MERCHANT_ID]
+        );
+    });
+
+    it('returns tracked=false when no matching discount status (null expiring_quantity)', async () => {
+        // UPDATE returns no rows — variation has no expiring_quantity set
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        const result = await discountService.trackExpiryDiscountSale('VAR-1', 1, MERCHANT_ID);
+
+        expect(result).toEqual({ tracked: false, flagged: false });
+        expect(db.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns tracked=false for invalid inputs', async () => {
+        expect(await discountService.trackExpiryDiscountSale(null, 1, MERCHANT_ID))
+            .toEqual({ tracked: false, flagged: false });
+        expect(await discountService.trackExpiryDiscountSale('VAR-1', 0, MERCHANT_ID))
+            .toEqual({ tracked: false, flagged: false });
+        expect(await discountService.trackExpiryDiscountSale('VAR-1', 1, null))
+            .toEqual({ tracked: false, flagged: false });
+        // No DB calls for invalid inputs
+        expect(db.query).not.toHaveBeenCalled();
+    });
+
+    it('does not re-flag if already flagged for manual review', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{ units_sold_at_discount: 15, expiring_quantity: 10, needs_manual_review: true }]
+        });
+
+        const result = await discountService.trackExpiryDiscountSale('VAR-1', 1, MERCHANT_ID);
+
+        expect(result).toEqual({ tracked: true, flagged: false });
+        // Only the initial UPDATE, no flag update or audit log
+        expect(db.query).toHaveBeenCalledTimes(1);
+    });
+});

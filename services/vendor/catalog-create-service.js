@@ -49,7 +49,9 @@ async function fetchMerchantTaxIds(accessToken) {
  * @param {number} merchantId - Merchant ID from req.merchantContext.id
  * @returns {Promise<Object>} { created, failed, errors }
  */
-async function bulkCreateSquareItems(vendorCatalogIds, merchantId) {
+// LOGIC CHANGE: Added optional tax_ids parameter (BACKLOG-88)
+// If provided, use those tax IDs. If not provided (backward compat), fetch all active taxes.
+async function bulkCreateSquareItems(vendorCatalogIds, merchantId, options = {}) {
     if (!merchantId) {
         throw new Error('merchantId is required for bulkCreateSquareItems');
     }
@@ -80,10 +82,16 @@ async function bulkCreateSquareItems(vendorCatalogIds, merchantId) {
     const accessToken = await getMerchantToken(merchantId);
     const { toCreate, toMatch } = await checkExistingUPCs(valid, merchantId);
 
-    // 3b. Fetch merchant's active tax IDs once for all batches
-    const taxIds = await fetchMerchantTaxIds(accessToken);
-    if (taxIds.length === 0) {
-        logger.warn('No active tax configurations found for merchant', { merchantId });
+    // LOGIC CHANGE: Use custom tax_ids if provided, otherwise fetch all active taxes (BACKLOG-88)
+    let taxIds;
+    if (options.tax_ids !== undefined) {
+        taxIds = Array.isArray(options.tax_ids) ? options.tax_ids : [];
+        logger.info('Using custom tax IDs for bulk create', { merchantId, taxIdCount: taxIds.length });
+    } else {
+        taxIds = await fetchMerchantTaxIds(accessToken);
+        if (taxIds.length === 0) {
+            logger.warn('No active tax configurations found for merchant', { merchantId });
+        }
     }
 
     // 4. Handle entries that match existing UPCs — link instead of create
