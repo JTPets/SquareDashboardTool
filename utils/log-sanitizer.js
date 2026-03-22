@@ -78,6 +78,12 @@ function sanitize(meta) {
     if (!meta || typeof meta !== 'object') return meta;
 
     const sanitized = {};
+    // Preserve Symbol properties (e.g. Winston's Symbol.for('level'))
+    // so the sanitized copy remains a valid Winston info object.
+    const symbols = Object.getOwnPropertySymbols(meta);
+    for (const sym of symbols) {
+        sanitized[sym] = meta[sym];
+    }
     for (const [key, value] of Object.entries(meta)) {
         if (PII_FIELDS.has(key)) {
             if (key.includes('email') || key.includes('Email')) {

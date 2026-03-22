@@ -48,9 +48,14 @@ const errorRotateTransport = new DailyRotateFile({
 // LOGIC CHANGE: strip PII from request logs (audit 8.x)
 // Custom format that redacts email, phone, and customer name fields
 const piiSanitizer = winston.format((info) => {
-  // sanitize() returns a shallow copy with PII fields redacted
+  // sanitize() returns a shallow copy — copy sanitized values back onto
+  // the original info object to preserve Winston's Symbol properties
+  // (e.g. Symbol.for('level')) which are required for log routing.
   const sanitized = sanitize(info);
-  return sanitized;
+  for (const key of Object.keys(sanitized)) {
+    info[key] = sanitized[key];
+  }
+  return info;
 });
 
 // Create logger
