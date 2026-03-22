@@ -27,7 +27,7 @@ log "Pull complete."
 
 # 2. Install dependencies
 log "Installing dependencies..."
-npm ci --production
+npm ci
 log "Dependencies installed."
 
 # 3. Run database migrations
@@ -37,7 +37,7 @@ log "Migrations complete."
 
 # 4. Run tests
 log "Running tests..."
-if npx jest --ci --forceExit; then
+if npm test; then
     log "Tests passed."
 else
     log "ERROR: Tests failed. Aborting deploy."
