@@ -3,10 +3,20 @@
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
 **Last Validated**: 2026-03-22
-**Total Open Items**: ~38
+**Total Open Items**: ~35
 
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
+
+### Purge Log — 2026-03-22 Audit MEDIUM Fixes (audit 3.4.1, 8.x correlation, 2.6.1)
+
+**AUDIT-3.4.1 AI AUTOFILL RATE LIMITING FIXED** — AI autofill endpoints were skipping the global rate limiter with no substitute. Added `configureAiAutofillRateLimit()` to `middleware/security.js` — 10 requests per 15 minutes per merchant. Applied to all 6 AI autofill routes. Keys by merchant ID to prevent per-merchant cost abuse. 4 tests added.
+
+**AUDIT-8.x REQUEST CORRELATION IDs FIXED** — Created `middleware/request-id.js` that generates a UUID v4 for each request (or reuses client-supplied `X-Request-ID`). Attaches `req.requestId` and `req.log` (Winston child logger with requestId baked in). `X-Request-ID` echoed in response headers. `sendError()` in `utils/response-helper.js` now includes `requestId` in error response bodies so users can reference it in support requests. Global error handler in `server.js` updated to use `req.requestId` instead of generating a new one. 8 tests added.
+
+**AUDIT-2.6.1 ADMIN MERCHANT SCOPING FIXED** — Created `middleware/merchant-access.js` with `requireMerchantAccess` middleware. Admin endpoints that accept `:merchantId` URL params (extend-trial, deactivate) now verify the admin user has a `user_merchants` row for that merchant. Platform owners (`subscription_status = 'platform_owner'`) are granted cross-merchant access. Returns 403 if admin has no association. Applied to `routes/admin.js`. 6 tests added.
+
+**CONTRIBUTING.md CREATED** — Added `CONTRIBUTING.md` to repo root with dev setup, test instructions, branch naming, PR process, code rules summary (references CLAUDE.md), and bug reporting guidelines.
 
 ### Purge Log — 2026-03-22 Security Audit Fixes (audit 1, 5, 8, 12)
 

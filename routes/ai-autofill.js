@@ -25,6 +25,9 @@ const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const { sendSuccess, sendError } = require('../utils/response-helper');
 const validators = require('../middleware/validators/ai-autofill');
+// LOGIC CHANGE: dedicated rate limiter for AI endpoints (Audit 3.4.1)
+const { configureAiAutofillRateLimit } = require('../middleware/security');
+const aiRateLimit = configureAiAutofillRateLimit();
 const aiAutofillService = require('../services/ai-autofill-service');
 const { batchUpdateCatalogContent } = require('../services/square/api');
 const { encryptToken, decryptToken } = require('../utils/token-encryption');
@@ -38,7 +41,7 @@ const { encryptToken, decryptToken } = require('../utils/token-encryption');
  * Save Claude API key encrypted per merchant
  * The key is never returned to the frontend after storage
  */
-router.post('/api-key', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+router.post('/api-key', requireAuth, requireMerchant, aiRateLimit, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const { apiKey } = req.body;
 
@@ -66,7 +69,7 @@ router.post('/api-key', requireAuth, requireMerchant, asyncHandler(async (req, r
  * GET /api/ai-autofill/api-key/status
  * Check if a Claude API key is stored (without exposing it)
  */
-router.get('/api-key/status', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+router.get('/api-key/status', requireAuth, requireMerchant, aiRateLimit, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
 
     const result = await db.query(`
@@ -84,7 +87,7 @@ router.get('/api-key/status', requireAuth, requireMerchant, asyncHandler(async (
  * DELETE /api/ai-autofill/api-key
  * Delete stored Claude API key
  */
-router.delete('/api-key', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+router.delete('/api-key', requireAuth, requireMerchant, aiRateLimit, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
 
     await db.query(`
@@ -125,7 +128,7 @@ async function getApiKeyForMerchant(merchantId) {
  * GET /api/ai-autofill/status
  * Get all items grouped by their readiness for content generation
  */
-router.get('/status', requireAuth, requireMerchant, validators.getStatus, asyncHandler(async (req, res) => {
+router.get('/status', requireAuth, requireMerchant, aiRateLimit, validators.getStatus, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
 
     const grouped = await aiAutofillService.getItemsWithReadiness(merchantId);
@@ -152,7 +155,7 @@ router.get('/status', requireAuth, requireMerchant, validators.getStatus, asyncH
  *   event: done    — { fieldType, totalResults, successCount }
  *   event: error   — { error: "message" }
  */
-router.post('/generate', requireAuth, requireMerchant, validators.generate, asyncHandler(async (req, res) => {
+router.post('/generate', requireAuth, requireMerchant, aiRateLimit, validators.generate, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const { itemIds, fieldType, context, keywords, tone } = req.body;
 
@@ -255,7 +258,7 @@ router.post('/generate', requireAuth, requireMerchant, validators.generate, asyn
  *   updates: [{ itemId: string, fieldType: string, value: string }]
  * }
  */
-router.post('/apply', requireAuth, requireMerchant, validators.apply, asyncHandler(async (req, res) => {
+router.post('/apply', requireAuth, requireMerchant, aiRateLimit, validators.apply, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const { updates } = req.body;
 

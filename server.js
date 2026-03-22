@@ -64,6 +64,8 @@ const jobs = require('./jobs');
 // Security middleware
 const { configureHelmet, configurePermissionsPolicy, configureRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
 const { requireAuth, requireAuthApi, requireAdmin } = require('./middleware/auth');
+// LOGIC CHANGE: request correlation IDs for log tracing (Audit 8.x)
+const requestId = require('./middleware/request-id');
 const authRoutes = require('./routes/auth');
 
 // Multi-tenant middleware and routes
@@ -138,6 +140,9 @@ if (process.env.DISABLE_SECURITY_HEADERS !== 'true') {
     app.use(configureHelmet());
     app.use(configurePermissionsPolicy());
 }
+
+// Request correlation IDs — must be before rate limiting so IDs appear in rate limit logs
+app.use(requestId);
 
 // Rate limiting
 app.use(configureRateLimit());
@@ -650,13 +655,14 @@ app.use((err, req, res, next) => {
         }
     }
 
-    // Log error with appropriate level
+    // LOGIC CHANGE: include requestId in error logs for correlation (Audit 8.x)
     const logContext = {
         error: err.message,
         code: err.code,
         statusCode,
         path: req.path,
         method: req.method,
+        requestId: req.requestId,
         merchantId: req.merchantContext?.id,
         userId: req.session?.userId,
         ...(statusCode >= 500 && { stack: err.stack })
@@ -674,7 +680,8 @@ app.use((err, req, res, next) => {
         ...(err.code && { code: err.code }),
         ...(err.errors && { errors: err.errors }), // For validation errors
         ...(err.retryAfter && { retryAfter: err.retryAfter }), // For rate limits
-        ...(isProduction && { requestId: req.headers['x-request-id'] || crypto.randomUUID() }),
+        // LOGIC CHANGE: always include requestId from middleware (Audit 8.x)
+        ...(req.requestId && { requestId: req.requestId }),
         ...(!isProduction && { details: err.message })
     };
 

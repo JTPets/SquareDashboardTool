@@ -17,6 +17,8 @@ const router = express.Router();
 const db = require('../utils/database');
 const logger = require('../utils/logger');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+// LOGIC CHANGE: verify admin has access to target merchant (Audit 2.6.1)
+const { requireMerchantAccess } = require('../middleware/merchant-access');
 const asyncHandler = require('../middleware/async-handler');
 const platformSettings = require('../services/platform-settings');
 const validators = require('../middleware/validators/admin');
@@ -44,7 +46,7 @@ router.get('/merchants', requireAuth, requireAdmin, validators.listMerchants, as
  * Extend a merchant's trial by N days from NOW
  * If no trial exists, sets trial_ends_at = NOW() + days
  */
-router.post('/merchants/:merchantId/extend-trial', requireAuth, requireAdmin, validators.extendTrial, asyncHandler(async (req, res) => {
+router.post('/merchants/:merchantId/extend-trial', requireAuth, requireAdmin, requireMerchantAccess, validators.extendTrial, asyncHandler(async (req, res) => {
     const merchantId = parseInt(req.params.merchantId, 10);
     const { days } = req.body;
 
@@ -81,7 +83,7 @@ router.post('/merchants/:merchantId/extend-trial', requireAuth, requireAdmin, va
  * POST /api/admin/merchants/:merchantId/deactivate
  * Immediately expire a merchant's trial (sets trial_ends_at to NOW)
  */
-router.post('/merchants/:merchantId/deactivate', requireAuth, requireAdmin, validators.deactivateMerchant, asyncHandler(async (req, res) => {
+router.post('/merchants/:merchantId/deactivate', requireAuth, requireAdmin, requireMerchantAccess, validators.deactivateMerchant, asyncHandler(async (req, res) => {
     const merchantId = parseInt(req.params.merchantId, 10);
 
     const result = await db.query(`
