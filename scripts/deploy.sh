@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-APP_NAME="square-dashboard-addon"
+APP_NAME="sqtools"
 LOG_DIR="output/logs"
 DEPLOY_LOG="${LOG_DIR}/deploy.log"
 
