@@ -1,82 +1,83 @@
 # Section 11: DOCUMENTATION ACCURACY
 
-**Rating: NEEDS WORK**
+**Rating: PASS**
 
-**Auditor note**: CLAUDE.md is accurate and well-maintained. However, there is no README.md, no `.env.example`, and 20+ environment variables are undocumented. WORK-ITEMS.md doesn't reflect findings from this audit.
+**Auditor note**: README.md is comprehensive with tech stack, features, prerequisites, and setup guide. `.env.example` covers 316 lines of configuration. CLAUDE.md is accurate with minor drift. WORK-ITEMS.md is well-maintained. A few small documentation inaccuracies noted.
 
 ---
 
 ## 11.1 README Setup
 
-**Rating: NEEDS WORK**
+**Rating: PASS**
 
-There is **no README.md** in the project root. The only documentation entry point is `CLAUDE.md`, which is AI-assistant-focused.
+`README.md` exists and is comprehensive:
 
-**Missing**:
-- No project description for new developers/contributors
-- No installation prerequisites list (Node.js 18+, PostgreSQL 15, PM2)
-- No step-by-step setup guide
-- No `.env.example` file
-- No instructions for first-time database setup
+- Project description with feature inventory (loyalty, delivery, vendor, catalog, expiry, analytics, subscriptions)
+- Tech stack table (Node.js 18+, PostgreSQL 15, PM2, Square SDK, Google APIs)
+- Prerequisites clearly listed
+- Step-by-step setup: `cp .env.example .env` → run `schema.sql` → run migrations → `npm install` → `npm run dev`
 
-**What exists**:
-- `CLAUDE.md` contains commands section with database, dev, and test commands
-- `docs/ARCHITECTURE.md`, `docs/TECHNICAL_DEBT.md`, `docs/PRIORITIES.md`, `docs/ROADMAP.md`, `docs/WORK-ITEMS.md`
+**Minor gap**: README does not mention `scripts/init-admin.js` for creating the first admin user. A new developer following only README instructions would have no admin user after setup.
 
 ---
 
 ## 11.2 CLAUDE.md Accuracy
 
-**Rating: PASS**
-
-Verified claims against the codebase:
+**Rating: PASS (minor drift)**
 
 | Claim | Verified | Notes |
 |-------|----------|-------|
-| Middleware stack order | PASS | Auth → loadMerchantContext → apiAuth → subscriptionEnforcement matches server.js |
-| "28 modules, ~260 routes" | PASS (approx) | Found 27 files, 234 route definitions — close enough |
+| Middleware stack order | PASS | Auth → loadMerchantContext → apiAuth → subscriptionEnforcement matches server.js. Omits `requireValidSubscription` from the documented stack (README is more complete). |
+| "28 modules, ~260 routes" | PASS (approx) | 28 top-level route files matches. Actual route definitions ~283, close to "~260". |
 | asyncHandler pattern | PASS | Used exactly as documented |
 | db.transaction() pattern | PASS | Matches documented usage |
-| sendSuccess/sendError/sendPaginated | PASS | Used as documented |
+| sendSuccess/sendError/sendPaginated | PASS | Used in 34 of 39 route files |
 | Square SDK nested resource warning | PASS | Accurate and important |
-| "4,035 tests / 187 suites" | PASS | 188 test files found; consistent |
-| "41 modular services" in loyalty-admin | PASS | Exact match: 41 .js files |
+| "4,035 tests / 187 suites" | PASS | 213 test files found; consistent with claim |
+| "41 modular services" in loyalty-admin | PASS | Exact match |
+| "8 webhook handlers" | MINOR | Found 7 named handlers (off by 1) |
+| server.js "~1,000 lines" | MINOR | Actual: 1,112 lines; violations table says 1,006 |
+| database.js "2,397 lines" in violations table | WRONG | `utils/database.js` is 217 lines. Likely refers to `utils/schema-manager.js` |
 
-**Minor drift**: Route file count 27 vs 28 claimed (off by 1). Not a meaningful inaccuracy.
+**Actionable**: Fix the violations table entry — `utils/database.js` is not 2,397 lines.
 
 ---
 
 ## 11.3 WORK-ITEMS.md
 
-**Rating: NEEDS WORK**
+**Rating: PASS**
 
-- Items marked complete **are** confirmed complete (BACKLOG-23, 25, 26, 27, 57, 58)
-- Several open items may be stale from pre-refactoring era
-- **Missing**: Findings from this security audit are not reflected (PII in logs, request correlation, off-site backups, PIPEDA gaps)
-- Last thorough update appears to be around 2026-03-15
+- Items marked complete **are** confirmed complete (BACKLOG-3, 23, 25, 26, 27, 57, 58, 74)
+- Last validated: 2026-03-20 (2 days before this audit)
+- Open items are consistent with codebase state
+
+**Minor issue**: BACKLOG-61 (GMC v1beta → v1) is listed as "High/P0" in CLAUDE.md but "Low" in WORK-ITEMS.md — priority inconsistency.
 
 ---
 
 ## 11.4 Environment Variables
 
-**Rating: NEEDS WORK**
+**Rating: PASS**
 
-**No `.env.example` file exists.** At least 20+ environment variables are used but not centrally documented:
+`.env.example` exists and is thorough (316 lines) covering:
+- Square API, OAuth, webhooks
+- Database connection
+- Server configuration
+- Auth/security settings
+- Rate limiting, CORS
+- Inventory business rules, sync intervals
+- Cron schedules, logging
+- Email (SMTP), Google OAuth
 
-| Variable | Purpose |
-|----------|---------|
-| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | PostgreSQL connection |
-| `SESSION_SECRET` | Express session encryption |
-| `TOKEN_ENCRYPTION_KEY` | AES-256-GCM key for token encryption |
-| `SQUARE_APP_ID`, `SQUARE_APP_SECRET` | Square OAuth |
-| `SQUARE_ENVIRONMENT` | sandbox vs production |
-| `PUBLIC_URL` | Base URL for callbacks |
-| `NODE_ENV` | production/development mode |
-| `LOG_LEVEL` | Winston log level |
-| `PORT` | HTTP port |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google OAuth |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | Email sending |
-| `GEOCODING_API_KEY` | Google Maps geocoding |
+**Missing from `.env.example` but used in code**:
+
+| Variable | Used In | Impact |
+|----------|---------|--------|
+| `OPENROUTESERVICE_API_KEY` | `services/delivery/delivery-service.js` | Delivery route optimization silently fails |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `scripts/init-admin.js` | First admin user creation |
+| `DATABASE_URL` | `server.js` (alternative to individual DB vars) | Supported but not documented |
+
+The `OPENROUTESERVICE_API_KEY` is the most significant gap — a third-party API key with no mention in `.env.example`.
 
 ---
 
@@ -86,8 +87,9 @@ Verified claims against the codebase:
 
 - No `CONTRIBUTING.md`
 - No PR template or issue templates
-- CLAUDE.md serves as the de facto contributing guide for AI-assisted development
-- Not critical for a single-developer project; needed before onboarding contributors
+- `.github/workflows/test.yml` provides CI (Jest on push/PR to main)
+- CLAUDE.md contains a PR checklist, but it's embedded rather than enforced via GitHub template
+- Not critical for current single-developer project; needed before onboarding external contributors
 
 ---
 
@@ -95,18 +97,19 @@ Verified claims against the codebase:
 
 | Sub-section | Rating | Key Finding |
 |-------------|--------|-------------|
-| 11.1 README | NEEDS WORK | No README.md; no setup guide or .env.example |
-| 11.2 CLAUDE.md | PASS | Accurate with minor drift |
-| 11.3 WORK-ITEMS | NEEDS WORK | Missing audit findings; some items may be stale |
-| 11.4 Env Vars | NEEDS WORK | 20+ env vars undocumented |
+| 11.1 README | PASS | Comprehensive setup guide; missing admin user init step |
+| 11.2 CLAUDE.md | PASS | Accurate with minor drift; violations table has wrong line count for database.js |
+| 11.3 WORK-ITEMS | PASS | Well-maintained; minor priority inconsistency on BACKLOG-61 |
+| 11.4 Env Vars | PASS | 316-line .env.example; 3 vars missing (OPENROUTESERVICE_API_KEY most significant) |
 | 11.5 Contributing | N/A | No contributing guide |
 
 ## Recommendations
 
 | Priority | Item | Effort |
 |----------|------|--------|
-| HIGH | Create `.env.example` with all required variables and descriptions | 1-2 hours |
-| MEDIUM | Create README.md with setup instructions and prerequisites | 2-3 hours |
-| MEDIUM | Update WORK-ITEMS.md with security audit findings | 1 hour |
+| MEDIUM | Add `OPENROUTESERVICE_API_KEY` to .env.example | 5 min |
+| MEDIUM | Fix CLAUDE.md violations table (database.js line count is wrong) | 5 min |
+| MEDIUM | Add admin user setup step to README getting started guide | 10 min |
+| LOW | Resolve BACKLOG-61 priority inconsistency between CLAUDE.md and WORK-ITEMS.md | 5 min |
 | LOW | Create CONTRIBUTING.md before onboarding external contributors | 2 hours |
 | LOW | Add PR/issue templates for GitHub collaboration | 30 min |

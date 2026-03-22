@@ -21,7 +21,7 @@
 | 8 | Logging & Observability | **C+** | Structured JSON logging, proper levels. PII in logs (emails on every request, customer names/phones/addresses). No request correlation. |
 | 9 | Dependency Risk | **A** | Zero npm audit vulnerabilities, all permissive licenses, lean dep count. node-fetch v2 approaching EOL. |
 | 10 | Testing | **A** | 4,035 tests, all critical paths covered, tests exercise real logic. 7/27 admin routes untested. |
-| 11 | Documentation | **C+** | CLAUDE.md is accurate. No README.md, no .env.example, 20+ env vars undocumented. |
+| 11 | Documentation | **B+** | README.md and .env.example (316 lines) both comprehensive. CLAUDE.md accurate with minor drift. Missing 3 env vars, no CONTRIBUTING.md. |
 | 12 | Deployment & Operations | **C+** | PM2 config, migration runner, deploy script all solid. No off-site backup, no rollback procedure, no external monitoring. |
 | 13 | Compliance | **B-** | PCI-DSS clean, Square terms followed. PIPEDA gaps: no data retention policy, no DSAR procedure. |
 
@@ -39,10 +39,11 @@ For a production SaaS handling real merchant data: the code is safe, but the ope
 
 ```
 A+ : 4 sections (Multi-Tenant, Auth, Injection, Data Integrity)
-A  : 3 sections (API Integration, Error Handling, Dependencies)
+A  : 4 sections (API Integration, Error Handling, Dependencies, Testing)
+B+ : 1 section  (Documentation)
 B  : 1 section  (Secret Scan)
 B- : 1 section  (Compliance)
-C+ : 3 sections (Logging, Documentation, Deployment)
+C+ : 2 sections (Logging, Deployment)
 F  : 0 sections
 ```
 
@@ -54,7 +55,7 @@ F  : 0 sections
 |---|---------|---------|----------|--------|-------------|
 | 1 | Off-site database backup | 12 | **CRITICAL** | 2-4 hrs | Backups stored on same SD card as database. Card failure = total data loss. Rsync to cloud or second device. |
 | 2 | Remove PII from request logs | 8 | **HIGH** | 30 min | `server.js:251` logs user email on every HTTP request. Replace with userId. |
-| 3 | Create `.env.example` | 11 | **HIGH** | 1-2 hrs | 20+ env vars undocumented. New deploys or contributors can't set up without reading source code. |
+| 3 | Add missing env vars to `.env.example` | 11 | **MEDIUM** | 10 min | `OPENROUTESERVICE_API_KEY`, `ADMIN_EMAIL`/`ADMIN_PASSWORD` missing from otherwise comprehensive .env.example. |
 | 4 | Data retention policy + automated PII cleanup | 13 | **HIGH** | 4-8 hrs | PIPEDA requires defined retention. delivery_orders and loyalty tables retain customer PII indefinitely. |
 | 5 | Add request correlation middleware | 8 | **HIGH** | 2-4 hrs | No request ID in log entries. Cannot trace a single request across log files. Use AsyncLocalStorage + Winston format. |
 | 6 | External uptime monitoring | 12 | **MEDIUM** | 1 hr | No external service polls /api/health. If Pi goes down completely, nobody is notified. Set up UptimeRobot or similar. |
@@ -75,7 +76,7 @@ F  : 0 sections
 |------|--------|--------|
 | Off-site database backup | 2-4 hrs | Prevents total data loss |
 | Remove email from request logs | 30 min | Stops ongoing PII accumulation |
-| Create `.env.example` | 1-2 hrs | Enables new deployments |
+| Add missing env vars to .env.example | 10 min | Prevents delivery route failure on new deploy |
 | External uptime monitoring | 1 hr | Alerts when Pi is unreachable |
 | Harden .gitignore | 30 min | Prevents future accidents |
 
