@@ -540,6 +540,36 @@
         gap: 10px;
       }
     }
+
+    /* Feature gating styles */
+    .tool-card.feature-locked {
+      opacity: 0.55;
+      position: relative;
+    }
+    .tool-card.feature-locked a {
+      pointer-events: none;
+      color: #999;
+    }
+    .feature-lock-badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: #f0f0f0;
+      color: #666;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .feature-lock-badge:hover {
+      background: #e0e0ff;
+      color: #4a4aff;
+    }
   </style>
 </head>
 <body>
@@ -630,7 +660,7 @@
     <div class="tools-grid">
 
       <!-- REORDER & PURCHASE ORDERS (consolidated) -->
-      <div class="tool-card inventory">
+      <div class="tool-card inventory" data-feature="reorder">
         <div class="tag value">START HERE</div>
         <h2>📦 Reorder & Purchase Orders</h2>
         <p>Vendor dashboard, smart reorder suggestions, and purchase order management. Export to CSV and mark as received.</p>
@@ -642,7 +672,7 @@
       </div>
 
       <!-- EXPIRATION TRACKER -->
-      <div class="tool-card inventory">
+      <div class="tool-card inventory" data-feature="expiry">
         <h2>📅 Expiration Tracker</h2>
         <p>Track and update product expiration dates to ensure freshness and compliance.</p>
         <div class="tool-card-links">
@@ -661,7 +691,7 @@
       </div>
 
       <!-- SALES VELOCITY -->
-      <div class="tool-card operations">
+      <div class="tool-card operations" data-feature="reorder">
         <div class="tag new">NEW</div>
         <h2>📈 Sales Velocity Reports</h2>
         <p>91/182/365 day sales trends. Identify fast-moving and slow-moving products.</p>
@@ -669,7 +699,7 @@
       </div>
 
       <!-- CYCLE COUNT (consolidated) -->
-      <div class="tool-card operations">
+      <div class="tool-card operations" data-feature="cycle_counts">
         <h2>🔄 Cycle Count</h2>
         <p>Mobile-optimized cycle counting with rotation logic. Track counts, view history, and variance reports.</p>
         <div class="tool-card-links">
@@ -679,7 +709,7 @@
       </div>
 
       <!-- VENDOR CATALOG IMPORT -->
-      <div class="tool-card operations">
+      <div class="tool-card operations" data-feature="reorder">
         <div class="tag new">NEW</div>
         <h2>📥 Vendor Catalog Import</h2>
         <p>Import vendor catalogs from CSV/XLSX for rapid lookup. Track costs, prices, and margins across vendors.</p>
@@ -695,7 +725,7 @@
       </div>
 
       <!-- GMC FEED VIEWER -->
-      <div class="tool-card operations">
+      <div class="tool-card operations" data-feature="gmc">
         <div class="tag new">NEW</div>
         <h2>🛒 Google Merchant Feed</h2>
         <p>View and manage Google Merchant Center feed. Check for missing images, GTINs, brands, and sync to Google Sheets.</p>
@@ -703,7 +733,7 @@
       </div>
 
       <!-- AI CONTENT AUTOFILL -->
-      <div class="tool-card operations">
+      <div class="tool-card operations" data-feature="ai_tools">
         <div class="tag new">NEW</div>
         <h2>✨ AI Content Autofill</h2>
         <p>Generate product descriptions and SEO content using Claude AI. Workflow ensures all prerequisites are met before generation.</p>
@@ -711,7 +741,7 @@
       </div>
 
       <!-- DELIVERY SCHEDULER -->
-      <div class="tool-card operations">
+      <div class="tool-card operations" data-feature="delivery">
         <div class="tag new">NEW</div>
         <h2>🚚 Delivery Scheduler</h2>
         <p>Manage delivery orders, optimize routes, capture proof of delivery photos, and sync completion to Square.</p>
@@ -723,7 +753,7 @@
       </div>
 
       <!-- LOYALTY PROGRAM -->
-      <div class="tool-card operations">
+      <div class="tool-card operations" data-feature="loyalty">
         <div class="tag new">NEW</div>
         <h2>🎁 Loyalty Program</h2>
         <p>Frequent buyer program management. Track customer purchases, manage rewards, and process redemptions.</p>
@@ -733,7 +763,7 @@
       </div>
 
       <!-- CART ACTIVITY -->
-      <div class="tool-card operations">
+      <div class="tool-card operations" data-feature="loyalty">
         <div class="tag new">NEW</div>
         <h2>🛒 Cart Activity</h2>
         <p>Track abandoned carts and conversion rates from Square Online.</p>
@@ -909,5 +939,6 @@
   <script src="/js/utils/format-currency.js"></script>
   <!-- Dashboard page logic -->
   <script src="/js/dashboard.js"></script>
+  <script src="/js/feature-gate.js"></script>
 </body>
 </html>

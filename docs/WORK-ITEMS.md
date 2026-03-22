@@ -178,7 +178,7 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 | Phase | Description | Status | File(s) |
 |-------|-------------|--------|---------|
 | Phase 1 | Feature registry — module definitions, route/page mapping, helper functions | DONE | `config/feature-registry.js`, `__tests__/config/feature-registry.test.js` |
-| Phase 2 | Subscription enforcement middleware — gate routes by active modules | TODO | `middleware/` |
+| Phase 2 | Feature gating — `merchant_features` table, `requireFeature()` middleware, route enforcement, frontend nav/page gating, `/api/merchant/features` endpoint | DONE | `database/migrations/004_feature_modules.sql`, `middleware/feature-gate.js`, `middleware/merchant.js`, `server.js`, `public/js/feature-gate.js`, `public/js/feature-check.js`, `__tests__/middleware/feature-gate.test.js` |
 | Phase 3 | Frontend page gating — redirect to upgrade page for locked modules | TODO | `middleware/`, `public/` |
 | Phase 4 | Billing integration — Stripe/Square subscription management | TODO | New routes + services |
 

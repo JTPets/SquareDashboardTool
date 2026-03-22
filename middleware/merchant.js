@@ -91,6 +91,16 @@ async function loadMerchantContext(req, res, next) {
         const m = merchant.rows[0];
 
         // Build merchant context object
+        // Load enabled features for this merchant
+        let features = [];
+        if (m.subscription_status !== 'platform_owner') {
+            const featuresResult = await db.query(
+                'SELECT feature_key FROM merchant_features WHERE merchant_id = $1 AND enabled = TRUE',
+                [m.id]
+            );
+            features = featuresResult.rows.map(r => r.feature_key);
+        }
+
         req.merchantContext = {
             id: m.id,
             squareMerchantId: m.square_merchant_id,
@@ -105,7 +115,8 @@ async function loadMerchantContext(req, res, next) {
             locale: m.locale || 'en-CA',
             settings: m.settings || {},
             lastSyncAt: m.last_sync_at,
-            tokenExpiresAt: m.square_token_expires_at
+            tokenExpiresAt: m.square_token_expires_at,
+            features
         };
 
         // Check subscription status

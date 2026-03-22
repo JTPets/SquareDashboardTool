@@ -39,6 +39,7 @@ const modules = {
             '/api/inventory',
             '/api/low-stock',
             '/api/bundles',
+            '/api/merchant/features',
             '/api/test-email',
             '/api/test-error',
             '/api/test-backup-email',
