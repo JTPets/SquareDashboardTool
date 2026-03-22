@@ -22,7 +22,7 @@
 | 9 | Dependency Risk | **A** | Zero npm audit vulnerabilities, all permissive licenses, lean dep count. node-fetch v2 approaching EOL. |
 | 10 | Testing | **A** | 4,035 tests, all critical paths covered, tests exercise real logic. 7/27 admin routes untested. |
 | 11 | Documentation | **C+** | CLAUDE.md is accurate. No README.md, no .env.example, 20+ env vars undocumented. |
-| 12 | Deployment & Operations | **C** | Migrations solid. No PM2 config file, no rollback procedure, backups on same device as database. |
+| 12 | Deployment & Operations | **C+** | PM2 config, migration runner, deploy script all solid. No off-site backup, no rollback procedure, no external monitoring. |
 | 13 | Compliance | **B-** | PCI-DSS clean, Square terms followed. PIPEDA gaps: no data retention policy, no DSAR procedure. |
 
 ---
@@ -42,8 +42,7 @@ A+ : 4 sections (Multi-Tenant, Auth, Injection, Data Integrity)
 A  : 3 sections (API Integration, Error Handling, Dependencies)
 B  : 1 section  (Secret Scan)
 B- : 1 section  (Compliance)
-C+ : 2 sections (Logging, Documentation)
-C  : 1 section  (Deployment)
+C+ : 3 sections (Logging, Documentation, Deployment)
 F  : 0 sections
 ```
 
@@ -58,7 +57,7 @@ F  : 0 sections
 | 3 | Create `.env.example` | 11 | **HIGH** | 1-2 hrs | 20+ env vars undocumented. New deploys or contributors can't set up without reading source code. |
 | 4 | Data retention policy + automated PII cleanup | 13 | **HIGH** | 4-8 hrs | PIPEDA requires defined retention. delivery_orders and loyalty tables retain customer PII indefinitely. |
 | 5 | Add request correlation middleware | 8 | **HIGH** | 2-4 hrs | No request ID in log entries. Cannot trace a single request across log files. Use AsyncLocalStorage + Winston format. |
-| 6 | Create PM2 ecosystem.config.js | 12 | **MEDIUM** | 1 hr | Process config lives in PM2 runtime, not version control. Need memory limits, restart policy, env vars. |
+| 6 | External uptime monitoring | 12 | **MEDIUM** | 1 hr | No external service polls /api/health. If Pi goes down completely, nobody is notified. Set up UptimeRobot or similar. |
 | 7 | Token refresh race condition lock | 5 | **MEDIUM** | 2 hrs | Concurrent requests can trigger simultaneous token refreshes for same merchant. Add per-merchant mutex. |
 | 8 | Harden .gitignore | 1 | **MEDIUM** | 30 min | Suspicious entries suggest past accidental file creation. Clean up and add proactive patterns. |
 | 9 | DSAR procedure for customer data | 13 | **MEDIUM** | 4-6 hrs | PIPEDA requires ability to access/correct/delete customer PII on request. No endpoint or procedure exists. |
@@ -77,7 +76,7 @@ F  : 0 sections
 | Off-site database backup | 2-4 hrs | Prevents total data loss |
 | Remove email from request logs | 30 min | Stops ongoing PII accumulation |
 | Create `.env.example` | 1-2 hrs | Enables new deployments |
-| PM2 ecosystem.config.js | 1 hr | Versioned process config |
+| External uptime monitoring | 1 hr | Alerts when Pi is unreachable |
 | Harden .gitignore | 30 min | Prevents future accidents |
 
 ### Short-term (within 30 days)
