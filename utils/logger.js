@@ -8,6 +8,8 @@ process.env.TZ = 'America/Toronto';
 const winston = require('winston');
 const DailyRotateFile = require('winston-daily-rotate-file');
 const path = require('path');
+// LOGIC CHANGE: strip PII from request logs (audit 8.x)
+const { sanitize } = require('./log-sanitizer');
 
 // TODO(pre-franchise): scope log files per-merchant or add merchantId to all log entries (MT-8)
 // Ensure logs directory exists (in output folder to consolidate all file writes)
@@ -43,12 +45,21 @@ const errorRotateTransport = new DailyRotateFile({
   )
 });
 
+// LOGIC CHANGE: strip PII from request logs (audit 8.x)
+// Custom format that redacts email, phone, and customer name fields
+const piiSanitizer = winston.format((info) => {
+  // sanitize() returns a shallow copy with PII fields redacted
+  const sanitized = sanitize(info);
+  return sanitized;
+});
+
 // Create logger
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
   format: winston.format.combine(
     winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
     winston.format.errors({ stack: true }),
+    piiSanitizer(),
     winston.format.json()
   ),
   defaultMeta: { service: 'square-dashboard-addon' },

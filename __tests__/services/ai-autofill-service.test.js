@@ -393,4 +393,27 @@ describe('AI Autofill Service', () => {
             expect(service.BATCH_SIZE).toBe(10);
         });
     });
+
+    // ==================== Claude API timeout (audit 5.x) ====================
+    describe('generateContent timeout', () => {
+        test('throws user-friendly error on AbortError (timeout)', async () => {
+            const abortError = new Error('The operation was aborted');
+            abortError.name = 'AbortError';
+            global.fetch.mockRejectedValue(abortError);
+
+            const items = [{ id: '1', name: 'Test', image_url: 'img.jpg', category_name: 'Cat', variations: [] }];
+
+            await expect(service.generateContent(items, 'description', {}, 'sk-ant-test'))
+                .rejects.toThrow('Claude API request timed out. Please try again.');
+        });
+
+        test('re-throws non-timeout fetch errors', async () => {
+            global.fetch.mockRejectedValue(new Error('Network error'));
+
+            const items = [{ id: '1', name: 'Test', image_url: 'img.jpg', category_name: 'Cat', variations: [] }];
+
+            await expect(service.generateContent(items, 'description', {}, 'sk-ant-test'))
+                .rejects.toThrow('Network error');
+        });
+    });
 });

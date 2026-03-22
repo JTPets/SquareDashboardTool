@@ -2,11 +2,21 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
-**Last Validated**: 2026-03-20
+**Last Validated**: 2026-03-22
 **Total Open Items**: ~38
 
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
+
+### Purge Log — 2026-03-22 Security Audit Fixes (audit 1, 5, 8, 12)
+
+**AUDIT-8 PII STRIPPING FIXED** — Added `utils/log-sanitizer.js` with `sanitize()` function that redacts email addresses (preserves domain), phone numbers (keeps last 4 digits), and customer names (SHA-256 hash prefix) from Winston log metadata. Integrated as a Winston format in `utils/logger.js`. All PII fields (email, phone, customerName, previousName, newName, etc.) are automatically redacted. Safe fields (merchantId, userId, squareCustomerId, orderId) preserved for debugging. 17 tests added.
+
+**AUDIT-5 CLAUDE API TIMEOUT FIXED** — Added 30-second request timeout to `services/ai-autofill-service.js` Claude API calls using `AbortController`. Timeout errors return user-friendly message ("Claude API request timed out. Please try again.") instead of crashing. 2 tests added.
+
+**AUDIT-12 OFF-SITE R2 BACKUP FIXED** — Created `utils/r2-backup.js` with native HTTPS + AWS Signature V4 signing (no heavy SDK). After `pg_dump` completes in `jobs/backup-job.js`, backup is uploaded to Cloudflare R2 if `BACKUP_R2_ENABLED=true`. Retains last 7 daily backups in R2 (deletes older). Backward compatible — skips R2 if env vars not configured. 7 tests added.
+
+**AUDIT-1 ENV VARS DOCUMENTED** — Added ~20 missing env vars to `.env.example` with placeholder values and descriptive comments. Added R2 backup vars, delivery vars (OPENROUTESERVICE_API_KEY, POD_STORAGE_DIR), 10 missing cron schedules, DATABASE_URL, BASE_URL. Annotated planned features (SUBSCRIPTION_CHECK_ENABLED, PLATFORM_OWNER_MERCHANT_ID). Added env var rule to CLAUDE.md Code Rules table.
 
 ### Purge Log — 2026-03-20 Cleanup Batch (BACKLOG-3, OSS locale, Backfill, T-4)
 

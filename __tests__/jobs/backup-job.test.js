@@ -38,6 +38,11 @@ jest.mock('../../utils/email-notifier', () => ({
     sendAlert: jest.fn().mockResolvedValue(),
 }));
 
+jest.mock('../../utils/r2-backup', () => ({
+    uploadAndCleanup: jest.fn().mockResolvedValue({ uploaded: true, deleted: 0 }),
+    isR2Enabled: jest.fn().mockReturnValue(false),
+}));
+
 const { spawn } = require('child_process');
 const zlib = require('zlib');
 const db = require('../../utils/database');
@@ -174,6 +179,45 @@ describe('Backup Job', () => {
             expect(result.tableCount).toBe(2);
             expect(zlib.gzipSync).toHaveBeenCalled();
             expect(emailNotifier.sendBackup).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    describe('R2 off-site backup integration', () => {
+        const r2Backup = require('../../utils/r2-backup');
+
+        it('skips R2 upload when not enabled', async () => {
+            r2Backup.isR2Enabled.mockReturnValue(false);
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            const mockChild = createMockChildProcess({
+                stdout: 'CREATE TABLE test();',
+            });
+            spawn.mockReturnValueOnce(mockChild);
+
+            const result = await runAutomatedBackup();
+
+            expect(r2Backup.uploadAndCleanup).not.toHaveBeenCalled();
+            expect(result.r2.uploaded).toBe(false);
+        });
+
+        it('uploads to R2 when enabled', async () => {
+            r2Backup.isR2Enabled.mockReturnValue(true);
+            r2Backup.uploadAndCleanup.mockResolvedValue({ uploaded: true, deleted: 1 });
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            const mockChild = createMockChildProcess({
+                stdout: 'CREATE TABLE test();',
+            });
+            spawn.mockReturnValueOnce(mockChild);
+
+            const result = await runAutomatedBackup();
+
+            expect(r2Backup.uploadAndCleanup).toHaveBeenCalledWith(
+                expect.any(Buffer),
+                expect.stringMatching(/^backup_\d{4}-\d{2}-\d{2}\.sql\.gz$/)
+            );
+            expect(result.r2.uploaded).toBe(true);
+            expect(result.r2.deleted).toBe(1);
         });
     });
 
