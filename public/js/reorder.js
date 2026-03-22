@@ -38,6 +38,7 @@ let reorderSectionExpanded = true;
 async function loadExpiryTierConfig() {
   try {
     const response = await fetch('/api/expiry-discounts/tiers');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     expiryTierRanges = {};
     for (const tier of data.tiers || []) {
