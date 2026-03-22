@@ -83,6 +83,7 @@ jobs/            → Background jobs and cron tasks
 | Dependencies | `npm install --save` or `--save-dev` only — never manually edit package.json. Commit package.json and package-lock.json together in the same commit as the code requiring the new dependency. |
 | Env vars | Any new `process.env.X` reference MUST have a corresponding entry in `.env.example` with a placeholder value and descriptive comment. |
 | HTML pages | Every new HTML page MUST include shared utility scripts before page-specific scripts. Only include utilities the page's JS actually uses. Required order: `escape.js` → `toast.js` → `format-currency.js` → `date-format.js` → `your-page.js`. The test in `__tests__/frontend/utility-script-tags.test.js` enforces this — `npm test` will fail if a utility function is called but the script tag is missing. |
+| Logger changes | Any change to `utils/logger.js` or `utils/log-sanitizer.js` must include a Winston integration test that verifies log entries actually appear in the output file. See `__tests__/utils/logger-integration.test.js`. |
 
 **Violations require justification.** If any rule must be broken:
 1. Add a comment at the top of the file/function explaining WHY
