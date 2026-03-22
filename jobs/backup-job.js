@@ -15,6 +15,8 @@ const path = require('path');
 const db = require('../utils/database');
 const logger = require('../utils/logger');
 const emailNotifier = require('../utils/email-notifier');
+// LOGIC CHANGE: off-site backup to Cloudflare R2 (audit 12.x)
+const { uploadAndCleanup: r2UploadAndCleanup, isR2Enabled } = require('../utils/r2-backup');
 
 /**
  * Run pg_dump using spawn with password in env (more secure than command line)
@@ -132,12 +134,28 @@ async function runAutomatedBackup() {
             compressionRatio: `${compressionRatio}%`
         });
 
+        const timestamp = new Date().toISOString().split('T')[0];
+        const r2Filename = `backup_${timestamp}.sql.gz`;
+
+        // LOGIC CHANGE: off-site backup to Cloudflare R2 (audit 12.x)
+        let r2Result = { uploaded: false, deleted: 0 };
+        if (isR2Enabled()) {
+            r2Result = await r2UploadAndCleanup(compressedBackup, r2Filename);
+            if (r2Result.uploaded) {
+                logger.info('Off-site R2 backup completed', {
+                    filename: r2Filename,
+                    deletedOld: r2Result.deleted
+                });
+            }
+        }
+
         const result = {
             database: dbName,
             originalSizeMB,
             compressedSizeMB,
             compressionRatio,
-            tableCount: statsResult.rows.length
+            tableCount: statsResult.rows.length,
+            r2: r2Result
         };
 
         // Check if compressed backup fits in email
@@ -164,7 +182,6 @@ async function runAutomatedBackup() {
             // Ensure backup directory exists
             await fs.mkdir(backupDir, { recursive: true });
 
-            const timestamp = new Date().toISOString().split('T')[0];
             const filename = `backup_${timestamp}.sql.gz`;
             const filepath = path.join(backupDir, filename);
 

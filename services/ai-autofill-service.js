@@ -16,6 +16,8 @@ const logger = require('../utils/logger');
 
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
+// LOGIC CHANGE: add 30-second request timeout for Claude API calls (audit 5.x)
+const CLAUDE_REQUEST_TIMEOUT_MS = 30000;
 
 /**
  * Get all items with their readiness status for content generation
@@ -347,23 +349,43 @@ async function callClaudeApi(chunkItems, fieldType, systemPrompt, apiKey) {
     const messageContent = buildMessageContent(chunkItems, fieldType);
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-        const response = await fetch(CLAUDE_API_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': apiKey,
-                'anthropic-version': '2023-06-01'
-            },
-            body: JSON.stringify({
-                model: CLAUDE_MODEL,
-                max_tokens: 4096,
-                system: systemPrompt,
-                messages: [{
-                    role: 'user',
-                    content: messageContent
-                }]
-            })
-        });
+        // LOGIC CHANGE: add 30-second request timeout (audit 5.x)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), CLAUDE_REQUEST_TIMEOUT_MS);
+
+        let response;
+        try {
+            response = await fetch(CLAUDE_API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': apiKey,
+                    'anthropic-version': '2023-06-01'
+                },
+                body: JSON.stringify({
+                    model: CLAUDE_MODEL,
+                    max_tokens: 4096,
+                    system: systemPrompt,
+                    messages: [{
+                        role: 'user',
+                        content: messageContent
+                    }]
+                }),
+                signal: controller.signal
+            });
+        } catch (fetchError) {
+            clearTimeout(timeoutId);
+            if (fetchError.name === 'AbortError') {
+                logger.error('AI Autofill: Claude API request timed out', {
+                    attempt: attempt + 1,
+                    timeoutMs: CLAUDE_REQUEST_TIMEOUT_MS
+                });
+                throw new Error('Claude API request timed out. Please try again.');
+            }
+            throw fetchError;
+        } finally {
+            clearTimeout(timeoutId);
+        }
 
         if (response.ok) {
             const data = await response.json();

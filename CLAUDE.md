@@ -81,6 +81,7 @@ jobs/            → Background jobs and cron tasks
 | New features | Tests required in same commit — no exceptions |
 | Complexity | Explainable in one sentence |
 | Dependencies | `npm install --save` or `--save-dev` only — never manually edit package.json. Commit package.json and package-lock.json together in the same commit as the code requiring the new dependency. |
+| Env vars | Any new `process.env.X` reference MUST have a corresponding entry in `.env.example` with a placeholder value and descriptive comment. |
 
 **Violations require justification.** If any rule must be broken:
 1. Add a comment at the top of the file/function explaining WHY
