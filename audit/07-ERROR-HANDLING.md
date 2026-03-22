@@ -125,7 +125,7 @@ The codebase uses `utils/response-helper.js` with `sendSuccess()`, `sendError()`
 - `sendError(res, 'message', 400, 'ERROR_CODE')` → `{ success: false, error: 'message', code: 'ERROR_CODE' }`
 - No raw error details are passed through this helper
 
-### No Information Leakage Vectors Found
+### Information Leakage Vectors
 
 | Vector | Status | Notes |
 |--------|--------|-------|
@@ -135,6 +135,10 @@ The codebase uses `utils/response-helper.js` with `sendSuccess()`, `sendError()`
 | Environment variables | SAFE | Not included in any error response |
 | Square API details | SAFE | Raw errors logged, not sent to client |
 | Validation errors | SAFE | Express-validator messages are user-facing by design |
+| 404 path reflection | LOW | `server.js:627` reflects `req.path` in 404 response -- minor info disclosure |
+| Raw service results | LOW | `routes/catalog.js:136,154,350` sends raw service result objects via `res.json(result)` bypassing response helper -- could leak internal details if service changes |
+
+The two LOW items are not exploitable today but represent defense-in-depth gaps.
 
 ---
 
@@ -146,4 +150,4 @@ The codebase uses `utils/response-helper.js` with `sendSuccess()`, `sendError()`
 | 7.2 Global Handler | PASS | Proper status mapping, user-friendly messages, log separation |
 | 7.3 Async Coverage | PASS | asyncHandler on all routes; process-level handlers in place |
 | 7.4 Return/Await | PASS | No dangerous return-without-await patterns found |
-| 7.5 Response Standards | PASS | Consistent error format, no information leakage vectors |
+| 7.5 Response Standards | PASS | Two LOW-severity bypasses of response helper noted |
