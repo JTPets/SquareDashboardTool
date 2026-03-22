@@ -12,29 +12,28 @@
  * Daily batch jobs rescheduled to 2:00–6:00 AM ET window so failures appear
  * in morning logs before the store opens (typically 9–10 AM).
  *
- * Schedule Map (Current):
- *
- * | #  | Job                         | Default Schedule     | Window | Notes                              |
- * |----|-----------------------------|-----------------------|--------|-------------------------------------|
- * |  1 | Cycle count                 | 0 3 * * *  (3:00 AM) | Batch  | Moved from 1 AM                    |
- * |  2 | Webhook retry               | */5 * * * * (5 min)  | Freq   | Must run frequently                |
- * |  3 | Webhook cleanup             | 0 4 * * *  (4:00 AM) | Batch  | No change                          |
- * |  4 | Database smart sync         | 0 * * * *  (hourly)  | Freq   | Must run frequently                |
- * |  5 | GMC sync                    | (env only)           | Batch  | User-configured, typically 11 PM   |
- * |  6 | Database backup             | 0 2 * * 0  (Sun 2AM) | Batch  | No change                          |
- * |  7 | Expiry discount             | 0 5 * * *  (5:00 AM) | Batch  | Moved from 6 AM to avoid overlap   |
- * |  8 | Loyalty catchup             | */30 * * * * (30 min)| Freq   | Must run frequently                |
- * |  9 | Loyalty audit               | 0 2 * * *  (2:00 AM) | Batch  | No change                          |
- * | 10 | Cart activity cleanup       | 0 3 * * *  (3:00 AM) | Batch  | No change                          |
- * | 11 | Seniors discount            | 30 2 * * * (2:30 AM) | Batch  | Moved from 12:30 AM                |
- * | 12 | Committed inv reconciliation| 0 */2 * * * (2 hr)   | Freq   | Must run frequently                |
- * | 13 | Trial expiry notifications  | 0 5 * * *  (5:00 AM) | Batch  | Moved from midnight                |
- * | 14 | Loyalty sync retry          | */15 * * * * (15 min)| Freq   | Must run frequently                |
- * | 15 | Catalog health              | 0 4 * * *  (4:00 AM) | Batch  | Moved from 2 AM to avoid overlap   |
- * | 16 | Email heartbeat             | 0 6 * * *  (6:00 AM) | Batch  | Moved from 8 AM to catch AM issues |
- *
  * @module jobs/cron-scheduler
  */
+
+// Schedule Map (Current):
+// | #  | Job                         | Default Schedule       | Window | Notes                              |
+// |----|-----------------------------|-----------------------|--------|-------------------------------------|
+// |  1 | Cycle count                 | 0 3 * * *  (3:00 AM)  | Batch  | Moved from 1 AM                    |
+// |  2 | Webhook retry               | */5 * * * * (5 min)   | Freq   | Must run frequently                |
+// |  3 | Webhook cleanup             | 0 4 * * *  (4:00 AM)  | Batch  | No change                          |
+// |  4 | Database smart sync         | 0 * * * *  (hourly)   | Freq   | Must run frequently                |
+// |  5 | GMC sync                    | (env only)            | Batch  | User-configured, typically 11 PM   |
+// |  6 | Database backup             | 0 2 * * 0  (Sun 2AM)  | Batch  | No change                          |
+// |  7 | Expiry discount             | 0 5 * * *  (5:00 AM)  | Batch  | Moved from 6 AM to avoid overlap   |
+// |  8 | Loyalty catchup             | */30 * * * * (30 min) | Freq   | Must run frequently                |
+// |  9 | Loyalty audit               | 0 2 * * *  (2:00 AM)  | Batch  | No change                          |
+// | 10 | Cart activity cleanup       | 0 3 * * *  (3:00 AM)  | Batch  | No change                          |
+// | 11 | Seniors discount            | 30 2 * * * (2:30 AM)  | Batch  | Moved from 12:30 AM                |
+// | 12 | Committed inv reconciliation| 0 */2 * * * (2 hr)    | Freq   | Must run frequently                |
+// | 13 | Trial expiry notifications  | 0 5 * * *  (5:00 AM)  | Batch  | Moved from midnight                |
+// | 14 | Loyalty sync retry          | */15 * * * * (15 min) | Freq   | Must run frequently                |
+// | 15 | Catalog health              | 0 4 * * *  (4:00 AM)  | Batch  | Moved from 2 AM to avoid overlap   |
+// | 16 | Email heartbeat             | 0 6 * * *  (6:00 AM)  | Batch  | Moved from 8 AM to catch AM issues |
 
 const cron = require('node-cron');
 const logger = require('../utils/logger');

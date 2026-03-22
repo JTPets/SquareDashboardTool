@@ -200,7 +200,7 @@ describe('POST /api/vendor-catalog/create-items', () => {
 
             expect(res.status).toBe(200);
             // Service should be called with merchantId=1 (from context), not 999 (from body)
-            expect(mockBulkCreateSquareItems).toHaveBeenCalledWith([1, 2], 1);
+            expect(mockBulkCreateSquareItems).toHaveBeenCalledWith([1, 2], 1, {});
         });
     });
 
