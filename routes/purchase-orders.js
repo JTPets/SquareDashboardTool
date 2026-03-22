@@ -43,7 +43,7 @@ const { sendSuccess, sendError } = require('../utils/response-helper');
  */
 router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-        const { vendor_id, location_id, supply_days_override, items, notes, created_by } = req.body;
+        const { vendor_id, location_id, supply_days_override, items, notes, created_by, force } = req.body;
 
         // Filter out any items with zero or negative quantity
         const validItems = items.filter(item => item.quantity_ordered > 0);
@@ -53,11 +53,38 @@ router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, a
 
         // Security: Pre-validate vendor_id belongs to this merchant
         const vendorCheck = await db.query(
-            'SELECT id FROM vendors WHERE id = $1 AND merchant_id = $2',
+            'SELECT id, minimum_order_amount FROM vendors WHERE id = $1 AND merchant_id = $2',
             [vendor_id, merchantId]
         );
         if (vendorCheck.rows.length === 0) {
             return sendError(res, 'Invalid vendor or vendor does not belong to this merchant', 403);
+        }
+
+        // LOGIC CHANGE: PO minimum threshold soft-block (BACKLOG-91)
+        // Manual creation with force=true proceeds with warning; without force, returns 400.
+        // Automated PO generation should NOT pass force=true, so minimums hard-block automation.
+        const vendor = vendorCheck.rows[0];
+        const minimumCents = vendor.minimum_order_amount ? Math.round(Number(vendor.minimum_order_amount) * 100) : null;
+        let minimumWarning = null;
+        if (minimumCents && minimumCents > 0) {
+            let subtotalCheck = 0;
+            for (const item of validItems) {
+                subtotalCheck += item.quantity_ordered * item.unit_cost_cents;
+            }
+            if (subtotalCheck < minimumCents) {
+                const shortfallCents = minimumCents - subtotalCheck;
+                if (!force) {
+                    return sendError(res,
+                        `Order total ($${(subtotalCheck / 100).toFixed(2)}) is below vendor minimum ($${(minimumCents / 100).toFixed(2)}). Shortfall: $${(shortfallCents / 100).toFixed(2)}. Pass force: true to proceed anyway.`,
+                        400, 'BELOW_VENDOR_MINIMUM');
+                }
+                minimumWarning = {
+                    message: `Order is $${(shortfallCents / 100).toFixed(2)} below $${(minimumCents / 100).toFixed(2)} vendor minimum`,
+                    subtotal_cents: subtotalCheck,
+                    minimum_cents: minimumCents,
+                    shortfall_cents: shortfallCents
+                };
+            }
         }
 
         // LOGIC CHANGE: using shared location-service (BACKLOG-25)
@@ -197,12 +224,17 @@ router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, a
         }
     }
 
-    sendSuccess(res, {
+    const responseData = {
         data: {
             purchase_order: po,
             expiry_discounts_cleared: clearedExpiryItems
         }
-    }, 201);
+    };
+    // LOGIC CHANGE: Include minimum warning if order was force-created below threshold (BACKLOG-91)
+    if (minimumWarning) {
+        responseData.data.minimum_warning = minimumWarning;
+    }
+    sendSuccess(res, responseData, 201);
 }));
 
 /**
@@ -440,6 +472,39 @@ router.post('/:id/receive', requireAuth, requireMerchant, validators.receivePurc
                     SET received_quantity = $1
                     WHERE id = $2 AND purchase_order_id = $3 AND merchant_id = $4
                 `, [item.received_quantity, item.id, id, merchantId]);
+            }
+
+            // LOGIC CHANGE: PO receive updates vendor cost so reorder page reflects actual costs paid
+            // Compare PO line item costs against variation_vendors and update if different
+            const poVendorResult = await client.query(
+                'SELECT vendor_id FROM purchase_orders WHERE id = $1 AND merchant_id = $2',
+                [id, merchantId]
+            );
+            const poVendorId = poVendorResult.rows[0]?.vendor_id;
+            if (poVendorId) {
+                const poItemIds = items.map(item => item.id).filter(Boolean);
+                const costDiffs = await client.query(`
+                    SELECT poi.variation_id, poi.unit_cost_cents,
+                           vv.unit_cost_money as current_vendor_cost
+                    FROM purchase_order_items poi
+                    LEFT JOIN variation_vendors vv
+                        ON poi.variation_id = vv.variation_id
+                        AND vv.vendor_id = $3
+                        AND vv.merchant_id = $4
+                    WHERE poi.id = ANY($1) AND poi.purchase_order_id = $2 AND poi.merchant_id = $4
+                `, [poItemIds, id, poVendorId, merchantId]);
+
+                for (const row of costDiffs.rows) {
+                    if (row.unit_cost_cents !== row.current_vendor_cost) {
+                        await client.query(`
+                            INSERT INTO variation_vendors (variation_id, vendor_id, unit_cost_money, currency, merchant_id, updated_at)
+                            VALUES ($1, $2, $3, 'CAD', $4, CURRENT_TIMESTAMP)
+                            ON CONFLICT (variation_id, vendor_id, merchant_id) DO UPDATE SET
+                                unit_cost_money = EXCLUDED.unit_cost_money,
+                                updated_at = CURRENT_TIMESTAMP
+                        `, [row.variation_id, poVendorId, row.unit_cost_cents, merchantId]);
+                    }
+                }
             }
 
             // Check if all items fully received

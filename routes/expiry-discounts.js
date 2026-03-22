@@ -451,4 +451,38 @@ router.post('/expiry-discounts/flagged/resolve', requireAuth, requireMerchant, r
     sendSuccess(res, result);
 }));
 
+/**
+ * PATCH /api/expiry-discounts/variations/:variationId/quantity
+ * LOGIC CHANGE: Set or update expiring quantity for a variation's discount (BACKLOG-94)
+ * Body: { expiring_quantity: number|null }
+ * null means "all inventory" (no quantity limit)
+ */
+router.patch('/expiry-discounts/variations/:variationId/quantity', requireAuth, requireMerchant, requireWriteAccess, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const { variationId } = req.params;
+    const { expiring_quantity } = req.body;
+
+    if (expiring_quantity !== null && expiring_quantity !== undefined) {
+        const qty = parseInt(expiring_quantity);
+        if (isNaN(qty) || qty < 1) {
+            return sendError(res, 'expiring_quantity must be a positive integer or null', 400);
+        }
+    }
+
+    const result = await db.query(`
+        UPDATE variation_discount_status
+        SET expiring_quantity = $1,
+            units_sold_at_discount = CASE WHEN $1 IS NULL THEN 0 ELSE COALESCE(units_sold_at_discount, 0) END,
+            updated_at = NOW()
+        WHERE variation_id = $2 AND merchant_id = $3
+        RETURNING variation_id, expiring_quantity, units_sold_at_discount
+    `, [expiring_quantity === null ? null : parseInt(expiring_quantity), variationId, merchantId]);
+
+    if (result.rows.length === 0) {
+        return sendError(res, 'Variation discount status not found', 404);
+    }
+
+    sendSuccess(res, result.rows[0]);
+}));
+
 module.exports = router;

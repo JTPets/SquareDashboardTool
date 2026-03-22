@@ -151,6 +151,23 @@ class OrderHandler {
         // directly from the order data (0 additional API calls)
         if (order && order.state === 'COMPLETED') {
             result.salesVelocity = await updateVelocityFromOrder(order, merchantId);
+
+            // LOGIC CHANGE: Track expiry discount quantity sales (BACKLOG-94)
+            try {
+                const { trackExpiryDiscountSale } = require('../../expiry/discount-service');
+                for (const lineItem of (order.lineItems || order.line_items || [])) {
+                    const variationId = lineItem.catalogObjectId || lineItem.catalog_object_id;
+                    const qty = parseInt(lineItem.quantity) || 1;
+                    if (variationId && qty > 0) {
+                        await trackExpiryDiscountSale(variationId, qty, merchantId);
+                    }
+                }
+            } catch (expiryTrackErr) {
+                // Non-blocking — don't fail order processing for this
+                logger.warn('Failed to track expiry discount sale quantity', {
+                    orderId: order.id, merchantId, error: expiryTrackErr.message
+                });
+            }
         }
 
         // Process delivery routing

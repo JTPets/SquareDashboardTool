@@ -251,5 +251,45 @@ describe('POST /api/vendor-catalog/create-items', () => {
 
             expect(res.status).toBe(500);
         });
+
+        // BACKLOG-88: Tax selection tests
+        it('passes custom tax_ids to bulkCreateSquareItems (BACKLOG-88)', async () => {
+            mockBulkCreateSquareItems.mockResolvedValue({ created: 1, failed: 0, errors: [] });
+
+            const res = await request(app)
+                .post('/api/vendor-catalog/create-items')
+                .send({ vendorCatalogIds: [1], tax_ids: ['TAX_ID_1', 'TAX_ID_2'] });
+
+            expect(res.status).toBe(200);
+            // Verify options.tax_ids was passed
+            expect(mockBulkCreateSquareItems).toHaveBeenCalledWith(
+                [1], 1, { tax_ids: ['TAX_ID_1', 'TAX_ID_2'] }
+            );
+        });
+
+        it('passes empty tax_ids array (no taxes) (BACKLOG-88)', async () => {
+            mockBulkCreateSquareItems.mockResolvedValue({ created: 1, failed: 0, errors: [] });
+
+            const res = await request(app)
+                .post('/api/vendor-catalog/create-items')
+                .send({ vendorCatalogIds: [1], tax_ids: [] });
+
+            expect(res.status).toBe(200);
+            expect(mockBulkCreateSquareItems).toHaveBeenCalledWith(
+                [1], 1, { tax_ids: [] }
+            );
+        });
+
+        it('default (no tax_ids param) uses all taxes (BACKLOG-88)', async () => {
+            mockBulkCreateSquareItems.mockResolvedValue({ created: 1, failed: 0, errors: [] });
+
+            const res = await request(app)
+                .post('/api/vendor-catalog/create-items')
+                .send({ vendorCatalogIds: [1] });
+
+            expect(res.status).toBe(200);
+            // No tax_ids in options means service will fetch all active taxes
+            expect(mockBulkCreateSquareItems).toHaveBeenCalledWith([1], 1, {});
+        });
     });
 });

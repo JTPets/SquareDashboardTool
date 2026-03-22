@@ -273,6 +273,15 @@ const createItems = [
     body('vendorCatalogIds.*')
         .isInt({ min: 1 })
         .withMessage('Each vendorCatalogId must be a positive integer'),
+    // LOGIC CHANGE: Optional tax_ids array for selective tax application (BACKLOG-88)
+    body('tax_ids')
+        .optional()
+        .isArray()
+        .withMessage('tax_ids must be an array'),
+    body('tax_ids.*')
+        .optional()
+        .isString().notEmpty()
+        .withMessage('Each tax_id must be a non-empty string'),
     handleValidationErrors
 ];
 
@@ -295,6 +304,30 @@ const pushPriceChanges = [
     handleValidationErrors
 ];
 
+/**
+ * POST /api/vendor-catalog/confirm-links
+ * LOGIC CHANGE: Confirm suggested vendor links (BACKLOG-90)
+ */
+const confirmLinks = [
+    body('links')
+        .isArray({ min: 1 })
+        .withMessage('links must be a non-empty array'),
+    body('links.*.variation_id')
+        .isString().notEmpty()
+        .withMessage('Each link must have a variation_id'),
+    body('links.*.vendor_id')
+        .isString().notEmpty()
+        .withMessage('Each link must have a vendor_id'),
+    body('links.*.vendor_code')
+        .optional()
+        .isString()
+        .withMessage('vendor_code must be a string'),
+    body('links.*.cost_cents')
+        .optional()
+        .custom((value) => isNonNegativeInt(value, 'cost_cents')),
+    handleValidationErrors
+];
+
 module.exports = {
     getVendors,
     importCatalog,
@@ -305,6 +338,7 @@ module.exports = {
     getBatches,
     batchAction,
     createItems,
+    confirmLinks,
     pushPriceChanges,
     updateVendorSettings
 };

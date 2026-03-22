@@ -275,8 +275,7 @@ async function ensureSchema() {
                 discontinue_date DATE,
                 replacement_variation_id TEXT,
                 -- LOGIC CHANGE: supplier_item_number removed (BACKLOG-89) — vendor codes in variation_vendors.vendor_code
-                last_cost_cents INTEGER,
-                last_cost_date DATE,
+                -- LOGIC CHANGE: last_cost_cents/last_cost_date dropped (0a) — dead columns, vendor costs in variation_vendors.unit_cost_money
                 notes TEXT,
                 is_deleted BOOLEAN DEFAULT FALSE,
                 deleted_at TIMESTAMPTZ,

@@ -609,12 +609,53 @@ async function importItems(items, batchId, options = {}) {
     // Track price differences for report
     const priceUpdates = [];
 
+    // LOGIC CHANGE: Track suggested vendor links instead of auto-creating them (BACKLOG-90)
+    const suggestedLinks = [];
+
     for (const item of items) {
         try {
             // Try to match to our catalog (with merchant filtering)
             const match = await matchToOurCatalog(item, merchantId, vendorId);
             if (match.variation_id) {
                 stats.matched++;
+
+                // LOGIC CHANGE: Check if variation is already linked to this vendor (BACKLOG-90)
+                if (vendorId) {
+                    const existingLink = await db.query(
+                        'SELECT id FROM variation_vendors WHERE variation_id = $1 AND vendor_id = $2 AND merchant_id = $3',
+                        [match.variation_id, vendorId, merchantId]
+                    );
+                    if (existingLink.rows.length === 0) {
+                        const primaryMatch = match.allMatches[0];
+                        // Find current default vendor for context
+                        const currentVendorResult = await db.query(`
+                            SELECT vv.unit_cost_money, ve.name as vendor_name
+                            FROM variation_vendors vv
+                            LEFT JOIN vendors ve ON vv.vendor_id = ve.id
+                            WHERE vv.variation_id = $1 AND vv.merchant_id = $2
+                            ORDER BY vv.unit_cost_money ASC NULLS LAST, vv.created_at ASC
+                            LIMIT 1
+                        `, [match.variation_id, merchantId]);
+                        const currentVendor = currentVendorResult.rows[0];
+
+                        suggestedLinks.push({
+                            link_suggested: true,
+                            variation_id: match.variation_id,
+                            vendor_id: vendorId,
+                            vendor_name: vendorName,
+                            vendor_code: item.vendor_item_number,
+                            vendor_cost_cents: item.cost_cents,
+                            vendor_product_name: item.product_name,
+                            match_method: primaryMatch.method,
+                            matched_sku: primaryMatch.sku,
+                            matched_variation_name: primaryMatch.variation_name,
+                            matched_item_name: primaryMatch.item_name,
+                            matched_upc: item.upc,
+                            current_cost_cents: currentVendor?.unit_cost_money || null,
+                            current_vendor_name: currentVendor?.vendor_name || null
+                        });
+                    }
+                }
 
                 // Check for price differences on matched items
                 for (const m of match.allMatches) {
@@ -699,6 +740,10 @@ async function importItems(items, batchId, options = {}) {
     stats.priceUpdatesCount = priceUpdates.length;
     stats.priceIncreasesCount = priceUpdates.filter(p => p.action === 'price_increase').length;
     stats.priceDecreasesCount = priceUpdates.filter(p => p.action === 'price_decrease').length;
+
+    // LOGIC CHANGE: Include suggested vendor links for staff review (BACKLOG-90)
+    stats.suggestedLinks = suggestedLinks;
+    stats.suggestedLinksCount = suggestedLinks.length;
 
     return stats;
 }

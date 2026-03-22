@@ -2007,6 +2007,63 @@ async function resolveFlaggedVariation({ merchantId, variationId, action, note }
     return { success: false, error: 'Invalid action. Use "apply_new" or "keep_current".' };
 }
 
+/**
+ * LOGIC CHANGE: Track units sold at discounted price for expiry quantity tracking (BACKLOG-94)
+ * Called from order webhook when a completed order contains discounted variations.
+ * When units_sold_at_discount >= expiring_quantity, flags for manual review.
+ *
+ * @param {string} variationId - The variation sold
+ * @param {number} quantity - Number of units sold
+ * @param {number} merchantId - Merchant ID
+ * @returns {Promise<{tracked: boolean, flagged: boolean}>}
+ */
+async function trackExpiryDiscountSale(variationId, quantity, merchantId) {
+    if (!merchantId || !variationId || !quantity || quantity <= 0) {
+        return { tracked: false, flagged: false };
+    }
+
+    const result = await db.query(`
+        UPDATE variation_discount_status
+        SET units_sold_at_discount = COALESCE(units_sold_at_discount, 0) + $1,
+            updated_at = NOW()
+        WHERE variation_id = $2
+          AND merchant_id = $3
+          AND current_tier_id IS NOT NULL
+          AND expiring_quantity IS NOT NULL
+        RETURNING units_sold_at_discount, expiring_quantity, needs_manual_review
+    `, [quantity, variationId, merchantId]);
+
+    if (result.rows.length === 0) {
+        return { tracked: false, flagged: false };
+    }
+
+    const row = result.rows[0];
+    const shouldFlag = row.units_sold_at_discount >= row.expiring_quantity && !row.needs_manual_review;
+
+    if (shouldFlag) {
+        await db.query(`
+            UPDATE variation_discount_status
+            SET needs_manual_review = TRUE, updated_at = NOW()
+            WHERE variation_id = $1 AND merchant_id = $2
+        `, [variationId, merchantId]);
+
+        await logAuditEvent({
+            variationId,
+            action: 'QUANTITY_THRESHOLD_REACHED',
+            details: `Expected expiry units sold (${row.units_sold_at_discount}/${row.expiring_quantity}), verify remaining stock dates`,
+            merchantId
+        });
+
+        logger.info('Expiry quantity threshold reached — flagged for manual review', {
+            variationId, merchantId,
+            unitsSold: row.units_sold_at_discount,
+            expiringQuantity: row.expiring_quantity
+        });
+    }
+
+    return { tracked: true, flagged: shouldFlag };
+}
+
 module.exports = {
     // Tier management
     getActiveTiers,
@@ -2050,5 +2107,8 @@ module.exports = {
     validateExpiryDiscounts,
 
     // Audit
-    logAuditEvent
+    logAuditEvent,
+
+    // Quantity tracking (BACKLOG-94)
+    trackExpiryDiscountSale
 };

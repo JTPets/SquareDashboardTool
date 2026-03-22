@@ -144,7 +144,7 @@ describe('Schema Integrity — Column coverage for key tables', () => {
         // Note: is_deleted/is_archived are in ALTER TABLE in schema.sql, in CREATE TABLE in schema-manager.js
         // Test only checks schema-manager.js column coverage (schema.sql test uses schema-manager's CREATE TABLE)
         variations: ['id', 'item_id', 'sku', 'price_money', 'merchant_id',
-            'case_pack_quantity', 'last_cost_cents'],
+            'case_pack_quantity'],
         items: ['id', 'name', 'merchant_id', 'seo_title', 'seo_description', 'tax_ids'],
         vendors: ['id', 'name', 'merchant_id', 'lead_time_days', 'schedule_type'],
         variation_vendors: ['id', 'variation_id', 'vendor_id', 'vendor_code',
