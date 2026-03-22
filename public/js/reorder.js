@@ -75,6 +75,7 @@ function getExpiryTierFromDays(daysUntilExpiry) {
 async function loadConfig() {
   try {
     const response = await fetch('/api/config');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const config = await response.json();
 
     // Set default supply days from environment variable
@@ -93,9 +94,12 @@ async function loadConfig() {
 async function loadLocations() {
   try {
     const response = await fetch('/api/locations');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
 
-    const locations = data.locations || [];
+    // Handle both flat ({ locations: [...] }) and nested ({ locations: { count, locations } }) shapes
+    const rawLocations = data.locations || [];
+    const locations = Array.isArray(rawLocations) ? rawLocations : (rawLocations.locations || []);
     const select = document.getElementById('location-select');
     const activeLocations = locations.filter(loc => loc.active);
 
@@ -127,6 +131,7 @@ async function loadLocations() {
 async function loadVendors() {
   try {
     const response = await fetch('/api/vendors?status=ACTIVE');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
 
     const vendors = Array.isArray(data) ? data : (data.vendors || []);
