@@ -249,6 +249,20 @@ async function matchExistingItems(matches, merchantId) {
                  WHERE id = $2 AND merchant_id = $3`,
                 [existing.variationId, entry.id, merchantId]
             );
+
+            // BACKLOG-97: Insert variation_vendors link for UPC-matched items
+            if (entry.vendor_id) {
+                await client.query(
+                    `INSERT INTO variation_vendors (variation_id, vendor_id, vendor_code, unit_cost_money, currency, merchant_id, updated_at)
+                     VALUES ($1, $2, $3, $4, 'CAD', $5, CURRENT_TIMESTAMP)
+                     ON CONFLICT (variation_id, vendor_id, merchant_id) DO UPDATE SET
+                         vendor_code = EXCLUDED.vendor_code,
+                         unit_cost_money = EXCLUDED.unit_cost_money,
+                         updated_at = CURRENT_TIMESTAMP`,
+                    [existing.variationId, entry.vendor_id, entry.vendor_item_number || null, entry.cost_cents ?? null, merchantId]
+                );
+            }
+
             matched++;
         }
     });

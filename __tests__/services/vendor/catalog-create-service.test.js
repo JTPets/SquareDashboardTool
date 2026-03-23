@@ -175,6 +175,68 @@ describe('catalog-create-service', () => {
     });
 
     // ========================================================================
+    // matchExistingItems (BACKLOG-97)
+    // ========================================================================
+
+    describe('matchExistingItems — variation_vendors link', () => {
+        const { matchExistingItems } = require('../../../services/vendor/catalog-create-service');
+
+        it('creates variation_vendors row with vendor_code when matching by UPC', async () => {
+            const txQueries = [];
+            const mockClient = { query: jest.fn(async (...args) => { txQueries.push(args); return { rows: [] }; }) };
+            mockDbTransaction.mockImplementation(async (fn) => fn(mockClient));
+
+            const matches = [{
+                entry: makeEntry({ id: 1, vendor_id: 'VENDOR_X', vendor_item_number: 'VIN-X-100', cost_cents: 450 }),
+                existing: { variationId: 'EXISTING_VAR_ID', itemId: 'EXISTING_ITEM_ID' }
+            }];
+
+            await matchExistingItems(matches, 42);
+
+            const vendorInsert = txQueries.find(q => q[0].includes('INSERT INTO variation_vendors'));
+            expect(vendorInsert).toBeDefined();
+            expect(vendorInsert[1]).toContain('EXISTING_VAR_ID'); // variation_id
+            expect(vendorInsert[1]).toContain('VENDOR_X'); // vendor_id
+            expect(vendorInsert[1]).toContain('VIN-X-100'); // vendor_code
+            expect(vendorInsert[1]).toContain(450); // cost_cents
+            expect(vendorInsert[1]).toContain(42); // merchant_id
+        });
+
+        it('uses ON CONFLICT DO UPDATE for idempotency', async () => {
+            const txQueries = [];
+            const mockClient = { query: jest.fn(async (...args) => { txQueries.push(args); return { rows: [] }; }) };
+            mockDbTransaction.mockImplementation(async (fn) => fn(mockClient));
+
+            const matches = [{
+                entry: makeEntry({ id: 2, vendor_id: 'V1', vendor_item_number: 'CODE1', cost_cents: 100 }),
+                existing: { variationId: 'VAR1', itemId: 'ITEM1' }
+            }];
+
+            await matchExistingItems(matches, 1);
+
+            const vendorInsert = txQueries.find(q => q[0].includes('INSERT INTO variation_vendors'));
+            expect(vendorInsert[0]).toContain('ON CONFLICT');
+            expect(vendorInsert[0]).toContain('DO UPDATE');
+        });
+
+        it('skips variation_vendors insert when entry has no vendor_id', async () => {
+            const txQueries = [];
+            const mockClient = { query: jest.fn(async (...args) => { txQueries.push(args); return { rows: [] }; }) };
+            mockDbTransaction.mockImplementation(async (fn) => fn(mockClient));
+
+            const matches = [{
+                entry: makeEntry({ id: 3, vendor_id: null, vendor_item_number: 'CODE', cost_cents: 100 }),
+                existing: { variationId: 'VAR3', itemId: 'ITEM3' }
+            }];
+
+            await matchExistingItems(matches, 1);
+
+            const vendorInsert = txQueries.find(q => q[0].includes('INSERT INTO variation_vendors'));
+            expect(vendorInsert).toBeUndefined();
+        });
+    });
+
+    // ========================================================================
     // splitIntoBatches
     // ========================================================================
 

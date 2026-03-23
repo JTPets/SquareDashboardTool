@@ -500,8 +500,13 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
 // LOGIC CHANGE: rate limit + minimal response on unauthenticated status endpoint (CRIT-1 audit)
 router.get('/subscriptions/status', subscriptionRateLimit, validators.checkStatus, asyncHandler(async (req, res) => {
     const { email } = req.query;
+    // AUDIT-2.3.1: Strip plan_name, plan_id, and business details from public response
     const status = await subscriptionHandler.checkSubscriptionStatus(email);
-    sendSuccess(res, { active: status.isValid, planName: status.planName || null });
+    sendSuccess(res, {
+        active: status.isValid,
+        trial: status.status === 'trial',
+        expires_at: status.expiresAt || null
+    });
 }));
 
 /**

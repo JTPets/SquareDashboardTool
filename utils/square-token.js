@@ -15,12 +15,33 @@ const SQUARE_APPLICATION_ID = process.env.SQUARE_APPLICATION_ID;
 const SQUARE_APPLICATION_SECRET = process.env.SQUARE_APPLICATION_SECRET;
 const SQUARE_ENVIRONMENT = process.env.SQUARE_ENVIRONMENT || 'production';
 
+// AUDIT-5.2.1: Per-merchant mutex to prevent concurrent token refresh races
+const refreshInFlight = new Map();
+
 /**
  * Refresh a merchant's Square OAuth token
  * @param {number} merchantId - The merchant ID
  * @returns {Object} New token info { accessToken, expiresAt }
  */
 async function refreshMerchantToken(merchantId) {
+    // If a refresh is already in flight for this merchant, return the existing promise
+    if (refreshInFlight.has(merchantId)) {
+        logger.info('Token refresh already in flight, reusing promise', { merchantId });
+        return refreshInFlight.get(merchantId);
+    }
+
+    const promise = doRefreshMerchantToken(merchantId).finally(() => {
+        refreshInFlight.delete(merchantId);
+    });
+
+    refreshInFlight.set(merchantId, promise);
+    return promise;
+}
+
+/**
+ * Internal: performs the actual token refresh
+ */
+async function doRefreshMerchantToken(merchantId) {
     const merchant = await db.query(
         'SELECT id, square_refresh_token FROM merchants WHERE id = $1 AND is_active = TRUE',
         [merchantId]
