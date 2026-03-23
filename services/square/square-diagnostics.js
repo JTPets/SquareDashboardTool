@@ -448,7 +448,12 @@ async function enableItemAtAllLocations(itemId, merchantId) {
         throw new Error(`Object is not an ITEM: ${currentObject.type}`);
     }
 
-    const variations = currentObject.item_data?.variations || [];
+    // Filter to active ITEM_VARIATIONs only.
+    // item_data.variations can include deleted/archived variations (is_deleted: true)
+    // which Square rejects with "Invalid object" in a batch-upsert.
+    // See square-catalog-sync.js line ~466 for the same guard pattern.
+    const variations = (currentObject.item_data?.variations || [])
+        .filter(v => v.is_deleted !== true && v.type === 'ITEM_VARIATION');
 
     // Idempotency: if Square already has everything correct, skip the upsert.
     // Sending a batch-upsert when the state is already right causes a
@@ -522,7 +527,10 @@ async function enableItemAtAllLocations(itemId, merchantId) {
         );
     }
 
-    const verifiedVariations = verifyData.object?.item_data?.variations || [];
+    // Same active-only filter as above — deleted variations in the verify
+    // response must not be treated as failures.
+    const verifiedVariations = (verifyData.object?.item_data?.variations || [])
+        .filter(v => v.is_deleted !== true && v.type === 'ITEM_VARIATION');
     const failedVariations = verifiedVariations.filter(v => v.present_at_all_locations !== true);
     if (failedVariations.length > 0) {
         throw new Error(
