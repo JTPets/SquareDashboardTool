@@ -55,8 +55,7 @@
 
 | ID | Description | Source | Effort |
 |----|-------------|--------|--------|
-| BACKLOG-8 | Vendor management — pull vendor data from Square Vendors API | CLAUDE.md | M |
-| BACKLOG-29 | Existing tenants missing `invoice.payment_made` webhook | CLAUDE.md | S |
+| BACKLOG-8 | Vendor API sync gaps — `contact_name`/`contact_phone` synced but not displayed in vendor dashboard (trivial fix). `account_number` and `address` not synced (needed for branded POs, BACKLOG-44). Only first contact synced, additional contacts dropped. Square vendor `note` not synced (local `notes` field exists separately). | CLAUDE.md | S (display fix) / M (full sync) |
 | BACKLOG-12 | Driver share link validation failure | CLAUDE.md | S |
 | BACKLOG-43 | Min/Max stock per item per location | CLAUDE.md | S |
 
