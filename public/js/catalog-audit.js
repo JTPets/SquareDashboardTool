@@ -37,6 +37,7 @@ const AUDIT_TYPES = [
   // Tax
   { key: 'no_tax_ids', label: 'No Tax IDs', severity: 'warning' },
   { key: 'location_mismatch', label: 'Location Mismatch', severity: 'critical' },
+  { key: 'not_at_any_location', label: 'Not at Any Location', severity: 'critical' },
   // Sales Channels
   { key: 'any_channel_off', label: 'Channel Disabled', severity: 'warning' },
   { key: 'pos_disabled', label: 'POS Disabled', severity: 'info' },
@@ -361,7 +362,7 @@ function getIssueCountClass(count) {
 function getIssueBadgeClass(issue) {
   var criticalIssues = ['No Category', 'No Price', 'No SKU', 'Stock Tracking Off', 'Inv Alerts Off', 'OOS, No Min'];
   var warningIssues = ['Not Taxable', 'No Description', 'No Image', 'No Vendor', 'No Cost', 'No Tax IDs'];
-  var criticalIssues2 = ['Location Mismatch'];
+  var criticalIssues2 = ['Location Mismatch', 'Not at Any Location'];
   var infoIssues = ['No UPC', 'Not Visible Online', 'No SEO Title', 'No SEO Description'];
 
   if (criticalIssues.includes(issue) || criticalIssues2.includes(issue)) return 'critical';
