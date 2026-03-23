@@ -357,6 +357,17 @@ async function enableItemAtAllLocations(itemId, merchantId) {
             [itemId, merchantId]
         );
 
+        // Sync all child variations — they were included in the same batch upsert
+        await db.query(
+            `UPDATE variations
+             SET present_at_all_locations = true,
+                 present_at_location_ids  = '[]'::jsonb,
+                 absent_at_location_ids   = '[]'::jsonb,
+                 updated_at               = NOW()
+             WHERE item_id = $1 AND merchant_id = $2`,
+            [itemId, merchantId]
+        );
+
         // Resolve any open location_mismatch health rows for this item
         await db.query(
             `UPDATE catalog_location_health
