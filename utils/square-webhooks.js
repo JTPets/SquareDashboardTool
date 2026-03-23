@@ -3,9 +3,7 @@
  * Handles programmatic registration, listing, and management of Square webhook subscriptions
  */
 
-const db = require('./database');
 const logger = require('./logger');
-const { decryptToken, isEncryptedToken } = require('./token-encryption');
 const { generateIdempotencyKey } = require('../services/square/square-client');
 const { SQUARE: { API_VERSION: SQUARE_API_VERSION } } = require('../config/constants');
 
@@ -103,35 +101,20 @@ function getRecommendedEventTypes() {
 }
 
 /**
- * Get decrypted access token for a merchant
- * @param {number} merchantId - The merchant ID
- * @returns {Promise<string>} Decrypted access token
+ * Get the application-level access token for Square webhook management.
+ * Square's /v2/webhooks/subscriptions is an app-level API — it requires the
+ * application access token, NOT a merchant OAuth token.
+ * @returns {string} Application access token
  */
-async function getMerchantToken(merchantId) {
-    if (!merchantId) {
-        throw new Error('merchantId is required');
-    }
-
-    const result = await db.query(
-        'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
-        [merchantId]
-    );
-
-    if (result.rows.length === 0) {
-        throw new Error(`Merchant ${merchantId} not found or inactive`);
-    }
-
-    const token = result.rows[0].square_access_token;
-
+function getAppAccessToken() {
+    const token = process.env.SQUARE_ACCESS_TOKEN;
     if (!token) {
-        throw new Error(`Merchant ${merchantId} has no access token configured`);
+        throw new Error(
+            'SQUARE_ACCESS_TOKEN environment variable is required for webhook management. ' +
+            'Set it to your Square application access token.'
+        );
     }
-
-    if (!isEncryptedToken(token)) {
-        return token;
-    }
-
-    return decryptToken(token);
+    return token;
 }
 
 /**
@@ -173,7 +156,7 @@ async function makeSquareRequest(endpoint, options, accessToken) {
  * @returns {Promise<Object[]>} List of webhook subscriptions
  */
 async function listWebhookSubscriptions(merchantId) {
-    const accessToken = await getMerchantToken(merchantId);
+    const accessToken = getAppAccessToken();
 
     try {
         const data = await makeSquareRequest('/v2/webhooks/subscriptions', {
@@ -199,7 +182,7 @@ async function listWebhookSubscriptions(merchantId) {
  * @returns {Promise<Object>} Webhook subscription details
  */
 async function getWebhookSubscription(merchantId, subscriptionId) {
-    const accessToken = await getMerchantToken(merchantId);
+    const accessToken = getAppAccessToken();
 
     try {
         const data = await makeSquareRequest(`/v2/webhooks/subscriptions/${subscriptionId}`, {
@@ -228,7 +211,7 @@ async function getWebhookSubscription(merchantId, subscriptionId) {
  * @returns {Promise<Object>} Created subscription
  */
 async function createWebhookSubscription(merchantId, options) {
-    const accessToken = await getMerchantToken(merchantId);
+    const accessToken = getAppAccessToken();
 
     const {
         notificationUrl,
@@ -295,7 +278,7 @@ async function createWebhookSubscription(merchantId, options) {
  * @returns {Promise<Object>} Updated subscription
  */
 async function updateWebhookSubscription(merchantId, subscriptionId, updates) {
-    const accessToken = await getMerchantToken(merchantId);
+    const accessToken = getAppAccessToken();
 
     const subscription = {};
 
@@ -342,7 +325,7 @@ async function updateWebhookSubscription(merchantId, subscriptionId, updates) {
  * @returns {Promise<boolean>} True if deleted successfully
  */
 async function deleteWebhookSubscription(merchantId, subscriptionId) {
-    const accessToken = await getMerchantToken(merchantId);
+    const accessToken = getAppAccessToken();
 
     try {
         await makeSquareRequest(`/v2/webhooks/subscriptions/${subscriptionId}`, {
@@ -372,7 +355,7 @@ async function deleteWebhookSubscription(merchantId, subscriptionId) {
  * @returns {Promise<Object>} Test result
  */
 async function testWebhookSubscription(merchantId, subscriptionId) {
-    const accessToken = await getMerchantToken(merchantId);
+    const accessToken = getAppAccessToken();
 
     try {
         const data = await makeSquareRequest(`/v2/webhooks/subscriptions/${subscriptionId}/test`, {
