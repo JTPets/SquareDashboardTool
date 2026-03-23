@@ -11,6 +11,7 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
+const { escapeLikePattern } = require('../../utils/escape-like');
 
 /**
  * Get store locations for a merchant
@@ -84,12 +85,12 @@ async function getItems(merchantId, filters = {}) {
     const params = [merchantId];
 
     if (name) {
-        params.push(`%${name}%`);
+        params.push(`%${escapeLikePattern(name)}%`);
         query += ` AND i.name ILIKE $${params.length}`;
     }
 
     if (category) {
-        params.push(`%${category}%`);
+        params.push(`%${escapeLikePattern(category)}%`);
         query += ` AND c.name ILIKE $${params.length}`;
     }
 

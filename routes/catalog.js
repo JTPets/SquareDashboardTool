@@ -36,7 +36,7 @@ const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
 const catalogService = require('../services/catalog');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/catalog');
@@ -103,7 +103,7 @@ router.get('/variations-with-costs', requireAuth, requireMerchant, validators.ge
  * Update custom fields on a variation
  * Automatically syncs case_pack_quantity to Square if changed
  */
-router.patch('/variations/:id/extended', requireAuth, requireMerchant, validators.updateVariationExtended, asyncHandler(async (req, res) => {
+router.patch('/variations/:id/extended', requireAuth, requireWriteAccess, requireMerchant, validators.updateVariationExtended, asyncHandler(async (req, res) => {
     const { id } = req.params;
     const merchantId = req.merchantContext.id;
 
@@ -125,7 +125,7 @@ router.patch('/variations/:id/extended', requireAuth, requireMerchant, validator
  * Update min stock (inventory alert threshold) and sync to Square
  * Uses location-specific overrides in Square
  */
-router.patch('/variations/:id/min-stock', requireAuth, requireMerchant, validators.updateMinStock, asyncHandler(async (req, res) => {
+router.patch('/variations/:id/min-stock', requireAuth, requireWriteAccess, requireMerchant, validators.updateMinStock, asyncHandler(async (req, res) => {
     const { id } = req.params;
     const { min_stock, location_id } = req.body;
     const merchantId = req.merchantContext.id;
@@ -143,7 +143,7 @@ router.patch('/variations/:id/min-stock', requireAuth, requireMerchant, validato
  * PATCH /api/variations/:id/cost
  * Update unit cost (vendor cost) and sync to Square
  */
-router.patch('/variations/:id/cost', requireAuth, requireMerchant, validators.updateCost, asyncHandler(async (req, res) => {
+router.patch('/variations/:id/cost', requireAuth, requireWriteAccess, requireMerchant, validators.updateCost, asyncHandler(async (req, res) => {
     const { id } = req.params;
     const { cost_cents, vendor_id } = req.body;
     const merchantId = req.merchantContext.id;
@@ -161,7 +161,7 @@ router.patch('/variations/:id/cost', requireAuth, requireMerchant, validators.up
  * POST /api/variations/bulk-update-extended
  * Bulk update custom fields by SKU
  */
-router.post('/variations/bulk-update-extended', requireAuth, requireMerchant, validators.bulkUpdateExtended, asyncHandler(async (req, res) => {
+router.post('/variations/bulk-update-extended', requireAuth, requireWriteAccess, requireMerchant, validators.bulkUpdateExtended, asyncHandler(async (req, res) => {
     const updates = req.body;
     const merchantId = req.merchantContext.id;
 
@@ -198,7 +198,7 @@ router.get('/expirations', requireAuth, requireMerchant, validators.getExpiratio
  * POST /api/expirations
  * Save/update expiration data for variations
  */
-router.post('/expirations', requireAuth, requireMerchant, validators.saveExpirations, asyncHandler(async (req, res) => {
+router.post('/expirations', requireAuth, requireWriteAccess, requireMerchant, validators.saveExpirations, asyncHandler(async (req, res) => {
     const changes = req.body;
     const merchantId = req.merchantContext.id;
 
@@ -220,7 +220,7 @@ router.post('/expirations', requireAuth, requireMerchant, validators.saveExpirat
  * Handle expired item pull — full (all units expired) or partial (some units remain)
  * Adjusts inventory via Square API and updates expiry date for partial pulls
  */
-router.post('/expirations/pull', requireAuth, requireMerchant, validators.pullExpired, asyncHandler(async (req, res) => {
+router.post('/expirations/pull', requireAuth, requireWriteAccess, requireMerchant, validators.pullExpired, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const result = await catalogService.handleExpiredPull(merchantId, req.body);
 
@@ -236,7 +236,7 @@ router.post('/expirations/pull', requireAuth, requireMerchant, validators.pullEx
  * Mark items as reviewed (so they don't reappear in review filter)
  * Also syncs reviewed_at timestamp to Square for cross-platform consistency
  */
-router.post('/expirations/review', requireAuth, requireMerchant, validators.reviewExpirations, asyncHandler(async (req, res) => {
+router.post('/expirations/review', requireAuth, requireWriteAccess, requireMerchant, validators.reviewExpirations, asyncHandler(async (req, res) => {
     const { variation_ids, reviewed_by } = req.body;
     const merchantId = req.merchantContext.id;
 
@@ -314,7 +314,7 @@ router.get('/catalog-audit', requireAuth, requireMerchant, validators.getCatalog
  * so the token can only access that merchant's own catalog. No additional ownership check
  * is needed — Square's API enforces that the token cannot read/modify other merchants' objects.
  */
-router.post('/catalog-audit/enable-item-at-locations', requireAuth, requireMerchant, validators.enableItemAtLocations, asyncHandler(async (req, res) => {
+router.post('/catalog-audit/enable-item-at-locations', requireAuth, requireWriteAccess, requireMerchant, validators.enableItemAtLocations, asyncHandler(async (req, res) => {
     const { item_id } = req.body;
     const merchantId = req.merchantContext.id;
 
@@ -333,7 +333,7 @@ router.post('/catalog-audit/enable-item-at-locations', requireAuth, requireMerch
  * POST /api/catalog-audit/fix-locations
  * Fix all location mismatches by setting items/variations to present_at_all_locations = true
  */
-router.post('/catalog-audit/fix-locations', requireAuth, requireMerchant, validators.fixLocations, asyncHandler(async (req, res) => {
+router.post('/catalog-audit/fix-locations', requireAuth, requireWriteAccess, requireMerchant, validators.fixLocations, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Starting location mismatch fix from API', { merchantId });
 
@@ -355,7 +355,7 @@ router.post('/catalog-audit/fix-locations', requireAuth, requireMerchant, valida
  * POST /api/catalog-audit/fix-inventory-alerts
  * Enable LOW_QUANTITY inventory alerts (threshold 0) on all variations with alerts off
  */
-router.post('/catalog-audit/fix-inventory-alerts', requireAuth, requireMerchant, validators.fixInventoryAlerts, asyncHandler(async (req, res) => {
+router.post('/catalog-audit/fix-inventory-alerts', requireAuth, requireWriteAccess, requireMerchant, validators.fixInventoryAlerts, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Starting inventory alerts fix from API', { merchantId });
 

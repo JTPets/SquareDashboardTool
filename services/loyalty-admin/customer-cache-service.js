@@ -9,6 +9,7 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
+const { escapeLikePattern } = require('../../utils/escape-like');
 
 /**
  * Cache customer details in local database
@@ -122,7 +123,7 @@ async function searchCachedCustomers(query, merchantId) {
 
         if (isPhoneSearch) {
             // Phone search - normalize and match
-            const phonePattern = normalizedQuery.startsWith('+') ? normalizedQuery : `%${normalizedQuery}%`;
+            const phonePattern = normalizedQuery.startsWith('+') ? escapeLikePattern(normalizedQuery) : `%${escapeLikePattern(normalizedQuery)}%`;
             sql = `
                 SELECT square_customer_id as id, given_name, family_name, display_name,
                        phone_number as phone, email_address as email
@@ -141,7 +142,7 @@ async function searchCachedCustomers(query, merchantId) {
                   AND LOWER(email_address) LIKE LOWER($2)
                 LIMIT 20
             `;
-            params = [merchantId, `%${query}%`];
+            params = [merchantId, `%${escapeLikePattern(query)}%`];
         } else {
             // Name search
             sql = `
@@ -156,7 +157,7 @@ async function searchCachedCustomers(query, merchantId) {
                   )
                 LIMIT 20
             `;
-            params = [merchantId, `%${query}%`];
+            params = [merchantId, `%${escapeLikePattern(query)}%`];
         }
 
         const result = await db.query(sql, params);

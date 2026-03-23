@@ -13,6 +13,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const squareApi = require('../square');
+const { escapeLikePattern } = require('../../utils/escape-like');
 const expiryDiscount = require('../expiry');
 const { batchResolveImageUrls } = require('../../utils/image-utils');
 
@@ -333,7 +334,7 @@ async function getExpirations(merchantId, filters = {}) {
 
     // Filter by category
     if (category) {
-        params.push(`%${category}%`);
+        params.push(`%${escapeLikePattern(category)}%`);
         query += ` AND i.category_name ILIKE $${params.length}`;
     }
 

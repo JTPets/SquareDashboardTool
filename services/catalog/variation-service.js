@@ -13,6 +13,7 @@
  */
 
 const db = require('../../utils/database');
+const { escapeLikePattern } = require('../../utils/escape-like');
 const logger = require('../../utils/logger');
 const squareApi = require('../square');
 const { getMerchantLocaleConfig } = require('../merchant');
@@ -74,12 +75,12 @@ async function getVariations(merchantId, filters = {}) {
     }
 
     if (sku) {
-        params.push(`%${sku}%`);
+        params.push(`%${escapeLikePattern(sku)}%`);
         query += ` AND v.sku ILIKE $${params.length}`;
     }
 
     if (search) {
-        params.push(`%${search}%`);
+        params.push(`%${escapeLikePattern(search)}%`);
         const searchIdx = params.length;
         query += ` AND (i.name ILIKE $${searchIdx} OR v.name ILIKE $${searchIdx} OR v.sku ILIKE $${searchIdx})`;
     }

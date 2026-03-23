@@ -1,6 +1,7 @@
 const nodemailer = require('nodemailer');
 const logger = require('./logger');
 const db = require('./database');
+const { getAlertRecipients } = require('./alert-recipients');
 
 /**
  * Send email via Resend HTTP API (no npm package needed)
@@ -173,6 +174,23 @@ class EmailNotifier {
         return process.env.EMAIL_TO;
     }
 
+    /**
+     * Resolve alert recipients by role for a merchant.
+     * Falls back to _resolveRecipient (admin_email / EMAIL_TO) if no staff found.
+     * @param {number|null} merchantId - Merchant ID
+     * @param {string} alertType - 'critical', 'operational', or 'info'
+     * @returns {Promise<string[]>} Array of email addresses
+     */
+    async _resolveAlertRecipients(merchantId, alertType) {
+        if (merchantId) {
+            const recipients = await getAlertRecipients(merchantId, alertType);
+            if (recipients.length > 0) return recipients;
+        }
+        // Fallback to legacy single-recipient resolution
+        const fallback = await this._resolveRecipient(merchantId);
+        return fallback ? [fallback] : [];
+    }
+
     async sendCritical(subject, error, context = {}) {
         if (!this.enabled) {
             logger.warn('Email notifications disabled, would have sent:', { subject, error: error.message });
@@ -187,11 +205,12 @@ class EmailNotifier {
         }
 
         try {
-            const recipient = await this._resolveRecipient(context.merchantId);
-            await this._send({
-                to: recipient,
-                subject: `[SqTools] CRITICAL: ${subject}`,
-                html: `
+            const recipients = await this._resolveAlertRecipients(context.merchantId, 'critical');
+            for (const recipient of recipients) {
+                await this._send({
+                    to: recipient,
+                    subject: `[SqTools] CRITICAL: ${subject}`,
+                    html: `
           <h2 style="color: #dc2626;">🚨 Critical Error</h2>
           <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
           <p><strong>Error:</strong> ${error.message}</p>
@@ -210,10 +229,11 @@ class EmailNotifier {
             Uptime: ${Math.floor(process.uptime() / 60)} minutes
           </p>
         `
-            });
+                });
+                logger.info('Critical error email sent', { subject, to: recipient });
+            }
 
             this.lastErrorEmail = now;
-            logger.info('Critical error email sent', { subject, to: recipient });
 
         } catch (emailError) {
             logger.error('Failed to send error email', {
@@ -230,11 +250,13 @@ class EmailNotifier {
         }
 
         try {
-            const recipient = await this._resolveRecipient(options.merchantId);
-            await this._send({
-                to: recipient,
-                subject: `[SqTools] ALERT: ${subject}`,
-                html: `
+            const alertType = options.alertType || 'operational';
+            const recipients = await this._resolveAlertRecipients(options.merchantId, alertType);
+            for (const recipient of recipients) {
+                await this._send({
+                    to: recipient,
+                    subject: `[SqTools] ALERT: ${subject}`,
+                    html: `
           <h2 style="color: #f59e0b;">⚠️ System Alert</h2>
           <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
           <p><strong>Alert:</strong> ${subject}</p>
@@ -252,9 +274,9 @@ class EmailNotifier {
             Uptime: ${Math.floor(process.uptime() / 60)} minutes
           </p>
         `
-            });
-
-            logger.info('Alert email sent', { subject, to: recipient });
+                });
+                logger.info('Alert email sent', { subject, to: recipient });
+            }
 
         } catch (error) {
             logger.error('Failed to send alert email', {

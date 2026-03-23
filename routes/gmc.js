@@ -42,6 +42,7 @@ const validators = require('../middleware/validators/gmc');
 const asyncHandler = require('../middleware/async-handler');
 const { getLocationById } = require('../services/catalog/location-service');
 const { sendSuccess, sendError } = require('../utils/response-helper');
+const { escapeLikePattern } = require('../utils/escape-like');
 
 // Rate limiter for sensitive operations (token regeneration)
 const sensitiveOperationRateLimit = configureSensitiveOperationRateLimit();
@@ -521,7 +522,7 @@ router.get('/taxonomy', requireAuth, validators.listTaxonomy, asyncHandler(async
     const params = [];
 
     if (search) {
-        params.push(`%${search}%`);
+        params.push(`%${escapeLikePattern(search)}%`);
         query += ` WHERE name ILIKE $${params.length}`;
     }
 
