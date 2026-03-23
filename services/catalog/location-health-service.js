@@ -126,8 +126,8 @@ async function checkAndRecordHealth(merchantId) {
                 if (!openByVariation.has(variationId)) {
                     await db.query(
                         `INSERT INTO catalog_location_health
-                         (merchant_id, variation_id, item_id, status, mismatch_type)
-                         VALUES ($1, $2, $3, 'mismatch', $4)`,
+                         (merchant_id, variation_id, item_id, status, mismatch_type, check_type)
+                         VALUES ($1, $2, $3, 'mismatch', $4, 'location_mismatch')`,
                         [merchantId, variationId, itemId, mismatchType]
                     );
                     newMismatches++;
