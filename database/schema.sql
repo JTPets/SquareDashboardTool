@@ -147,7 +147,7 @@ CREATE TABLE oauth_states (
     state TEXT UNIQUE NOT NULL,
     -- LOGIC CHANGE: added ON DELETE CASCADE for tenant isolation (DB-6)
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    merchant_id INTEGER REFERENCES merchants(id),  -- nullable: NULL for first-time Square OAuth connect
     redirect_uri TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     expires_at TIMESTAMPTZ NOT NULL,

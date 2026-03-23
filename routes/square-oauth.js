@@ -95,11 +95,19 @@ router.get('/connect', requireAuth, asyncHandler(async (req, res) => {
         // SECURITY: Validate redirect URL — only allow relative paths to prevent open redirect
         const redirectAfter = isLocalPath(req.query.redirect) ? req.query.redirect : '/dashboard.html';
 
+        // Look up user's existing merchant (re-auth flow); NULL for first-time connect
+        const merchantResult = await db.query(
+            `SELECT merchant_id FROM user_merchants
+             WHERE user_id = $1 AND is_primary = TRUE LIMIT 1`,
+            [req.session.user.id]
+        );
+        const merchantId = merchantResult.rows.length > 0 ? merchantResult.rows[0].merchant_id : null;
+
         // Store state in database with expiry
         await db.query(`
-            INSERT INTO oauth_states (state, user_id, redirect_uri, expires_at)
-            VALUES ($1, $2, $3, NOW() + INTERVAL '1 minute' * $4)
-        `, [state, req.session.user.id, redirectAfter, STATE_EXPIRY_MINUTES]);
+            INSERT INTO oauth_states (state, user_id, merchant_id, redirect_uri, expires_at)
+            VALUES ($1, $2, $3, $4, NOW() + INTERVAL '1 minute' * $5)
+        `, [state, req.session.user.id, merchantId, redirectAfter, STATE_EXPIRY_MINUTES]);
 
         logger.info('OAuth flow initiated', {
             userId: req.session.user.id,
