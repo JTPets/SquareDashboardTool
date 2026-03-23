@@ -346,12 +346,15 @@ describe('enableItemAtAllLocations', () => {
     });
 
     // Shared mock helper: retrieve-GET → batch-upsert-POST → verify-GET
+    // Automatically merges type: 'ITEM_VARIATION' into each variation so the
+    // is_deleted/type filter in the production code passes them through.
     function mockThreeCalls({ retrieveVariations = [], verifyVariations = [] } = {}) {
+        const withType = vars => vars.map(v => ({ type: 'ITEM_VARIATION', ...v }));
         makeSquareRequest
             .mockResolvedValueOnce({  // 1: retrieve GET (include_related_objects=true)
                 object: {
                     id: 'ITEM_1', type: 'ITEM', version: 5,
-                    item_data: { name: 'Test Item', variations: retrieveVariations }
+                    item_data: { name: 'Test Item', variations: withType(retrieveVariations) }
                 }
             })
             .mockResolvedValueOnce({  // 2: batch-upsert POST
@@ -361,7 +364,7 @@ describe('enableItemAtAllLocations', () => {
                 object: {
                     id: 'ITEM_1', type: 'ITEM', version: 6,
                     present_at_all_locations: true,
-                    item_data: { name: 'Test Item', variations: verifyVariations }
+                    item_data: { name: 'Test Item', variations: withType(verifyVariations) }
                 }
             });
     }
@@ -478,8 +481,8 @@ describe('enableItemAtAllLocations', () => {
                     item_data: {
                         name: 'Test Item',
                         variations: [
-                            { id: 'VAR_A', version: 3, item_variation_data: {} },
-                            { id: 'VAR_B', version: 4, item_variation_data: {} }
+                            { type: 'ITEM_VARIATION', id: 'VAR_A', version: 3, item_variation_data: {} },
+                            { type: 'ITEM_VARIATION', id: 'VAR_B', version: 4, item_variation_data: {} }
                         ]
                     }
                 }
@@ -491,8 +494,8 @@ describe('enableItemAtAllLocations', () => {
                     present_at_all_locations: true,
                     item_data: {
                         variations: [
-                            { id: 'VAR_A', version: 4, present_at_all_locations: true },
-                            { id: 'VAR_B', version: 5, present_at_all_locations: false }
+                            { type: 'ITEM_VARIATION', id: 'VAR_A', version: 4, present_at_all_locations: true },
+                            { type: 'ITEM_VARIATION', id: 'VAR_B', version: 5, present_at_all_locations: false }
                         ]
                     }
                 }
@@ -521,7 +524,7 @@ describe('enableItemAtAllLocations', () => {
             .mockResolvedValueOnce({
                 object: {
                     id: 'ITEM_1', type: 'ITEM', version: 5,
-                    item_data: { name: 'Dog Food', variations: [{ id: 'VAR_A', version: 3, item_variation_data: {} }] }
+                    item_data: { name: 'Dog Food', variations: [{ type: 'ITEM_VARIATION', id: 'VAR_A', version: 3, item_variation_data: {} }] }
                 }
             })
             .mockResolvedValueOnce({ objects: [{ id: 'ITEM_1', version: 6 }] })
@@ -529,7 +532,7 @@ describe('enableItemAtAllLocations', () => {
                 object: {
                     id: 'ITEM_1', type: 'ITEM', version: 6,
                     present_at_all_locations: true,
-                    item_data: { name: 'Dog Food', variations: [{ id: 'VAR_A', version: 4, present_at_all_locations: true }] }
+                    item_data: { name: 'Dog Food', variations: [{ type: 'ITEM_VARIATION', id: 'VAR_A', version: 4, present_at_all_locations: true }] }
                 }
             });
 
@@ -552,8 +555,8 @@ describe('enableItemAtAllLocations', () => {
                 item_data: {
                     name: 'Already Fixed',
                     variations: [
-                        { id: 'VAR_A', version: 4, present_at_all_locations: true },
-                        { id: 'VAR_B', version: 5, present_at_all_locations: true }
+                        { type: 'ITEM_VARIATION', id: 'VAR_A', version: 4, present_at_all_locations: true },
+                        { type: 'ITEM_VARIATION', id: 'VAR_B', version: 5, present_at_all_locations: true }
                     ]
                 }
             }
@@ -590,8 +593,8 @@ describe('enableItemAtAllLocations', () => {
                     item_data: {
                         name: 'Partial Fix',
                         variations: [
-                            { id: 'VAR_A', version: 4, present_at_all_locations: true, item_variation_data: {} },
-                            { id: 'VAR_B', version: 3, present_at_all_locations: false, item_variation_data: {} }
+                            { type: 'ITEM_VARIATION', id: 'VAR_A', version: 4, present_at_all_locations: true, item_variation_data: {} },
+                            { type: 'ITEM_VARIATION', id: 'VAR_B', version: 3, present_at_all_locations: false, item_variation_data: {} }
                         ]
                     }
                 }
@@ -603,8 +606,8 @@ describe('enableItemAtAllLocations', () => {
                     present_at_all_locations: true,
                     item_data: {
                         variations: [
-                            { id: 'VAR_A', version: 4, present_at_all_locations: true },
-                            { id: 'VAR_B', version: 4, present_at_all_locations: true }
+                            { type: 'ITEM_VARIATION', id: 'VAR_A', version: 4, present_at_all_locations: true },
+                            { type: 'ITEM_VARIATION', id: 'VAR_B', version: 4, present_at_all_locations: true }
                         ]
                     }
                 }
@@ -615,5 +618,100 @@ describe('enableItemAtAllLocations', () => {
         // Must have sent the batch upsert (call 2)
         expect(makeSquareRequest).toHaveBeenCalledTimes(3);
         expect(makeSquareRequest.mock.calls[1][0]).toBe('/v2/catalog/batch-upsert');
+    });
+
+    test('excludes variations with is_deleted=true from the batch upsert', async () => {
+        makeSquareRequest
+            .mockResolvedValueOnce({
+                object: {
+                    id: 'ITEM_1', type: 'ITEM', version: 5,
+                    item_data: {
+                        name: 'Test Item',
+                        variations: [
+                            { type: 'ITEM_VARIATION', id: 'VAR_ACTIVE', version: 3, is_deleted: false, item_variation_data: {} },
+                            { type: 'ITEM_VARIATION', id: 'VAR_DELETED', version: 2, is_deleted: true,  item_variation_data: {} }
+                        ]
+                    }
+                }
+            })
+            .mockResolvedValueOnce({ objects: [] })  // batch upsert
+            .mockResolvedValueOnce({
+                object: {
+                    id: 'ITEM_1', type: 'ITEM', version: 6,
+                    present_at_all_locations: true,
+                    item_data: {
+                        variations: [
+                            { type: 'ITEM_VARIATION', id: 'VAR_ACTIVE',  version: 4, present_at_all_locations: true },
+                            { type: 'ITEM_VARIATION', id: 'VAR_DELETED', version: 2, is_deleted: true, present_at_all_locations: false }
+                        ]
+                    }
+                }
+            });
+
+        await enableItemAtAllLocations('ITEM_1', merchantId);
+
+        const body = JSON.parse(makeSquareRequest.mock.calls[1][1].body);
+        const objects = body.batches[0].objects;
+        // Only ITEM + VAR_ACTIVE — deleted variation must not appear
+        expect(objects).toHaveLength(2);
+        expect(objects.find(o => o.id === 'VAR_DELETED')).toBeUndefined();
+        expect(objects.find(o => o.id === 'VAR_ACTIVE')).toBeDefined();
+    });
+
+    test('does not count deleted variations as failed during verification', async () => {
+        // Square verify response contains a deleted variation with present_at_all_locations=false —
+        // this must not trigger a Verification failed error.
+        makeSquareRequest
+            .mockResolvedValueOnce({
+                object: {
+                    id: 'ITEM_1', type: 'ITEM', version: 5,
+                    item_data: {
+                        name: 'Test Item',
+                        variations: [
+                            { type: 'ITEM_VARIATION', id: 'VAR_ACTIVE', version: 3, item_variation_data: {} }
+                        ]
+                    }
+                }
+            })
+            .mockResolvedValueOnce({ objects: [] })
+            .mockResolvedValueOnce({
+                object: {
+                    id: 'ITEM_1', type: 'ITEM', version: 6,
+                    present_at_all_locations: true,
+                    item_data: {
+                        variations: [
+                            { type: 'ITEM_VARIATION', id: 'VAR_ACTIVE',  version: 4, present_at_all_locations: true },
+                            { type: 'ITEM_VARIATION', id: 'VAR_DELETED', version: 2, is_deleted: true, present_at_all_locations: false }
+                        ]
+                    }
+                }
+            });
+
+        // Should resolve without throwing
+        await expect(enableItemAtAllLocations('ITEM_1', merchantId)).resolves.toMatchObject({ success: true });
+    });
+
+    test('idempotency check ignores deleted variations — skips upsert when only active ones are enabled', async () => {
+        makeSquareRequest.mockResolvedValueOnce({
+            object: {
+                id: 'ITEM_1', type: 'ITEM', version: 6,
+                present_at_all_locations: true,
+                item_data: {
+                    name: 'Test Item',
+                    variations: [
+                        { type: 'ITEM_VARIATION', id: 'VAR_ACTIVE',  version: 4, present_at_all_locations: true },
+                        { type: 'ITEM_VARIATION', id: 'VAR_DELETED', version: 2, is_deleted: true, present_at_all_locations: false }
+                    ]
+                }
+            }
+        });
+
+        const result = await enableItemAtAllLocations('ITEM_1', merchantId);
+
+        expect(result.success).toBe(true);
+        // Only 1 active variation counted; deleted one excluded
+        expect(result.variationCount).toBe(1);
+        // No upsert fired
+        expect(makeSquareRequest).toHaveBeenCalledTimes(1);
     });
 });
