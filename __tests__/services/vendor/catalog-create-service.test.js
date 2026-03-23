@@ -246,6 +246,33 @@ describe('catalog-create-service', () => {
             expect(Number(variation.item_variation_data.price_money.amount)).toBe(4999);
         });
 
+        it('sets present_at_all_locations: true on both item and nested variation in batch payload', async () => {
+            const entry = makeEntry({ id: 30, upc: null });
+
+            mockDbQuery.mockResolvedValueOnce({ rows: [entry] });
+
+            mockMakeSquareRequest
+                .mockResolvedValueOnce(EMPTY_TAX_RESPONSE)
+                .mockResolvedValueOnce({
+                    objects: [],
+                    id_mappings: [
+                        { client_object_id: '#item_30', object_id: 'ITEM_30' },
+                        { client_object_id: '#var_30', object_id: 'VAR_30' },
+                    ]
+                });
+
+            const mockClient = { query: jest.fn().mockResolvedValue({ rows: [] }) };
+            mockDbTransaction.mockImplementation(async (fn) => fn(mockClient));
+
+            await bulkCreateSquareItems([30], 1);
+
+            const callArgs = JSON.parse(mockMakeSquareRequest.mock.calls[1][1].body);
+            const item = callArgs.batches[0].objects[0];
+            expect(item.present_at_all_locations).toBe(true);
+            const variation = item.item_data.variations[0];
+            expect(variation.present_at_all_locations).toBe(true);
+        });
+
         it('includes tax_ids in BatchUpsertCatalogObjects item_data', async () => {
             const entry = makeEntry({ id: 20, upc: null });
 
