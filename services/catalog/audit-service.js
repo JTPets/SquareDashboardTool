@@ -166,10 +166,13 @@ async function getCatalogAudit(merchantId, filters = {}) {
             (seo_description IS NULL OR seo_description = '') as missing_seo_description,
             -- Tax configuration
             (tax_ids IS NULL OR tax_ids::text = '[]' OR tax_ids::text = 'null') as no_tax_ids,
-            -- Location mismatch: variation enabled at all locations but parent item is not,
-            -- OR variation has specific location IDs not present in the item's location ID list
+            -- Location mismatch: flags any flag disagreement between a variation and its parent item.
+            -- Case 1: variation claims all-locations but item is restricted (variation too permissive)
+            -- Case 2: item claims all-locations but variation is still restricted (variation too restrictive)
+            -- Case 3: both restricted, but variation has location IDs absent from the parent item's list
             (
                 (variation_present_at_all = TRUE AND item_present_at_all = FALSE)
+                OR (item_present_at_all = TRUE AND variation_present_at_all = FALSE)
                 OR (
                     variation_present_at_all = FALSE
                     AND item_present_at_all = FALSE
