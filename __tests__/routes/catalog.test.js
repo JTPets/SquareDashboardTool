@@ -52,6 +52,15 @@ jest.mock('../../middleware/auth', () => ({
         }
         next();
     },
+    requireWriteAccess: (req, res, next) => {
+        if (!req.session?.user) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+        if (req.session.user.role === 'readonly') {
+            return res.status(403).json({ error: 'Write access required', code: 'FORBIDDEN' });
+        }
+        next();
+    },
 }));
 
 jest.mock('../../middleware/merchant', () => ({
