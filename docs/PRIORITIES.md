@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Work Items](./WORK-ITEMS.md) | [Roadmap](./ROADMAP.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Updated**: 2026-03-22
+**Last Updated**: 2026-03-23
 
 ---
 
@@ -38,6 +38,7 @@
 | BACKLOG-82 | Customer purchase intelligence — purchase cycle baseline, RFM scoring, "due to reorder" dashboard | WORK-ITEMS | L |
 | BACKLOG-84 | Vendor performance scoring — fill rate, timeliness, price stability, credit notes | WORK-ITEMS | M |
 | BACKLOG-85 | Market basket analysis — product affinities for shelf placement and bundle suggestions | WORK-ITEMS | L |
+| BACKLOG-95 | Multi-location expiry/count scoping — tables lack `location_id`, pre-franchise | Session 2026-03-23 | L |
 
 ### Data Integrity
 
@@ -65,6 +66,8 @@
 |----|-------------|--------|--------|
 | BACKLOG-34 | Doc: Square reuses variation IDs on POS reorder | CLAUDE.md | S |
 | BACKLOG-40 | exceljs pulls deprecated transitive deps | CLAUDE.md | S |
+| BACKLOG-97 | Vendor bulk create missing `vendor_code` — no `variation_vendors` link on import | Session 2026-03-23 | S |
+| BACKLOG-98 | Oversized toast on PO edit — reorder page confirmation toast too large | Session 2026-03-23 | S |
 
 ---
 

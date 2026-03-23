@@ -271,7 +271,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 
 **Security Audit Grade**: B+ (13-section audit, 2026-03-22)
 **Core Security**: A+ (multi-tenant isolation, auth, injection prevention, data integrity)
-**Test Coverage**: 4,500+ tests / 219 suites / 0 failures
+**Test Coverage**: 4,825 tests / 237 suites / 0 failures
 **Last Audit**: 2026-03-22
 
 ### Audit Summary (13 sections)
@@ -305,11 +305,12 @@ See [docs/WORK-ITEMS.md](docs/WORK-ITEMS.md) for the complete consolidated work 
 | Medium | BACKLOG-54 | Employee auto-discounts via Square pricing rules |
 | Medium | BACKLOG-64 | Audit Square `sold_out` flag vs inventory = 0 |
 | Medium | BACKLOG-65 | Sync Square Online Store category assignments |
-| Medium | BACKLOG-69 | Extract duplicate discount fix pattern in discount-validation-service.js |
-| Medium | BACKLOG-71 | Extract `_analyzeOrders` from order-history-audit-service.js |
+| Medium | BACKLOG-95 | Multi-location expiry/count scoping — `variation_expiration`, `variation_discount_status`, cycle count tables lack `location_id`. Pre-franchise |
 | Medium | BACKLOG-73 | Vendor receipt display bug — multi-redemption same order |
 | Medium | BACKLOG-4 | Customer birthday sync for marketing |
 | Medium | BACKLOG-1 | Frontend polling rate limits |
+| Low | BACKLOG-97 | Vendor bulk create missing `vendor_code` — import CSV has vendor item number but no `variation_vendors` link created |
+| Low | BACKLOG-98 | Oversized toast on PO edit — reorder page confirmation toast too large |
 | Low | BACKLOG-8 | Vendor management — pull vendor data from Square Vendors API |
 | Low | BACKLOG-12 | Driver share link validation failure |
 | Low | BACKLOG-29 | Existing tenants missing `invoice.payment_made` webhook |

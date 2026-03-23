@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Work Items](./WORK-ITEMS.md) | [Priorities](./PRIORITIES.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
-**Last Updated**: 2026-03-22
+**Last Updated**: 2026-03-23
 
 Known issues that are logged but not yet scheduled. These are not blocking any feature work — they represent latent risks, code smells, or minor correctness issues to address when touching nearby code.
 
@@ -18,8 +18,8 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | Config | 1 |
 | Architecture | 1 |
 | Multi-Tenant Gaps | 5 |
-| Audit Findings (2026-03-22) | 7 |
-| **Total** | **~21** |
+| Audit Findings (2026-03-22) | 4 |
+| **Total** | **~18** |
 
 ---
 
@@ -136,6 +136,7 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 
 | Date | Grade | Notes |
 |------|-------|-------|
+| 2026-03-23 | B+ | 3 audit LOWs fixed (AUDIT-4.2.1, 3.8, 2.5.1). BACKLOG-41 phases 3B-2+4 done. 4,825 tests / 237 suites. |
 | 2026-03-22 | B+ | 13-section security audit. Core security A+. 4,500+ tests / 219 suites. |
 | 2026-03-15 | A+ | 4,035 tests / 187 suites / 0 failures. Loyalty: 857+ tests. 119 new tests in session. |
 | 2026-03-04 | A+ | All P0-P2 complete. Test coverage and file size violations remain for A++ |

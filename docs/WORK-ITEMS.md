@@ -2,11 +2,27 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
-**Last Validated**: 2026-03-22
-**Total Open Items**: ~49
+**Last Validated**: 2026-03-23
+**Total Open Items**: ~50
 
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
+
+### Purge Log — 2026-03-23 Security Audit LOWs + BACKLOG-41 + Catalog Fixes
+
+**AUDIT-4.2.1 FIXED** — LIKE wildcard injection in taxonomy search. Created `utils/escape-like.js` with `escapeLikePattern()` utility. Applied to all `LIKE`/`ILIKE` queries using user input. 58 tests added.
+
+**AUDIT-3.8 FIXED** — 9 modification routes in `routes/catalog.js` missing `requireWriteAccess` middleware. Added `requireWriteAccess` to all 10 write routes (PATCH, POST, DELETE). Auth mock in `catalog.test.js` updated to include `requireWriteAccess`. 140 tests added in `catalog-write-access.test.js`.
+
+**AUDIT-2.5.1 FIXED** — Debug cron jobs (`catalog-health-job.js`, `catalog-location-health-job.js`) hardcoded to `merchant_id = 3`. Refactored to multi-tenant iteration pattern — queries all active merchants and runs checks for each. 99 + 86 tests updated.
+
+**BACKLOG-96 FIXED** — Enable-item-at-locations "Duplicate object" error. Square implicitly locks child variations during parent ITEM upsert, causing double-count in batch. Fixed with two-path batch strategy: nested variations when item needs fixing, standalone ITEM_VARIATION when only variations need fixing. Multiple iterations to handle edge cases (idempotency, deleted variations, present_at_all_locations verification, local DB sync).
+
+**BACKLOG-41 Phases 3B-2 + 4 DONE** — `requirePermission` wired to all remaining route groups. Staff management UI pages added. Staff invitation service implemented. Permission audit fixes (GMC feeds gate, subscription admin mock, registry path, vendor_code, driver docs).
+
+**Alert recipients utility** — Created `utils/alert-recipients.js` for role-based alert routing. 135 tests added.
+
+**New items discovered**: BACKLOG-95 (multi-location expiry/count scoping), BACKLOG-97 (vendor bulk create missing vendor_code), BACKLOG-98 (oversized toast on PO edit).
 
 ### Purge Log — 2026-03-22 Vendor Integrity Audit Fixes (0a, 0b, BACKLOG-79, 88, 90, 91, 94)
 
@@ -197,8 +213,10 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 |-------|-------------|--------|---------|
 | Phase 1 | Feature registry — module definitions, route/page mapping, helper functions | DONE | `config/feature-registry.js`, `__tests__/config/feature-registry.test.js` |
 | Phase 2 | Feature gating — `merchant_features` table, `requireFeature()` middleware, route enforcement, frontend nav/page gating, `/api/merchant/features` endpoint | DONE | `database/migrations/004_feature_modules.sql`, `middleware/feature-gate.js`, `middleware/merchant.js`, `server.js`, `public/js/feature-gate.js`, `public/js/feature-check.js`, `__tests__/middleware/feature-gate.test.js` |
-| Phase 3 | Frontend page gating — redirect to upgrade page for locked modules | TODO | `middleware/`, `public/` |
-| Phase 4 | Billing integration — Stripe/Square subscription management | TODO | New routes + services |
+| Phase 3A | Staff roles data layer — `staff_roles` table, permissions config, `requirePermission()` middleware wired to all route groups | DONE | `middleware/permission-gate.js`, `config/permissions.js`, `services/staff/` |
+| Phase 3B | Staff invitation service + management UI — invite flow, staff pages, permission audit fixes | DONE | `services/staff/invitation-service.js`, `public/staff-*.html`, `routes/staff.js` |
+| Phase 4 | Frontend page gating — redirect to upgrade page for locked modules | TODO | `middleware/`, `public/` |
+| Phase 5 | Billing integration — Stripe/Square subscription management | TODO | New routes + services |
 
 ---
 
@@ -247,6 +265,7 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 | BACKLOG-87 | Cycle count by vendor and category — current smart rotation prioritizes by value and recency but doesn't let merchants target specific vendors or categories. Add filter options to generate batches scoped to a single vendor (e.g., "count all Fromm products") or category (e.g., "count all dog treats"). Use case: receiving a vendor shipment and wanting to count just those items, or auditing a category after a planogram change. Extends existing batch generation. | `services/inventory/cycle-count-service.js` | S | 2026-03-19 |
 | BACKLOG-92 | Category performance audit for dead stock and shrink management — identify underperforming categories or subcategories by combining sales velocity, margin, and inventory age. Example: canned cat food section is out of room. Tool surfaces slow movers (low velocity), low margin items, and items with high days-on-shelf. Actions: mark for clearance (triggers expiry discount system at a custom tier), flag as "do not reorder" (adds friction to PO generation for these items), or discontinue (remove from next vendor order). Builds on existing sales velocity, margin data, and expiry automation. Critical for space-constrained stores optimizing shelf allocation. | New service + routes, `services/expiry/`, `services/purchase-orders/` | M | 2026-03-20 |
 | BACKLOG-93 | Emergency expiry flag by UPC scan — staff finds a product on the shelf that's close to or already expired. Scan the barcode, system pulls up the item, staff enters the expiry date and immediately flags it for discount tier evaluation. Item enters the expiry automation pipeline (25%/50%/pull) right away instead of waiting for the next daily cron. Use case: "I just found this on the floor and it expires in 3 days, sticker it now." Mobile-friendly single-scan workflow, similar to cycle count's "Mark as Counted" flow but for expiry. Builds on existing `variation_expiration` table and `applyDiscounts()` in `discount-service.js`. | `services/expiry/`, `routes/`, `public/js/` | M | 2026-03-20 |
+| BACKLOG-95 | Multi-location expiry and cycle count scoping — `variation_expiration`, `variation_discount_status`, and cycle count tables are global (no `location_id`). Fine for single-store. Pre-franchise: local DB becomes source of truth for operational data (expiry, counts); Square stays source of truth for catalog (items, prices, inventory). Migration: backfill local from Square attributes → verify → cutover → remove Square custom attributes. Affects expiry cron, discount automation, cycle count batch generation. | `services/expiry/`, `services/inventory/`, `database/schema.sql` | L | 2026-03-23 |
 
 ### Multi-Tenant Gaps
 
@@ -276,6 +295,8 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 | BACKLOG-43 | Min/Max stock per item per location — investigate Square thresholds first. | S | 2026-02-01 |
 | BACKLOG-66 | Customer email bounce tracking for loyalty notifications. | S | 2026-03-15 |
 | BACKLOG-61 | GMC v1beta → v1 migration — Google Merchant API v1beta discontinued Feb 28 2026. Product upserts failing with 409 ABORTED. Backup script running. Services still use v1beta endpoints. | M | 2026-03-09 |
+| BACKLOG-97 | Vendor bulk create missing `vendor_code` — import CSV has vendor item number but `createSquareBatch()` only creates Square catalog object and local rows. No `variation_vendors` link created. New items have no vendor association despite being created from a vendor import. | S | 2026-03-23 |
+| BACKLOG-98 | Oversized toast on PO edit — reorder page PO edit confirmation shows oversized toast bar. Toast message too long or CSS doesn't handle long content. | S | 2026-03-23 |
 
 ### Code TODOs in Source
 
@@ -304,9 +325,9 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 |------|-------|
 | Critical | 0 |
 | High | 4 |
-| Medium | ~31 |
-| Low | ~10 |
+| Medium | ~32 |
+| Low | ~12 |
 | Nice to Have | 4 |
-| **Total** | **~49** |
+| **Total** | **~50** |
 
-**Validation delta**: ~95 → ~65 → ~49 → ~44 → ~37 → ~34 → ~31 → ~53 → ~49 items. **90+ items purged** across eight validations. 2026-03-22: vendor integrity audit fixed 0a/0b + BACKLOG-79/88/90/91/94 (7 items resolved, 4 removed from active tables).
+**Validation delta**: ~95 → ~65 → ~49 → ~44 → ~37 → ~34 → ~31 → ~53 → ~49 → ~50 items. **90+ items purged** across nine validations. 2026-03-23: AUDIT-4.2.1/3.8/2.5.1 fixed, BACKLOG-96 fixed, BACKLOG-41 phases 3B-2+4 done. 3 new items discovered (BACKLOG-95/97/98).
