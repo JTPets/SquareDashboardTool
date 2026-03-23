@@ -345,81 +345,172 @@ describe('enableItemAtAllLocations', () => {
             .rejects.toThrow('Object is not an ITEM: ITEM_VARIATION');
     });
 
-    test('updates item with present_at_all_locations=true', async () => {
+    // Shared mock helper: retrieve-GET → batch-upsert-POST → verify-GET
+    function mockThreeCalls({ retrieveVariations = [], verifyVariations = [] } = {}) {
         makeSquareRequest
-            .mockResolvedValueOnce({
+            .mockResolvedValueOnce({  // 1: retrieve GET (include_related_objects=true)
                 object: {
                     id: 'ITEM_1', type: 'ITEM', version: 5,
-                    item_data: { name: 'Test Item', variations: [] }
+                    item_data: { name: 'Test Item', variations: retrieveVariations }
                 }
             })
-            .mockResolvedValueOnce({
-                catalog_object: { id: 'ITEM_1', version: 6 }
+            .mockResolvedValueOnce({  // 2: batch-upsert POST
+                objects: [{ id: 'ITEM_1', version: 6 }]
             })
-            .mockResolvedValueOnce({  // verify GET
-                object: { id: 'ITEM_1', type: 'ITEM', version: 6, present_at_all_locations: true }
+            .mockResolvedValueOnce({  // 3: verify GET (include_related_objects=true)
+                object: {
+                    id: 'ITEM_1', type: 'ITEM', version: 6,
+                    present_at_all_locations: true,
+                    item_data: { name: 'Test Item', variations: verifyVariations }
+                }
             });
+    }
+
+    test('sends batch-upsert to /v2/catalog/batch-upsert with item present_at_all_locations=true', async () => {
+        mockThreeCalls();
 
         await enableItemAtAllLocations('ITEM_1', merchantId);
 
         const upsertCall = makeSquareRequest.mock.calls[1];
-        expect(upsertCall[0]).toBe('/v2/catalog/object');
+        expect(upsertCall[0]).toBe('/v2/catalog/batch-upsert');
         const body = JSON.parse(upsertCall[1].body);
-        expect(body.object.present_at_all_locations).toBe(true);
-        expect(body.object.present_at_location_ids).toEqual([]);
-        expect(body.object.absent_at_location_ids).toEqual([]);
-        expect(body.object.version).toBe(5);
+        const itemObj = body.batches[0].objects[0];
+        expect(itemObj.type).toBe('ITEM');
+        expect(itemObj.present_at_all_locations).toBe(true);
+        expect(itemObj.present_at_location_ids).toEqual([]);
+        expect(itemObj.absent_at_location_ids).toEqual([]);
+        expect(itemObj.version).toBe(5);
     });
 
-    test('issues a verification GET after the upsert', async () => {
-        makeSquareRequest
-            .mockResolvedValueOnce({
-                object: { id: 'ITEM_1', type: 'ITEM', version: 5, item_data: { name: 'Test Item' } }
-            })
-            .mockResolvedValueOnce({
-                catalog_object: { id: 'ITEM_1', version: 6 }
-            })
-            .mockResolvedValueOnce({  // verify GET
-                object: { id: 'ITEM_1', type: 'ITEM', version: 6, present_at_all_locations: true }
-            });
+    test('includes child variations in the batch upsert with present_at_all_locations=true', async () => {
+        mockThreeCalls({
+            retrieveVariations: [
+                { id: 'VAR_A', version: 3, present_at_all_locations: false,
+                  present_at_location_ids: ['LOC_1'], item_variation_data: { name: 'Small' } },
+                { id: 'VAR_B', version: 7, present_at_all_locations: false,
+                  present_at_location_ids: [],        item_variation_data: { name: 'Large' } }
+            ],
+            verifyVariations: [
+                { id: 'VAR_A', version: 4, present_at_all_locations: true },
+                { id: 'VAR_B', version: 8, present_at_all_locations: true }
+            ]
+        });
+
+        await enableItemAtAllLocations('ITEM_1', merchantId);
+
+        const body = JSON.parse(makeSquareRequest.mock.calls[1][1].body);
+        const objects = body.batches[0].objects;
+        expect(objects).toHaveLength(3); // 1 ITEM + 2 ITEM_VARIATIONs
+
+        const varA = objects.find(o => o.id === 'VAR_A');
+        expect(varA.type).toBe('ITEM_VARIATION');
+        expect(varA.present_at_all_locations).toBe(true);
+        expect(varA.present_at_location_ids).toEqual([]);
+        expect(varA.absent_at_location_ids).toEqual([]);
+        expect(varA.version).toBe(3);
+
+        const varB = objects.find(o => o.id === 'VAR_B');
+        expect(varB.type).toBe('ITEM_VARIATION');
+        expect(varB.present_at_all_locations).toBe(true);
+        expect(varB.version).toBe(7);
+    });
+
+    test('issues retrieve GET with include_related_objects=true', async () => {
+        mockThreeCalls();
+
+        await enableItemAtAllLocations('ITEM_1', merchantId);
+
+        const retrieveCall = makeSquareRequest.mock.calls[0];
+        expect(retrieveCall[0]).toContain('include_related_objects=true');
+    });
+
+    test('issues a verification GET with include_related_objects=true after the upsert', async () => {
+        mockThreeCalls();
 
         await enableItemAtAllLocations('ITEM_1', merchantId);
 
         expect(makeSquareRequest).toHaveBeenCalledTimes(3);
         const verifyCall = makeSquareRequest.mock.calls[2];
-        expect(verifyCall[0]).toContain(`/v2/catalog/object/ITEM_1`);
+        expect(verifyCall[0]).toContain('/v2/catalog/object/ITEM_1');
+        expect(verifyCall[0]).toContain('include_related_objects=true');
         expect(verifyCall[1].method).toBeUndefined(); // GET (default)
     });
 
-    test('throws when verification shows present_at_all_locations is still false after upsert', async () => {
+    test('throws when verification shows item present_at_all_locations is still false', async () => {
         makeSquareRequest
             .mockResolvedValueOnce({
-                object: { id: 'ITEM_1', type: 'ITEM', version: 5, item_data: { name: 'Test Item' } }
+                object: { id: 'ITEM_1', type: 'ITEM', version: 5, item_data: { name: 'Test Item', variations: [] } }
             })
-            .mockResolvedValueOnce({
-                catalog_object: { id: 'ITEM_1', version: 6 }
-            })
-            .mockResolvedValueOnce({  // verify GET — Square did not commit the change
-                object: { id: 'ITEM_1', type: 'ITEM', version: 6, present_at_all_locations: false }
+            .mockResolvedValueOnce({ objects: [] })
+            .mockResolvedValueOnce({  // verify GET — item flag not committed
+                object: { id: 'ITEM_1', type: 'ITEM', version: 6, present_at_all_locations: false, item_data: { variations: [] } }
             });
 
         await expect(enableItemAtAllLocations('ITEM_1', merchantId))
             .rejects.toThrow('Verification failed');
     });
 
-    test('returns success with itemId, itemName, newVersion', async () => {
+    test('throws when any variation still has present_at_all_locations=false after upsert', async () => {
         makeSquareRequest
             .mockResolvedValueOnce({
                 object: {
                     id: 'ITEM_1', type: 'ITEM', version: 5,
-                    item_data: { name: 'Dog Food' }
+                    item_data: {
+                        name: 'Test Item',
+                        variations: [
+                            { id: 'VAR_A', version: 3, item_variation_data: {} },
+                            { id: 'VAR_B', version: 4, item_variation_data: {} }
+                        ]
+                    }
                 }
             })
+            .mockResolvedValueOnce({ objects: [] })
+            .mockResolvedValueOnce({  // verify GET — VAR_B not committed
+                object: {
+                    id: 'ITEM_1', type: 'ITEM', version: 6,
+                    present_at_all_locations: true,
+                    item_data: {
+                        variations: [
+                            { id: 'VAR_A', version: 4, present_at_all_locations: true },
+                            { id: 'VAR_B', version: 5, present_at_all_locations: false }
+                        ]
+                    }
+                }
+            });
+
+        await expect(enableItemAtAllLocations('ITEM_1', merchantId))
+            .rejects.toThrow('Verification failed');
+    });
+
+    test('returns success with itemId, itemName, variationCount', async () => {
+        mockThreeCalls({
+            retrieveVariations: [
+                { id: 'VAR_A', version: 3, item_variation_data: {} },
+                { id: 'VAR_B', version: 4, item_variation_data: {} }
+            ],
+            verifyVariations: [
+                { id: 'VAR_A', version: 4, present_at_all_locations: true },
+                { id: 'VAR_B', version: 5, present_at_all_locations: true }
+            ]
+        });
+
+        makeSquareRequest.mock.calls; // already set up above
+        // Reset and use a simpler mock for the return-value test
+        makeSquareRequest.mockReset();
+        makeSquareRequest
             .mockResolvedValueOnce({
-                catalog_object: { id: 'ITEM_1', version: 6 }
+                object: {
+                    id: 'ITEM_1', type: 'ITEM', version: 5,
+                    item_data: { name: 'Dog Food', variations: [{ id: 'VAR_A', version: 3, item_variation_data: {} }] }
+                }
             })
-            .mockResolvedValueOnce({  // verify GET
-                object: { id: 'ITEM_1', type: 'ITEM', version: 6, present_at_all_locations: true }
+            .mockResolvedValueOnce({ objects: [{ id: 'ITEM_1', version: 6 }] })
+            .mockResolvedValueOnce({
+                object: {
+                    id: 'ITEM_1', type: 'ITEM', version: 6,
+                    present_at_all_locations: true,
+                    item_data: { name: 'Dog Food', variations: [{ id: 'VAR_A', version: 4, present_at_all_locations: true }] }
+                }
             });
 
         const result = await enableItemAtAllLocations('ITEM_1', merchantId);
@@ -428,7 +519,7 @@ describe('enableItemAtAllLocations', () => {
             success: true,
             itemId: 'ITEM_1',
             itemName: 'Dog Food',
-            newVersion: 6
+            variationCount: 1
         });
     });
 });

@@ -429,12 +429,13 @@ async function enableItemAtAllLocations(itemId, merchantId) {
         throw new Error('itemId is required for enableItemAtAllLocations');
     }
 
-    logger.info('Enabling item at all locations', { itemId, merchantId });
+    logger.info('Enabling item and variations at all locations', { itemId, merchantId });
     const accessToken = await getMerchantToken(merchantId);
 
-    // Retrieve current item to get version and data
+    // Retrieve item WITH variations so we have each variation's current version.
+    // include_related_objects=true returns item_data.variations inline.
     const retrieveData = await makeSquareRequest(
-        `/v2/catalog/object/${itemId}?include_related_objects=false`,
+        `/v2/catalog/object/${itemId}?include_related_objects=true`,
         { accessToken }
     );
 
@@ -447,11 +448,12 @@ async function enableItemAtAllLocations(itemId, merchantId) {
         throw new Error(`Object is not an ITEM: ${currentObject.type}`);
     }
 
-    const idempotencyKey = generateIdempotencyKey('enable-item-locations');
-
-    const updateBody = {
-        idempotency_key: idempotencyKey,
-        object: {
+    // Build batch: parent ITEM + every child ITEM_VARIATION.
+    // Fixing only the parent leaves variations with present_at_all_locations=false,
+    // so the health check re-detects the mismatch immediately.
+    const variations = currentObject.item_data?.variations || [];
+    const batchObjects = [
+        {
             type: 'ITEM',
             id: itemId,
             version: currentObject.version,
@@ -459,21 +461,32 @@ async function enableItemAtAllLocations(itemId, merchantId) {
             present_at_location_ids: [],
             absent_at_location_ids: [],
             item_data: currentObject.item_data
-        }
-    };
+        },
+        ...variations.map(v => ({
+            type: 'ITEM_VARIATION',
+            id: v.id,
+            version: v.version,
+            present_at_all_locations: true,
+            present_at_location_ids: [],
+            absent_at_location_ids: [],
+            item_variation_data: v.item_variation_data
+        }))
+    ];
 
-    const data = await makeSquareRequest('/v2/catalog/object', {
+    const idempotencyKey = generateIdempotencyKey('enable-item-locations');
+
+    await makeSquareRequest('/v2/catalog/batch-upsert', {
         method: 'POST',
-        body: JSON.stringify(updateBody),
+        body: JSON.stringify({
+            idempotency_key: idempotencyKey,
+            batches: [{ objects: batchObjects }]
+        }),
         accessToken
     });
 
-    // Re-fetch to verify Square committed present_at_all_locations=true.
-    // The upsert response only confirms the HTTP call was accepted; it does
-    // not prove the flag persisted (e.g. Square may silently discard the field
-    // when the object is in a state that prevents the change).
+    // Re-fetch with variations to verify ALL objects were committed by Square.
     const verifyData = await makeSquareRequest(
-        `/v2/catalog/object/${itemId}?include_related_objects=false`,
+        `/v2/catalog/object/${itemId}?include_related_objects=true`,
         { accessToken }
     );
 
@@ -484,18 +497,27 @@ async function enableItemAtAllLocations(itemId, merchantId) {
         );
     }
 
-    logger.info('Item enabled at all locations — verified', {
+    const verifiedVariations = verifyData.object?.item_data?.variations || [];
+    const failedVariations = verifiedVariations.filter(v => v.present_at_all_locations !== true);
+    if (failedVariations.length > 0) {
+        throw new Error(
+            `Verification failed: ${failedVariations.length} variation(s) still have ` +
+            `present_at_all_locations != true: ${failedVariations.map(v => v.id).join(', ')}`
+        );
+    }
+
+    logger.info('Item and variations enabled at all locations — verified', {
         itemId,
         merchantId,
         itemName: currentObject.item_data?.name,
-        newVersion: data.catalog_object?.version
+        variationCount: variations.length
     });
 
     return {
         success: true,
         itemId,
         itemName: currentObject.item_data?.name || 'Unknown',
-        newVersion: data.catalog_object?.version
+        variationCount: variations.length
     };
 }
 

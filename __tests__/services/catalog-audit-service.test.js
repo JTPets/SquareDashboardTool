@@ -41,7 +41,7 @@ describe('enableItemAtAllLocations — local DB sync', () => {
                 success: true,
                 itemId: 'ITEM_1',
                 itemName: 'Dog Food',
-                newVersion: 2
+                variationCount: 2
             }),
         }));
 
@@ -62,6 +62,19 @@ describe('enableItemAtAllLocations — local DB sync', () => {
         expect(itemsUpdate[0]).toContain("present_at_location_ids   = '[]'::jsonb");
         expect(itemsUpdate[0]).toContain("absent_at_location_ids    = '[]'::jsonb");
         expect(itemsUpdate[1]).toEqual(['ITEM_1', 5]);
+    });
+
+    test('updates local variations table to present_at_all_locations=true after Square succeeds', async () => {
+        await enableItemAtAllLocations('ITEM_1', 5);
+
+        const variationsUpdate = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('UPDATE variations')
+        );
+        expect(variationsUpdate).toBeDefined();
+        expect(variationsUpdate[0]).toContain('present_at_all_locations = true');
+        expect(variationsUpdate[0]).toContain("present_at_location_ids  = '[]'::jsonb");
+        expect(variationsUpdate[0]).toContain("absent_at_location_ids   = '[]'::jsonb");
+        expect(variationsUpdate[1]).toEqual(['ITEM_1', 5]);
     });
 
     test('resolves open location_mismatch health rows for the item after Square succeeds', async () => {
