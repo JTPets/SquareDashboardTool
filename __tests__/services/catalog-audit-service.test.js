@@ -91,6 +91,21 @@ describe('enableItemAtAllLocations — local DB sync', () => {
         expect(updateCalls).toHaveLength(0);
     });
 
+    test('does not update local DB when Square verification fails', async () => {
+        const squareApi = require('../../services/square');
+        squareApi.enableItemAtAllLocations.mockRejectedValue(
+            new Error('Verification failed: Square did not commit present_at_all_locations=true for item ITEM_1 (got: false)')
+        );
+
+        const result = await enableItemAtAllLocations('ITEM_1', 5);
+
+        expect(result.success).toBe(false);
+        const updateCalls = db.query.mock.calls.filter(
+            c => typeof c[0] === 'string' && c[0].includes('UPDATE')
+        );
+        expect(updateCalls).toHaveLength(0);
+    });
+
     test('returns success with itemName from Square result', async () => {
         const result = await enableItemAtAllLocations('ITEM_1', 5);
 
