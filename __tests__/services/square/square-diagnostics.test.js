@@ -382,6 +382,26 @@ describe('enableItemAtAllLocations', () => {
         expect(itemObj.version).toBe(5);
     });
 
+    test('strips variations from item_data in the ITEM batch entry to avoid Duplicate object error', async () => {
+        mockThreeCalls({
+            retrieveVariations: [
+                { id: 'VAR_A', version: 3, item_variation_data: { name: 'Small' } }
+            ],
+            verifyVariations: [
+                { id: 'VAR_A', version: 4, present_at_all_locations: true }
+            ]
+        });
+
+        await enableItemAtAllLocations('ITEM_1', merchantId);
+
+        const body = JSON.parse(makeSquareRequest.mock.calls[1][1].body);
+        const itemEntry = body.batches[0].objects.find(o => o.type === 'ITEM');
+        // Variations must NOT appear inline inside item_data — they are
+        // separate ITEM_VARIATION entries in the same batch. Including them
+        // both ways causes Square to reject with "Duplicate object {id}".
+        expect(itemEntry.item_data.variations).toBeUndefined();
+    });
+
     test('includes child variations in the batch upsert with present_at_all_locations=true', async () => {
         mockThreeCalls({
             retrieveVariations: [
@@ -521,5 +541,79 @@ describe('enableItemAtAllLocations', () => {
             itemName: 'Dog Food',
             variationCount: 1
         });
+    });
+
+    test('returns success without batch-upsert when item and all variations are already enabled', async () => {
+        // Only the retrieve GET fires — no POST, no verify GET
+        makeSquareRequest.mockResolvedValueOnce({
+            object: {
+                id: 'ITEM_1', type: 'ITEM', version: 6,
+                present_at_all_locations: true,
+                item_data: {
+                    name: 'Already Fixed',
+                    variations: [
+                        { id: 'VAR_A', version: 4, present_at_all_locations: true },
+                        { id: 'VAR_B', version: 5, present_at_all_locations: true }
+                    ]
+                }
+            }
+        });
+
+        const result = await enableItemAtAllLocations('ITEM_1', merchantId);
+
+        expect(result.success).toBe(true);
+        expect(result.itemName).toBe('Already Fixed');
+        expect(result.variationCount).toBe(2);
+        // Only the retrieve GET should have fired — no upsert, no verify
+        expect(makeSquareRequest).toHaveBeenCalledTimes(1);
+    });
+
+    test('does not skip upsert when item is enabled but a variation is not', async () => {
+        mockThreeCalls({
+            retrieveVariations: [
+                { id: 'VAR_A', version: 4, present_at_all_locations: true },
+                { id: 'VAR_B', version: 3, present_at_all_locations: false,
+                  present_at_location_ids: ['LOC_1'], item_variation_data: {} }
+            ],
+            verifyVariations: [
+                { id: 'VAR_A', version: 4, present_at_all_locations: true },
+                { id: 'VAR_B', version: 4, present_at_all_locations: true }
+            ]
+        });
+        // Override: item IS present_at_all_locations=true in retrieve response
+        makeSquareRequest.mockReset();
+        makeSquareRequest
+            .mockResolvedValueOnce({
+                object: {
+                    id: 'ITEM_1', type: 'ITEM', version: 6,
+                    present_at_all_locations: true,  // item already ok
+                    item_data: {
+                        name: 'Partial Fix',
+                        variations: [
+                            { id: 'VAR_A', version: 4, present_at_all_locations: true, item_variation_data: {} },
+                            { id: 'VAR_B', version: 3, present_at_all_locations: false, item_variation_data: {} }
+                        ]
+                    }
+                }
+            })
+            .mockResolvedValueOnce({ objects: [] })  // batch upsert
+            .mockResolvedValueOnce({
+                object: {
+                    id: 'ITEM_1', type: 'ITEM', version: 6,
+                    present_at_all_locations: true,
+                    item_data: {
+                        variations: [
+                            { id: 'VAR_A', version: 4, present_at_all_locations: true },
+                            { id: 'VAR_B', version: 4, present_at_all_locations: true }
+                        ]
+                    }
+                }
+            });
+
+        await enableItemAtAllLocations('ITEM_1', merchantId);
+
+        // Must have sent the batch upsert (call 2)
+        expect(makeSquareRequest).toHaveBeenCalledTimes(3);
+        expect(makeSquareRequest.mock.calls[1][0]).toBe('/v2/catalog/batch-upsert');
     });
 });

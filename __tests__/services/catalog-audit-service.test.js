@@ -104,6 +104,33 @@ describe('enableItemAtAllLocations — local DB sync', () => {
         expect(updateCalls).toHaveLength(0);
     });
 
+    test('updates local DB even when Square skips upsert because already enabled', async () => {
+        // Square diagnostics returns success without performing an upsert (idempotent path).
+        // audit-service must still sync items, variations, and health rows.
+        const squareApi = require('../../services/square');
+        squareApi.enableItemAtAllLocations.mockResolvedValue({
+            success: true,
+            itemId: 'ITEM_1',
+            itemName: 'Dog Food',
+            variationCount: 2
+        });
+
+        await enableItemAtAllLocations('ITEM_1', 5);
+
+        const itemsUpdate = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('UPDATE items')
+        );
+        const variationsUpdate = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('UPDATE variations')
+        );
+        const healthUpdate = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('UPDATE catalog_location_health')
+        );
+        expect(itemsUpdate).toBeDefined();
+        expect(variationsUpdate).toBeDefined();
+        expect(healthUpdate).toBeDefined();
+    });
+
     test('does not update local DB when Square verification fails', async () => {
         const squareApi = require('../../services/square');
         squareApi.enableItemAtAllLocations.mockRejectedValue(
