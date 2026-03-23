@@ -448,10 +448,35 @@ async function enableItemAtAllLocations(itemId, merchantId) {
         throw new Error(`Object is not an ITEM: ${currentObject.type}`);
     }
 
-    // Build batch: parent ITEM + every child ITEM_VARIATION.
-    // Fixing only the parent leaves variations with present_at_all_locations=false,
-    // so the health check re-detects the mismatch immediately.
     const variations = currentObject.item_data?.variations || [];
+
+    // Idempotency: if Square already has everything correct, skip the upsert.
+    // Sending a batch-upsert when the state is already right causes a
+    // "Duplicate object" error because item_data.variations and the explicit
+    // ITEM_VARIATION batch entries both reference the same IDs.
+    const itemAlreadyEnabled = currentObject.present_at_all_locations === true;
+    const allVariationsEnabled = variations.every(v => v.present_at_all_locations === true);
+    if (itemAlreadyEnabled && allVariationsEnabled) {
+        logger.info('Item and all variations already present_at_all_locations=true, skipping upsert', {
+            itemId, merchantId,
+            itemName: currentObject.item_data?.name,
+            variationCount: variations.length
+        });
+        return {
+            success: true,
+            itemId,
+            itemName: currentObject.item_data?.name || 'Unknown',
+            variationCount: variations.length
+        };
+    }
+
+    // Build batch: parent ITEM + every child ITEM_VARIATION.
+    // IMPORTANT: strip item_data.variations before including the ITEM entry.
+    // Square's batch-upsert would see each variation ID twice — once inline
+    // inside item_data.variations and once as an explicit ITEM_VARIATION
+    // object — and reject the request with "Duplicate object {id}".
+    // The variations are handled exclusively via the separate ITEM_VARIATION entries.
+    const { variations: _stripped, ...itemDataWithoutVariations } = currentObject.item_data || {};
     const batchObjects = [
         {
             type: 'ITEM',
@@ -460,7 +485,7 @@ async function enableItemAtAllLocations(itemId, merchantId) {
             present_at_all_locations: true,
             present_at_location_ids: [],
             absent_at_location_ids: [],
-            item_data: currentObject.item_data
+            item_data: itemDataWithoutVariations
         },
         ...variations.map(v => ({
             type: 'ITEM_VARIATION',
