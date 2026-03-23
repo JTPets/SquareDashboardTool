@@ -58,7 +58,10 @@ const REQUIRED_SCOPES = [
     'LOYALTY_READ',
     'CUSTOMERS_READ',
     'CUSTOMERS_WRITE',  // Required for Customer Group Discounts (frequent buyer rewards)
-    'INVOICES_READ'     // Required for committed inventory/purchase orders sync
+    'INVOICES_READ',     // Required for committed inventory/purchase orders sync
+    // Required for programmatic webhook subscription management
+    'DEVELOPER_APPLICATION_WEBHOOKS_READ',
+    'DEVELOPER_APPLICATION_WEBHOOKS_WRITE'
 ];
 
 /**
