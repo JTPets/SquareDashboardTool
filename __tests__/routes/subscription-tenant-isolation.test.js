@@ -74,7 +74,7 @@ function createApp() {
     // Attach merchantContext for authenticated routes
     app.use((req, res, next) => {
         if (req.headers['x-merchant-id']) {
-            req.merchantContext = { id: parseInt(req.headers['x-merchant-id']) };
+            req.merchantContext = { id: parseInt(req.headers['x-merchant-id']), userRole: 'owner' };
         }
         if (req.headers['x-session-merchant-id']) {
             req.session = { activeMerchantId: parseInt(req.headers['x-session-merchant-id']), user: { email: 'admin@test.com', role: 'admin' } };

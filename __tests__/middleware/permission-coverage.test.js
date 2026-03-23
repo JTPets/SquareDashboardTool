@@ -31,6 +31,7 @@ const CONDITIONAL_ROUTES = new Set([
     '/api/webhooks',
     '/api/staff',
     '/api/subscriptions',
+    '/api/gmc',
 ]);
 
 /**
