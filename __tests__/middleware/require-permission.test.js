@@ -296,4 +296,274 @@ describe('Permission Enforcement Middleware', () => {
             expect(res.status).not.toHaveBeenCalled();
         });
     });
+
+    // ========================================================
+    // Route-level permission scenarios (BACKLOG-41 Phase 3B-2)
+    // Verifies that the permission matrix correctly blocks/allows
+    // access for specific role+route combinations.
+    // ========================================================
+    describe('clerk role route access', () => {
+
+        test('clerk blocked from /api/settings (base:admin)', () => {
+            const middleware = requirePermission('base', 'admin');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'clerk', subscriptionStatus: 'active' },
+                originalUrl: '/api/settings/merchant',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).not.toHaveBeenCalled();
+            expect(res.statusCode).toBe(403);
+            expect(res.jsonData.code).toBe('PERMISSION_DENIED');
+        });
+
+        test('clerk blocked from /api/admin (staff:admin)', () => {
+            const middleware = requirePermission('staff', 'admin');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'clerk', subscriptionStatus: 'active' },
+                originalUrl: '/api/admin/merchants',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).not.toHaveBeenCalled();
+            expect(res.statusCode).toBe(403);
+        });
+
+        test('clerk blocked from /api/loyalty (loyalty:read)', () => {
+            const middleware = requirePermission('loyalty', 'read');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'clerk', subscriptionStatus: 'active' },
+                originalUrl: '/api/loyalty/programs',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).not.toHaveBeenCalled();
+            expect(res.statusCode).toBe(403);
+        });
+
+        test('clerk blocked from /api/ai-autofill (ai_tools:read)', () => {
+            const middleware = requirePermission('ai_tools', 'read');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'clerk', subscriptionStatus: 'active' },
+                originalUrl: '/api/ai-autofill',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).not.toHaveBeenCalled();
+            expect(res.statusCode).toBe(403);
+        });
+
+        test('clerk CAN reach /api/cycle-counts (cycle_counts:read)', () => {
+            const middleware = requirePermission('cycle_counts', 'read');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'clerk', subscriptionStatus: 'active' },
+                originalUrl: '/api/cycle-counts/pending',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).toHaveBeenCalled();
+            expect(res.status).not.toHaveBeenCalled();
+        });
+
+        test('clerk CAN reach /api/delivery (delivery:read)', () => {
+            const middleware = requirePermission('delivery', 'read');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'clerk', subscriptionStatus: 'active' },
+                originalUrl: '/api/delivery',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).toHaveBeenCalled();
+            expect(res.status).not.toHaveBeenCalled();
+        });
+
+        test('clerk CAN reach /api/expiry-discounts (expiry:read)', () => {
+            const middleware = requirePermission('expiry', 'read');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'clerk', subscriptionStatus: 'active' },
+                originalUrl: '/api/expiry-discounts/status',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).toHaveBeenCalled();
+            expect(res.status).not.toHaveBeenCalled();
+        });
+
+        test('clerk CAN read base module routes (base:read)', () => {
+            const middleware = requirePermission('base', 'read');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'clerk', subscriptionStatus: 'active' },
+                originalUrl: '/api/inventory',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).toHaveBeenCalled();
+            expect(res.status).not.toHaveBeenCalled();
+        });
+
+        test('clerk blocked from /api/gmc (gmc:read)', () => {
+            const middleware = requirePermission('gmc', 'read');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'clerk', subscriptionStatus: 'active' },
+                originalUrl: '/api/gmc/feed',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).not.toHaveBeenCalled();
+            expect(res.statusCode).toBe(403);
+        });
+    });
+
+    describe('readonly role route access', () => {
+
+        test('readonly blocked from /api/cycle-counts (cycle_counts:read)', () => {
+            const middleware = requirePermission('cycle_counts', 'read');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'readonly', subscriptionStatus: 'active' },
+                originalUrl: '/api/cycle-counts/pending',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).not.toHaveBeenCalled();
+            expect(res.statusCode).toBe(403);
+        });
+
+        test('readonly blocked from /api/delivery (delivery:read)', () => {
+            const middleware = requirePermission('delivery', 'read');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'readonly', subscriptionStatus: 'active' },
+                originalUrl: '/api/delivery',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).not.toHaveBeenCalled();
+            expect(res.statusCode).toBe(403);
+        });
+
+        test('readonly CAN read base module routes (base:read)', () => {
+            const middleware = requirePermission('base', 'read');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'readonly', subscriptionStatus: 'active' },
+                originalUrl: '/api/inventory',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).toHaveBeenCalled();
+            expect(res.status).not.toHaveBeenCalled();
+        });
+
+        test('readonly blocked from /api/settings (base:admin)', () => {
+            const middleware = requirePermission('base', 'admin');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'readonly', subscriptionStatus: 'active' },
+                originalUrl: '/api/settings/merchant',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).not.toHaveBeenCalled();
+            expect(res.statusCode).toBe(403);
+        });
+
+        test('readonly blocked from /api/reorder (reorder:read)', () => {
+            const middleware = requirePermission('reorder', 'read');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'readonly', subscriptionStatus: 'active' },
+                originalUrl: '/api/vendors',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).not.toHaveBeenCalled();
+            expect(res.statusCode).toBe(403);
+        });
+    });
+
+    describe('manager role route access', () => {
+
+        test('manager CAN reach /api/loyalty (loyalty:read)', () => {
+            const middleware = requirePermission('loyalty', 'read');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'manager', subscriptionStatus: 'active' },
+                originalUrl: '/api/loyalty/programs',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).toHaveBeenCalled();
+        });
+
+        test('manager CAN reach /api/settings (base:admin)', () => {
+            const middleware = requirePermission('base', 'admin');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'manager', subscriptionStatus: 'active' },
+                originalUrl: '/api/settings/merchant',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).toHaveBeenCalled();
+        });
+
+        test('manager blocked from /api/admin (staff:admin)', () => {
+            const middleware = requirePermission('staff', 'admin');
+            const req = mockRequest({
+                merchantContext: { id: 1, userRole: 'manager', subscriptionStatus: 'active' },
+                originalUrl: '/api/admin/merchants',
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+            middleware(req, res, next);
+            expect(next).not.toHaveBeenCalled();
+            expect(res.statusCode).toBe(403);
+        });
+    });
+
+    describe('staff/accept public endpoint', () => {
+
+        test('staff permission gate skips /accept (public)', () => {
+            // Simulates the conditional middleware in server.js
+            const conditionalGate = (req, res, next) => {
+                if (req.path === '/accept' || req.path === '/validate-token') return next();
+                return requirePermission('staff', 'read')(req, res, next);
+            };
+
+            const req = { path: '/accept', merchantContext: null };
+            const res = mockResponse();
+            const next = jest.fn();
+            conditionalGate(req, res, next);
+            expect(next).toHaveBeenCalled();
+        });
+
+        test('staff permission gate enforces on non-public paths', () => {
+            const conditionalGate = (req, res, next) => {
+                if (req.path === '/accept' || req.path === '/validate-token') return next();
+                return requirePermission('staff', 'read')(req, res, next);
+            };
+
+            const req = {
+                path: '/invite',
+                merchantContext: { id: 1, userRole: 'clerk', subscriptionStatus: 'active' },
+                originalUrl: '/api/staff/invite',
+                method: 'POST',
+            };
+            const res = mockResponse();
+            const next = jest.fn();
+            conditionalGate(req, res, next);
+            expect(next).not.toHaveBeenCalled();
+            expect(res.statusCode).toBe(403);
+        });
+    });
 });
