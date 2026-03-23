@@ -43,11 +43,13 @@ describe('CRIT-2/CRIT-4: Subscription table tenant isolation schema', () => {
             expect(match[0]).not.toContain('merchant_id INTEGER NOT NULL');
         });
 
-        test('oauth_states has merchant_id NOT NULL', () => {
+        // nullable for first-time Square OAuth connect (no merchant until callback)
+        test('oauth_states has merchant_id nullable', () => {
             const regex = /CREATE TABLE oauth_states\s*\([^;]+\);/s;
             const match = schemaContent.match(regex);
             expect(match).not.toBeNull();
-            expect(match[0]).toContain('merchant_id INTEGER NOT NULL REFERENCES merchants(id)');
+            expect(match[0]).toContain('merchant_id INTEGER REFERENCES merchants(id)');
+            expect(match[0]).not.toContain('merchant_id INTEGER NOT NULL');
         });
 
         test('promo_codes has composite unique on (merchant_id, code)', () => {
