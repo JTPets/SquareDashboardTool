@@ -5,7 +5,8 @@
  * Debug tool scoped to merchant_id = 3 only. Permanent audit trail — rows never pruned.
  *
  * Check types:
- *   1. location_mismatch    — variation/item present_at_all_locations flag mismatch
+ *   1. location_mismatch    — variation/item present_at_all_locations flag mismatch, or
+ *                             variation.present_at_location_ids contains IDs absent from parent item
  *   2. orphaned_variation   — variation with no matching parent ITEM
  *   3. deleted_parent       — variation whose parent ITEM is deleted
  *   4. category_orphan      — ITEM referencing non-existent or deleted CATEGORY
@@ -135,7 +136,9 @@ async function fetchDeletedObjectIds(accessToken) {
 /**
  * CHECK 1: location_mismatch
  * ITEM_VARIATION whose present_at_all_locations/present_at_all_future_locations
- * flags differ from parent ITEM
+ * flags differ from parent ITEM, or whose present_at_location_ids contains a
+ * location ID not present in the parent ITEM's present_at_location_ids (when
+ * both have present_at_all_locations=false).
  */
 function checkLocationMismatches(items) {
     const issues = [];
@@ -155,6 +158,19 @@ function checkLocationMismatches(items) {
             const varFuture = variation.present_at_all_future_locations;
             if ((itemFuture === true) !== (varFuture === true)) {
                 mismatches.push('present_at_all_future_locations');
+            }
+
+            // Array-intersection check: when both flags are false, every location ID
+            // in the variation must also appear in the parent item's location list.
+            // A variation enabled at a location the parent item isn't registered at
+            // produces ITEM_AT_LOCATION errors and prevents cost updates.
+            if (!itemPresentAll && !varPresentAll) {
+                const varLocationIds = variation.present_at_location_ids || [];
+                const itemLocationSet = new Set(item.present_at_location_ids || []);
+                const extraLocations = varLocationIds.filter(id => !itemLocationSet.has(id));
+                if (extraLocations.length > 0) {
+                    mismatches.push(`present_at_location_ids (variation has locations not in item: ${extraLocations.join(', ')})`);
+                }
             }
 
             if (mismatches.length > 0) {

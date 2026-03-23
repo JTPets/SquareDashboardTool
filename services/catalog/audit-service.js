@@ -62,6 +62,7 @@ async function getCatalogAudit(merchantId, filters = {}) {
                 i.present_at_all_locations as item_present_at_all,
                 i.present_at_location_ids as item_present_at_location_ids,
                 v.present_at_all_locations as variation_present_at_all,
+                v.present_at_location_ids as variation_present_at_location_ids,
                 -- Check for vendor assignment
                 (SELECT COUNT(*) FROM variation_vendors vv WHERE vv.variation_id = v.id AND vv.merchant_id = v.merchant_id) as vendor_count,
                 -- Get primary vendor info
@@ -165,8 +166,18 @@ async function getCatalogAudit(merchantId, filters = {}) {
             (seo_description IS NULL OR seo_description = '') as missing_seo_description,
             -- Tax configuration
             (tax_ids IS NULL OR tax_ids::text = '[]' OR tax_ids::text = 'null') as no_tax_ids,
-            -- Location mismatch: variation enabled at all locations but parent item is not
-            (variation_present_at_all = TRUE AND item_present_at_all = FALSE) as location_mismatch,
+            -- Location mismatch: variation enabled at all locations but parent item is not,
+            -- OR variation has specific location IDs not present in the item's location ID list
+            (
+                (variation_present_at_all = TRUE AND item_present_at_all = FALSE)
+                OR (
+                    variation_present_at_all = FALSE
+                    AND item_present_at_all = FALSE
+                    AND variation_present_at_location_ids IS NOT NULL
+                    AND jsonb_array_length(variation_present_at_location_ids) > 0
+                    AND NOT (COALESCE(item_present_at_location_ids, '[]'::jsonb) @> variation_present_at_location_ids)
+                )
+            ) as location_mismatch,
             -- Sales channel flags
             -- POS disabled: item is NOT at all locations AND NOT at any specific locations
             (

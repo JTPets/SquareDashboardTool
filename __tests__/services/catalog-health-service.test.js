@@ -222,6 +222,84 @@ describe('CHECK 1: location_mismatch', () => {
         const locationIssues = result.newIssues.filter(i => i.check_type === 'location_mismatch');
         expect(locationIssues).toHaveLength(0);
     });
+
+    // Array-intersection checks (both present_at_all_locations=false)
+
+    test('detects array mismatch when variation has location not in item (both flags false)', async () => {
+        const item = buildItem('ITEM_1', {
+            present_at_all_locations: false,
+            present_at_location_ids: ['LOC_1'],
+            item_data: {
+                variations: [{
+                    id: 'VAR_1',
+                    present_at_all_locations: false,
+                    present_at_location_ids: ['LOC_1', 'LOC_2']  // LOC_2 not in item
+                }],
+                categories: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValue({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        expect(result.newIssues).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ check_type: 'location_mismatch', object_id: 'VAR_1' })
+            ])
+        );
+        // Verify notes (stored in DB INSERT, not in newIssues return shape) include the orphaned location
+        const insertCall = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('INSERT INTO catalog_location_health')
+        );
+        expect(insertCall).toBeDefined();
+        expect(insertCall[1][8]).toContain('LOC_2'); // notes is the 9th parameter ($9)
+    });
+
+    test('no mismatch when variation location IDs are a subset of item location IDs (both flags false)', async () => {
+        const item = buildItem('ITEM_1', {
+            present_at_all_locations: false,
+            present_at_location_ids: ['LOC_1', 'LOC_2'],
+            item_data: {
+                variations: [{
+                    id: 'VAR_1',
+                    present_at_all_locations: false,
+                    present_at_location_ids: ['LOC_1']  // subset — ok
+                }],
+                categories: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        const locationIssues = result.newIssues.filter(i => i.check_type === 'location_mismatch');
+        expect(locationIssues).toHaveLength(0);
+    });
+
+    test('no mismatch when both flags false and variation has no location IDs', async () => {
+        const item = buildItem('ITEM_1', {
+            present_at_all_locations: false,
+            present_at_location_ids: ['LOC_1'],
+            item_data: {
+                variations: [{
+                    id: 'VAR_1',
+                    present_at_all_locations: false
+                    // present_at_location_ids absent — no locations to check
+                }],
+                categories: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        const locationIssues = result.newIssues.filter(i => i.check_type === 'location_mismatch');
+        expect(locationIssues).toHaveLength(0);
+    });
 });
 
 // ============================================================================
