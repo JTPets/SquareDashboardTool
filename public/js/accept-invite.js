@@ -2,8 +2,9 @@
  * Accept Invitation Page Script — BACKLOG-41
  *
  * Public page (no auth required). Reads token from URL,
- * validates it by attempting a password-less accept, then
- * collects password if needed (new user) or confirms (existing user).
+ * validates via GET /api/staff/validate-token, then shows
+ * password form (new user) or confirm button (existing user).
+ * Actual accept only on explicit user action.
  */
 
 'use strict';
@@ -29,10 +30,7 @@ function showError(message) {
 }
 
 /**
- * Probe the token by attempting to accept without a password.
- * - If it succeeds: existing user, invitation accepted.
- * - If PASSWORD_REQUIRED: new user, show password form.
- * - If INVALID_TOKEN: token is bad/expired.
+ * Validate the token via GET endpoint (read-only, no side effects).
  */
 function validateToken() {
   inviteToken = getTokenFromUrl();
@@ -42,37 +40,29 @@ function validateToken() {
     return;
   }
 
-  fetch('/api/staff/accept', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: inviteToken })
-  })
-    .then(function (res) { return res.json().then(function (d) { return { status: res.status, data: d }; }); })
+  fetch('/api/staff/validate-token?token=' + encodeURIComponent(inviteToken))
+    .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, data: d }; }); })
     .then(function (result) {
-      if (result.data.success) {
-        // Existing user — invitation accepted immediately
-        showState('success-state');
-        return;
-      }
-
-      if (result.data.code === 'PASSWORD_REQUIRED') {
-        // New user — show password form
-        isExistingUser = false;
-        document.getElementById('password-section').style.display = 'block';
-        document.getElementById('existing-user-notice').style.display = 'none';
-        // We don't have merchant name from this response, show generic info
-        document.getElementById('invite-merchant-name').textContent = 'Team Invitation';
-        document.getElementById('invite-role-display').textContent = 'Staff';
-        showState('form-state');
-        return;
-      }
-
-      if (result.data.code === 'INVALID_TOKEN') {
+      if (!result.ok || !result.data.valid) {
         showError('This invitation is invalid or has expired. Please ask your team owner for a new invitation.');
         return;
       }
 
-      showError(result.data.error || 'Something went wrong. Please try again.');
+      var data = result.data;
+      document.getElementById('invite-merchant-name').textContent = escapeHtml(data.merchantName || 'Team');
+      document.getElementById('invite-role-display').textContent = data.role || 'staff';
+
+      if (data.existingUser) {
+        isExistingUser = true;
+        document.getElementById('password-section').style.display = 'none';
+        document.getElementById('existing-user-notice').style.display = 'block';
+      } else {
+        isExistingUser = false;
+        document.getElementById('password-section').style.display = 'block';
+        document.getElementById('existing-user-notice').style.display = 'none';
+      }
+
+      showState('form-state');
     })
     .catch(function () {
       showError('Unable to connect to the server. Please try again.');
@@ -80,22 +70,25 @@ function validateToken() {
 }
 
 function acceptInvitation() {
-  var password = document.getElementById('invite-password').value;
-  var confirmPassword = document.getElementById('invite-password-confirm').value;
+  var body = { token: inviteToken };
 
-  if (!password) {
-    alert('Please enter a password.');
-    return;
-  }
+  if (!isExistingUser) {
+    var password = document.getElementById('invite-password').value;
+    var confirmPassword = document.getElementById('invite-password-confirm').value;
 
-  if (password.length < 8) {
-    alert('Password must be at least 8 characters.');
-    return;
-  }
-
-  if (password !== confirmPassword) {
-    alert('Passwords do not match.');
-    return;
+    if (!password) {
+      alert('Please enter a password.');
+      return;
+    }
+    if (password.length < 8) {
+      alert('Password must be at least 8 characters.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      alert('Passwords do not match.');
+      return;
+    }
+    body.password = password;
   }
 
   var btn = document.querySelector('[data-action="acceptInvitation"]');
@@ -105,7 +98,7 @@ function acceptInvitation() {
   fetch('/api/staff/accept', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: inviteToken, password: password })
+    body: JSON.stringify(body)
   })
     .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, data: d }; }); })
     .then(function (result) {

@@ -8,6 +8,7 @@
  * Endpoints:
  *   GET    /api/staff                  - List staff + pending invitations
  *   POST   /api/staff/invite           - Send invitation (owner only)
+ *   GET    /api/staff/validate-token   - Validate invitation token (public)
  *   POST   /api/staff/accept           - Accept invitation (public, token-based)
  *   DELETE /api/staff/:userId          - Remove staff member (owner only)
  *   PATCH  /api/staff/:userId/role     - Change role (owner only)
@@ -53,6 +54,7 @@ router.post('/invite', requireAuth, requireMerchant, ADMIN, validators.inviteSta
     const appUrl = process.env.PUBLIC_APP_URL || 'http://localhost:5001';
     const inviteUrl = `${appUrl}/accept-invite.html?token=${rawToken}`;
 
+    let emailFailed = false;
     try {
         await emailNotifier.sendStaffInvitation({
             to: email,
@@ -62,15 +64,33 @@ router.post('/invite', requireAuth, requireMerchant, ADMIN, validators.inviteSta
             invitedByEmail: req.session.user.email
         });
     } catch (emailError) {
+        emailFailed = true;
         logger.warn('Failed to send invitation email', {
             error: emailError.message,
             email,
             merchantId
         });
-        // Non-fatal: invitation is created even if email fails
     }
 
-    sendSuccess(res, { message: 'Invitation sent', email, role, expiresAt }, 201);
+    const response = { message: 'Invitation created', email, role, expiresAt };
+    if (emailFailed) {
+        response.warning = 'Email delivery failed. Share the invite link manually.';
+        response.inviteUrl = inviteUrl;
+    }
+    sendSuccess(res, response, 201);
+}));
+
+/**
+ * GET /api/staff/validate-token?token=xxx
+ * Validate an invitation token without accepting (public).
+ * Returns merchant name, role, and whether the user already exists.
+ */
+router.get('/validate-token', validators.validateTokenQuery, asyncHandler(async (req, res) => {
+    const result = await staffService.validateToken(req.query.token);
+    if (!result.valid) {
+        return sendError(res, 'Invalid or expired invitation token', 400, 'INVALID_TOKEN');
+    }
+    sendSuccess(res, result);
 }));
 
 /**

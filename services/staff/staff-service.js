@@ -245,4 +245,39 @@ async function changeRole({ merchantId, userId, newRole, changedBy }) {
     logger.info('Staff role changed', { merchantId, userId, newRole, changedBy });
 }
 
-module.exports = { inviteStaff, acceptInvitation, listStaff, removeStaff, changeRole };
+/**
+ * Validate an invitation token without accepting it.
+ * Returns token metadata for the accept-invite page.
+ * @returns {{ valid, merchantName, role, existingUser }}
+ */
+async function validateToken(token) {
+    const tokenHash = hashToken(token);
+
+    const inviteResult = await db.query(
+        `SELECT si.email, si.role, m.business_name
+         FROM staff_invitations si
+         JOIN merchants m ON m.id = si.merchant_id
+         WHERE si.token_hash = $1 AND si.expires_at > NOW() AND si.accepted_at IS NULL`,
+        [tokenHash]
+    );
+
+    if (inviteResult.rows.length === 0) {
+        return { valid: false };
+    }
+
+    const invite = inviteResult.rows[0];
+
+    const userResult = await db.query(
+        'SELECT id FROM users WHERE email = $1',
+        [invite.email]
+    );
+
+    return {
+        valid: true,
+        merchantName: invite.business_name,
+        role: invite.role,
+        existingUser: userResult.rows.length > 0
+    };
+}
+
+module.exports = { inviteStaff, acceptInvitation, listStaff, removeStaff, changeRole, validateToken };

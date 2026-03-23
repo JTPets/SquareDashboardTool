@@ -4,7 +4,7 @@
  * Staff Route Validators — BACKLOG-41
  */
 
-const { body } = require('express-validator');
+const { body, query } = require('express-validator');
 const { handleValidationErrors, validateIntId } = require('./index');
 
 const ALLOWED_ROLES = ['manager', 'clerk', 'readonly'];
@@ -47,4 +47,13 @@ const changeRole = [
     handleValidationErrors
 ];
 
-module.exports = { inviteStaff, acceptInvitation, removeStaff, changeRole };
+const validateTokenQuery = [
+    query('token')
+        .isString()
+        .trim()
+        .notEmpty()
+        .withMessage('token query parameter is required'),
+    handleValidationErrors
+];
+
+module.exports = { inviteStaff, acceptInvitation, removeStaff, changeRole, validateTokenQuery };

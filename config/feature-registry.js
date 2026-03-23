@@ -61,6 +61,8 @@ const modules = {
             'index',
             'bundle-manager',
             'catalog-audit',
+            'staff',
+            'accept-invite',
         ],
         price_cents: 0,
         free: true,
