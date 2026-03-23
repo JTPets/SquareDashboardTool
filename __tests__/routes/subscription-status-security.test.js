@@ -62,7 +62,7 @@ describe('CRIT-1: GET /api/subscriptions/status security', () => {
     });
 
     describe('response stripping', () => {
-        test('returns only active and planName for active subscription', async () => {
+        test('returns only active, trial, and expires_at for active subscription', async () => {
             subscriptionHandler.checkSubscriptionStatus.mockResolvedValue({
                 isValid: true,
                 status: 'active',
@@ -75,12 +75,12 @@ describe('CRIT-1: GET /api/subscriptions/status security', () => {
                 .query({ email: 'test@example.com' })
                 .expect(200);
 
-            expect(Object.keys(res.body).sort()).toEqual(['active', 'planName', 'success'].sort());
+            expect(Object.keys(res.body).sort()).toEqual(['active', 'expires_at', 'success', 'trial'].sort());
             expect(res.body.active).toBe(true);
-            expect(res.body.planName).toBe('starter');
+            expect(res.body.trial).toBe(false);
         });
 
-        test('returns only active and planName for trial subscription', async () => {
+        test('returns trial: true for trial subscription', async () => {
             subscriptionHandler.checkSubscriptionStatus.mockResolvedValue({
                 isValid: true,
                 status: 'trial',
@@ -94,12 +94,12 @@ describe('CRIT-1: GET /api/subscriptions/status security', () => {
                 .query({ email: 'trial@example.com' })
                 .expect(200);
 
-            expect(Object.keys(res.body).sort()).toEqual(['active', 'planName', 'success'].sort());
+            expect(Object.keys(res.body).sort()).toEqual(['active', 'expires_at', 'success', 'trial'].sort());
             expect(res.body.active).toBe(true);
-            expect(res.body.planName).toBe('pro');
+            expect(res.body.trial).toBe(true);
         });
 
-        test('returns only active and planName for not_found', async () => {
+        test('returns minimal fields for not_found', async () => {
             subscriptionHandler.checkSubscriptionStatus.mockResolvedValue({
                 isValid: false,
                 status: 'not_found',
@@ -112,12 +112,12 @@ describe('CRIT-1: GET /api/subscriptions/status security', () => {
                 .query({ email: 'nobody@example.com' })
                 .expect(200);
 
-            expect(Object.keys(res.body).sort()).toEqual(['active', 'planName', 'success'].sort());
+            expect(Object.keys(res.body).sort()).toEqual(['active', 'expires_at', 'success', 'trial'].sort());
             expect(res.body.active).toBe(false);
-            expect(res.body.planName).toBeNull();
+            expect(res.body.trial).toBe(false);
         });
 
-        test('does not leak sensitive fields', async () => {
+        test('does not leak sensitive fields including plan_name', async () => {
             subscriptionHandler.checkSubscriptionStatus.mockResolvedValue({
                 isValid: true,
                 status: 'active',
@@ -132,7 +132,8 @@ describe('CRIT-1: GET /api/subscriptions/status security', () => {
                 .expect(200);
 
             const sensitiveFields = [
-                'email', 'status', 'message', 'daysLeft',
+                'email', 'status', 'message', 'daysLeft', 'planName',
+                'plan_name', 'plan_id', 'planId',
                 'trialEndDate', 'subscriptionEndDate', 'squareSubscriptionId',
                 'cardBrand', 'cardLastFour', 'priceCents',
             ];
