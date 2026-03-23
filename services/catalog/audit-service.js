@@ -181,13 +181,13 @@ async function getCatalogAudit(merchantId, filters = {}) {
                     AND NOT (COALESCE(item_present_at_location_ids, '[]'::jsonb) @> variation_present_at_location_ids)
                 )
             ) as location_mismatch,
-            -- Not at any location: variation has no location coverage at all — cannot be sold anywhere.
-            -- Distinct from location_mismatch (which is item/variation disagreement) and pos_disabled
-            -- (which checks the item). This checks the variation's own flags.
+            -- Not at all locations: variation is not set to present_at_all_locations.
+            -- Flags any variation where the flag is FALSE or NULL — covers no locations, specific
+            -- locations, or unset. Distinct from location_mismatch (item/variation disagreement)
+            -- and pos_disabled (item-level check). This checks the variation's own flag only.
             (
-                variation_present_at_all = FALSE
-                AND (variation_present_at_location_ids IS NULL OR jsonb_array_length(variation_present_at_location_ids) = 0)
-            ) as not_at_any_location,
+                variation_present_at_all = FALSE OR variation_present_at_all IS NULL
+            ) as not_at_all_locations,
             -- Sales channel flags
             -- POS disabled: item is NOT at all locations AND NOT at any specific locations
             (
@@ -231,7 +231,7 @@ async function getCatalogAudit(merchantId, filters = {}) {
         missing_seo_description: result.rows.filter(r => r.missing_seo_description).length,
         no_tax_ids: result.rows.filter(r => r.no_tax_ids).length,
         location_mismatch: result.rows.filter(r => r.location_mismatch).length,
-        not_at_any_location: result.rows.filter(r => r.not_at_any_location).length,
+        not_at_all_locations: result.rows.filter(r => r.not_at_all_locations).length,
         any_channel_off: result.rows.filter(r => r.any_channel_off).length,
         pos_disabled: result.rows.filter(r => r.pos_disabled).length,
         online_disabled: result.rows.filter(r => r.online_disabled).length
@@ -275,7 +275,7 @@ async function getCatalogAudit(merchantId, filters = {}) {
         if (row.missing_vendor) { issueCount++; issues.push('No Vendor'); }
         if (row.missing_cost) { issueCount++; issues.push('No Cost'); }
         if (row.location_mismatch) { issueCount++; issues.push('Location Mismatch'); }
-        if (row.not_at_any_location) { issues.push('Not at Any Location'); }
+        if (row.not_at_all_locations) { issues.push('Not at All Locations'); }
         // Sales channels
         if (row.any_channel_off) { issueCount++; issues.push('Channel Disabled'); }
         if (row.pos_disabled) { issues.push('POS Disabled'); }
