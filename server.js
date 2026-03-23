@@ -377,20 +377,72 @@ logger.info('Subscription enforcement middleware enabled (System A — merchant-
 const { requireFeature } = require('./middleware/feature-gate');
 const { requirePermission } = require('./middleware/require-permission');
 
-// Path-specific gates for routers mounted at /api
-app.use('/api/cycle-counts', requireFeature('cycle_counts'), requirePermission('cycle_counts', 'read'));
-app.use('/api/expiry-discounts', requireFeature('expiry'));
-app.use('/api/expirations', requireFeature('expiry'));
-app.use('/api/vendors', requireFeature('reorder'));
-app.use('/api/vendor-catalog', requireFeature('reorder'));
-app.use('/api/vendor-dashboard', requireFeature('reorder'));
-app.use('/api/sales-velocity', requireFeature('reorder'));
-app.use('/api/reorder-suggestions', requireFeature('reorder'));
-app.use('/api/labels', requireFeature('reorder'));
-app.use('/api/seniors', requireFeature('loyalty'), requirePermission('loyalty', 'read'));
-app.use('/api/deleted-items', requireFeature('loyalty'));
-app.use('/api/google', requireFeature('gmc'));
-logger.info('Feature module gating enabled');
+// Helper: register permission + feature gates on both /api and /api/v1 prefixes
+function gateApi(path, ...middleware) {
+    app.use('/api' + path, ...middleware);
+    app.use('/api/v1' + path, ...middleware);
+}
+
+// --- Paid feature module gates (feature + permission) ---
+gateApi('/cycle-counts', requireFeature('cycle_counts'), requirePermission('cycle_counts', 'read'));
+gateApi('/expiry-discounts', requireFeature('expiry'), requirePermission('expiry', 'read'));
+gateApi('/expirations', requireFeature('expiry'), requirePermission('expiry', 'read'));
+gateApi('/vendors', requireFeature('reorder'), requirePermission('reorder', 'read'));
+gateApi('/vendor-catalog', requireFeature('reorder'), requirePermission('reorder', 'read'));
+gateApi('/vendor-dashboard', requireFeature('reorder'), requirePermission('reorder', 'read'));
+gateApi('/sales-velocity', requireFeature('reorder'), requirePermission('reorder', 'read'));
+gateApi('/reorder-suggestions', requireFeature('reorder'), requirePermission('reorder', 'read'));
+gateApi('/labels', requireFeature('reorder'), requirePermission('reorder', 'read'));
+gateApi('/seniors', requireFeature('loyalty'), requirePermission('loyalty', 'read'));
+gateApi('/deleted-items', requireFeature('loyalty'), requirePermission('loyalty', 'read'));
+gateApi('/cart-activity', requireFeature('loyalty'), requirePermission('loyalty', 'read'));
+gateApi('/google', requireFeature('gmc'), requirePermission('gmc', 'read'));
+
+// --- Base module permission gates ---
+gateApi('/settings', requirePermission('base', 'admin'));
+gateApi('/logs', requirePermission('base', 'admin'));
+gateApi('/square-attributes', requirePermission('base', 'read'));
+gateApi('/square/custom-attributes', requirePermission('base', 'read'));
+gateApi('/catalog-audit', requirePermission('base', 'read'));
+gateApi('/catalog', requirePermission('base', 'read'));
+gateApi('/sync', requirePermission('base', 'read'));
+gateApi('/sync-sales', requirePermission('base', 'read'));
+gateApi('/sync-smart', requirePermission('base', 'read'));
+gateApi('/sync-history', requirePermission('base', 'read'));
+gateApi('/sync-intervals', requirePermission('base', 'read'));
+gateApi('/sync-status', requirePermission('base', 'read'));
+gateApi('/locations', requirePermission('base', 'read'));
+gateApi('/categories', requirePermission('base', 'read'));
+gateApi('/items', requirePermission('base', 'read'));
+gateApi('/variations', requirePermission('base', 'read'));
+gateApi('/inventory', requirePermission('base', 'read'));
+gateApi('/low-stock', requirePermission('base', 'read'));
+gateApi('/bundles', requirePermission('base', 'read'));
+gateApi('/merchants', requirePermission('base', 'read'));
+gateApi('/merchant/features', requirePermission('base', 'read'));
+gateApi('/config', requirePermission('base', 'read'));
+gateApi('/analytics', requireFeature('reorder'), requirePermission('reorder', 'read'));
+
+// --- Virtual feature gates (with public path exemptions) ---
+gateApi('/admin', requirePermission('staff', 'admin'));
+gateApi('/staff', (req, res, next) => {
+    // /accept and /validate-token are public (token-based, no login required)
+    if (req.path === '/accept' || req.path === '/validate-token') return next();
+    return requirePermission('staff', 'read')(req, res, next);
+});
+gateApi('/subscriptions', (req, res, next) => {
+    // Public subscription endpoints (no auth required)
+    const publicPaths = ['/plans', '/create', '/status', '/promo/validate'];
+    if (publicPaths.includes(req.path)) return next();
+    return requirePermission('subscription', 'read')(req, res, next);
+});
+gateApi('/webhooks', (req, res, next) => {
+    // /square webhook receiver is public (signature-verified, no login)
+    if (req.path === '/square' || req.path.startsWith('/square/')) return next();
+    return requirePermission('base', 'admin')(req, res, next);
+});
+
+logger.info('Feature module and permission gating enabled');
 
 // ==================== MERCHANT FEATURES ENDPOINT ====================
 const featureRegistry = require('./config/feature-registry');
@@ -437,7 +489,7 @@ app.use('/api', driverApiRoutes);
 
 // ==================== PURCHASE ORDERS ROUTES ====================
 // Financial operations for managing purchase orders
-app.use('/api/purchase-orders', requireFeature('reorder'), purchaseOrdersRoutes);
+app.use('/api/purchase-orders', requireFeature('reorder'), requirePermission('reorder', 'read'), purchaseOrdersRoutes);
 
 // ==================== SUBSCRIPTIONS ROUTES ====================
 // SaaS subscription management (Square Subscriptions API)
@@ -449,7 +501,7 @@ app.use('/api/loyalty', requireFeature('loyalty'), requirePermission('loyalty', 
 
 // ==================== GMC ROUTES ====================
 // Google Merchant Center feed generation and management
-app.use('/api/gmc', requireFeature('gmc'), gmcRoutes);
+app.use('/api/gmc', requireFeature('gmc'), requirePermission('gmc', 'read'), gmcRoutes);
 
 // ==================== DELIVERY ROUTES ====================
 // Delivery order management, POD photos, route optimization
@@ -457,7 +509,7 @@ app.use('/api/delivery', requireFeature('delivery'), requirePermission('delivery
 
 // ==================== CART ACTIVITY ROUTES ====================
 // Shopping cart tracking for DRAFT orders from Square Online
-app.use('/api/cart-activity', requireFeature('loyalty'), cartActivityRoutes);
+app.use('/api/cart-activity', requireFeature('loyalty'), requirePermission('loyalty', 'read'), cartActivityRoutes);
 
 // ==================== WEBHOOK ROUTES ====================
 // Webhook subscription CRUD operations
@@ -478,7 +530,7 @@ app.use('/api', vendorCatalogRoutes);
 app.use('/api', cycleCountsRoutes);
 app.use('/api', syncRoutes);
 app.use('/api', catalogRoutes);
-app.use('/api/ai-autofill', requireFeature('ai_tools'), aiAutofillRoutes);
+app.use('/api/ai-autofill', requireFeature('ai_tools'), requirePermission('ai_tools', 'read'), aiAutofillRoutes);
 app.use('/api', squareAttributesRoutes);
 app.use('/api', googleOAuthRoutes);
 app.use('/api', analyticsRoutes);
@@ -500,9 +552,9 @@ app.use('/api', seniorsRoutes);
 // New integrations should use /api/v1/*, existing clients can continue using /api/*
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/square/oauth', squareOAuthRoutes);
-app.use('/api/v1/purchase-orders', requireFeature('reorder'), purchaseOrdersRoutes);
+app.use('/api/v1/purchase-orders', requireFeature('reorder'), requirePermission('reorder', 'read'), purchaseOrdersRoutes);
 app.use('/api/v1/loyalty', requireFeature('loyalty'), requirePermission('loyalty', 'read'), loyaltyRoutes);
-app.use('/api/v1/gmc', requireFeature('gmc'), gmcRoutes);
+app.use('/api/v1/gmc', requireFeature('gmc'), requirePermission('gmc', 'read'), gmcRoutes);
 app.use('/api/v1/delivery', requireFeature('delivery'), requirePermission('delivery', 'read'), deliveryRoutes);
 app.use('/api/v1/webhooks', webhooksSquareRoute);
 app.use('/api/v1', driverApiRoutes);
@@ -513,7 +565,7 @@ app.use('/api/v1', vendorCatalogRoutes);
 app.use('/api/v1', cycleCountsRoutes);
 app.use('/api/v1', syncRoutes);
 app.use('/api/v1', catalogRoutes);
-app.use('/api/v1/ai-autofill', requireFeature('ai_tools'), aiAutofillRoutes);
+app.use('/api/v1/ai-autofill', requireFeature('ai_tools'), requirePermission('ai_tools', 'read'), aiAutofillRoutes);
 app.use('/api/v1', squareAttributesRoutes);
 app.use('/api/v1', googleOAuthRoutes);
 app.use('/api/v1', analyticsRoutes);
