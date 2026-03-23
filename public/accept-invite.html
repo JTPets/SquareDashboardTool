@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Accept Invitation - SqTools</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .invite-container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      width: 100%;
+      max-width: 440px;
+      overflow: hidden;
+    }
+    .invite-header {
+      background: #1f2937;
+      color: white;
+      padding: 30px;
+      text-align: center;
+    }
+    .invite-header h1 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+    .invite-header p { font-size: 14px; opacity: 0.8; }
+
+    .invite-body { padding: 30px; }
+
+    .invite-info {
+      background: #f0f9ff;
+      border: 1px solid #bae6fd;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 24px;
+      text-align: center;
+    }
+    .invite-info .merchant-name {
+      font-size: 18px;
+      font-weight: 600;
+      color: #0c4a6e;
+      margin-bottom: 4px;
+    }
+    .invite-info .role-label {
+      font-size: 14px;
+      color: #0369a1;
+    }
+    .invite-info .role-badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-weight: 600;
+      text-transform: capitalize;
+      background: #dbeafe;
+      color: #1e40af;
+    }
+
+    .form-group { margin-bottom: 20px; }
+    .form-label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+    .form-label small { font-weight: 400; color: #6b7280; }
+    .form-input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+    }
+
+    .btn-accept {
+      width: 100%;
+      padding: 12px;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-accept:hover { background: #1d4ed8; }
+    .btn-accept:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .alert {
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .alert.error { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; }
+    .alert.success { background: #d1fae5; border: 1px solid #6ee7b7; color: #065f46; }
+    .alert.info { background: #dbeafe; border: 1px solid #93c5fd; color: #1e40af; }
+
+    .success-container { text-align: center; }
+    .success-container a {
+      display: inline-block;
+      margin-top: 15px;
+      padding: 10px 20px;
+      background: #2563eb;
+      color: white;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: 500;
+    }
+    .success-container a:hover { background: #1d4ed8; }
+
+    #loading-state { text-align: center; padding: 40px; color: #6b7280; }
+    #error-state, #form-state, #success-state { display: none; }
+  </style>
+</head>
+<body>
+  <div class="invite-container">
+    <div class="invite-header">
+      <h1>Staff Invitation</h1>
+      <p>You've been invited to join a team</p>
+    </div>
+
+    <div class="invite-body">
+      <!-- Loading -->
+      <div id="loading-state">
+        <p>Validating invitation...</p>
+      </div>
+
+      <!-- Error (invalid/expired token) -->
+      <div id="error-state">
+        <div class="alert error" id="error-message">This invitation is invalid or has expired.</div>
+        <p style="text-align:center;margin-top:15px;">
+          <a href="/login.html" style="color:#2563eb;">Go to Login</a>
+        </p>
+      </div>
+
+      <!-- Accept Form -->
+      <div id="form-state">
+        <div class="invite-info">
+          <div class="merchant-name" id="invite-merchant-name"></div>
+          <div class="role-label">You will join as: <span class="role-badge" id="invite-role-display"></span></div>
+        </div>
+
+        <!-- Existing user message -->
+        <div id="existing-user-notice" style="display:none;">
+          <div class="alert info">You already have an account. Click below to accept the invitation and join this team.</div>
+        </div>
+
+        <!-- New user password form -->
+        <div id="password-section">
+          <div class="form-group">
+            <label class="form-label">
+              Create a Password
+              <small>(min 8 characters, 1 uppercase, 1 number)</small>
+            </label>
+            <input type="password" class="form-input" id="invite-password" placeholder="Enter password">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Confirm Password</label>
+            <input type="password" class="form-input" id="invite-password-confirm" placeholder="Confirm password">
+          </div>
+        </div>
+
+        <button class="btn-accept" data-action="acceptInvitation">Accept Invitation</button>
+      </div>
+
+      <!-- Success -->
+      <div id="success-state">
+        <div class="success-container">
+          <div class="alert success">Invitation accepted! You are now part of the team.</div>
+          <a href="/login.html">Go to Login</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/error-helper.js"></script>
+  <script src="/js/event-delegation.js"></script>
+  <script src="/js/utils/escape.js"></script>
+  <script src="/js/accept-invite.js"></script>
+</body>
+</html>

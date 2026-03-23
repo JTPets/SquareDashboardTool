@@ -218,7 +218,7 @@ if (!process.env.SESSION_SECRET) {
 // NOTE: AUTH_DISABLED bypass removed for security (2026-01-05)
 
 // Public pages that don't require authentication
-const publicPages = ['/', '/index.html', '/login.html', '/subscribe.html', '/support.html', '/set-password.html', '/subscription-expired.html'];
+const publicPages = ['/', '/index.html', '/login.html', '/subscribe.html', '/support.html', '/set-password.html', '/subscription-expired.html', '/accept-invite.html'];
 
 app.use((req, res, next) => {
     // Only check HTML page requests (not API, not static assets)
