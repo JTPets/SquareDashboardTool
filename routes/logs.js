@@ -98,7 +98,7 @@ router.get('/logs/download', requireAdmin, validators.download, asyncHandler(asy
     const today = getTodayLocal();
     const logFile = path.join(logsDir, `app-${today}.log`);
 
-    res.download(logFile, `square-dashboard-addon-logs-${today}.log`);
+    res.download(logFile, `sqtools-logs-${today}.log`);
 }));
 
 /**
