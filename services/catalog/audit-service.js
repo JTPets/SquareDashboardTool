@@ -346,6 +346,29 @@ async function enableItemAtAllLocations(itemId, merchantId) {
     try {
         const result = await squareApi.enableItemAtAllLocations(itemId, merchantId);
 
+        // Sync local items table — Square now has present_at_all_locations=true
+        await db.query(
+            `UPDATE items
+             SET present_at_all_locations = true,
+                 present_at_location_ids   = '[]'::jsonb,
+                 absent_at_location_ids    = '[]'::jsonb,
+                 updated_at                = NOW()
+             WHERE id = $1 AND merchant_id = $2`,
+            [itemId, merchantId]
+        );
+
+        // Resolve any open location_mismatch health rows for this item
+        await db.query(
+            `UPDATE catalog_location_health
+             SET resolved_at = NOW(), status = 'valid'
+             WHERE merchant_id  = $1
+               AND item_id      = $2
+               AND check_type   = 'location_mismatch'
+               AND status       = 'mismatch'
+               AND resolved_at IS NULL`,
+            [merchantId, itemId]
+        );
+
         return {
             success: true,
             message: `Activated "${result.itemName}" at all locations`,
