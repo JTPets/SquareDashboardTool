@@ -355,9 +355,12 @@ describe('enableItemAtAllLocations', () => {
             })
             .mockResolvedValueOnce({
                 catalog_object: { id: 'ITEM_1', version: 6 }
+            })
+            .mockResolvedValueOnce({  // verify GET
+                object: { id: 'ITEM_1', type: 'ITEM', version: 6, present_at_all_locations: true }
             });
 
-        const result = await enableItemAtAllLocations('ITEM_1', merchantId);
+        await enableItemAtAllLocations('ITEM_1', merchantId);
 
         const upsertCall = makeSquareRequest.mock.calls[1];
         expect(upsertCall[0]).toBe('/v2/catalog/object');
@@ -366,6 +369,42 @@ describe('enableItemAtAllLocations', () => {
         expect(body.object.present_at_location_ids).toEqual([]);
         expect(body.object.absent_at_location_ids).toEqual([]);
         expect(body.object.version).toBe(5);
+    });
+
+    test('issues a verification GET after the upsert', async () => {
+        makeSquareRequest
+            .mockResolvedValueOnce({
+                object: { id: 'ITEM_1', type: 'ITEM', version: 5, item_data: { name: 'Test Item' } }
+            })
+            .mockResolvedValueOnce({
+                catalog_object: { id: 'ITEM_1', version: 6 }
+            })
+            .mockResolvedValueOnce({  // verify GET
+                object: { id: 'ITEM_1', type: 'ITEM', version: 6, present_at_all_locations: true }
+            });
+
+        await enableItemAtAllLocations('ITEM_1', merchantId);
+
+        expect(makeSquareRequest).toHaveBeenCalledTimes(3);
+        const verifyCall = makeSquareRequest.mock.calls[2];
+        expect(verifyCall[0]).toContain(`/v2/catalog/object/ITEM_1`);
+        expect(verifyCall[1].method).toBeUndefined(); // GET (default)
+    });
+
+    test('throws when verification shows present_at_all_locations is still false after upsert', async () => {
+        makeSquareRequest
+            .mockResolvedValueOnce({
+                object: { id: 'ITEM_1', type: 'ITEM', version: 5, item_data: { name: 'Test Item' } }
+            })
+            .mockResolvedValueOnce({
+                catalog_object: { id: 'ITEM_1', version: 6 }
+            })
+            .mockResolvedValueOnce({  // verify GET — Square did not commit the change
+                object: { id: 'ITEM_1', type: 'ITEM', version: 6, present_at_all_locations: false }
+            });
+
+        await expect(enableItemAtAllLocations('ITEM_1', merchantId))
+            .rejects.toThrow('Verification failed');
     });
 
     test('returns success with itemId, itemName, newVersion', async () => {
@@ -378,6 +417,9 @@ describe('enableItemAtAllLocations', () => {
             })
             .mockResolvedValueOnce({
                 catalog_object: { id: 'ITEM_1', version: 6 }
+            })
+            .mockResolvedValueOnce({  // verify GET
+                object: { id: 'ITEM_1', type: 'ITEM', version: 6, present_at_all_locations: true }
             });
 
         const result = await enableItemAtAllLocations('ITEM_1', merchantId);

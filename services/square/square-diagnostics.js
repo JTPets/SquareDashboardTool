@@ -468,7 +468,23 @@ async function enableItemAtAllLocations(itemId, merchantId) {
         accessToken
     });
 
-    logger.info('Item enabled at all locations', {
+    // Re-fetch to verify Square committed present_at_all_locations=true.
+    // The upsert response only confirms the HTTP call was accepted; it does
+    // not prove the flag persisted (e.g. Square may silently discard the field
+    // when the object is in a state that prevents the change).
+    const verifyData = await makeSquareRequest(
+        `/v2/catalog/object/${itemId}?include_related_objects=false`,
+        { accessToken }
+    );
+
+    if (verifyData.object?.present_at_all_locations !== true) {
+        throw new Error(
+            `Verification failed: Square did not commit present_at_all_locations=true ` +
+            `for item ${itemId} (got: ${verifyData.object?.present_at_all_locations})`
+        );
+    }
+
+    logger.info('Item enabled at all locations — verified', {
         itemId,
         merchantId,
         itemName: currentObject.item_data?.name,
