@@ -42,6 +42,7 @@ const { hashResetToken } = require('../utils/hash-utils');
 const subscriptionHandler = require('../utils/subscription-handler');
 const { hashPassword, generateRandomPassword } = require('../utils/password');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/require-permission');
 const { configureLoginRateLimit, configureSubscriptionRateLimit } = require('../middleware/security');
 const validators = require('../middleware/validators/subscriptions');
 const asyncHandler = require('../middleware/async-handler');
@@ -668,7 +669,7 @@ router.post('/subscriptions/refund', requireAdmin, validators.processRefund, asy
  * GET /api/subscriptions/admin/list
  * Get all subscribers (admin endpoint)
  */
-router.get('/subscriptions/admin/list', requireAdmin, validators.listSubscribers, asyncHandler(async (req, res) => {
+router.get('/subscriptions/admin/list', requirePermission('subscription', 'admin'), validators.listSubscribers, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext?.id;
     if (!merchantId) {
         return sendError(res, 'No merchant connected', 403, 'NO_MERCHANT');
@@ -688,7 +689,7 @@ router.get('/subscriptions/admin/list', requireAdmin, validators.listSubscribers
  * GET /api/subscriptions/admin/plans
  * Get subscription plans with Square status (admin endpoint)
  */
-router.get('/subscriptions/admin/plans', requireAdmin, asyncHandler(async (req, res) => {
+router.get('/subscriptions/admin/plans', requirePermission('subscription', 'admin'), asyncHandler(async (req, res) => {
     const squareSubscriptions = require('../utils/square-subscriptions');
     const plans = await squareSubscriptions.listPlans();
 
@@ -702,7 +703,7 @@ router.get('/subscriptions/admin/plans', requireAdmin, asyncHandler(async (req, 
  * POST /api/subscriptions/admin/setup-plans
  * Initialize or update subscription plans in Square (SUPER ADMIN ONLY)
  */
-router.post('/subscriptions/admin/setup-plans', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+router.post('/subscriptions/admin/setup-plans', requireAuth, requirePermission('subscription', 'admin'), asyncHandler(async (req, res) => {
     // Super-admin check
     const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
     const userEmail = req.session?.user?.email?.toLowerCase();

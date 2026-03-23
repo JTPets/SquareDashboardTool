@@ -501,7 +501,14 @@ app.use('/api/loyalty', requireFeature('loyalty'), requirePermission('loyalty', 
 
 // ==================== GMC ROUTES ====================
 // Google Merchant Center feed generation and management
-app.use('/api/gmc', requireFeature('gmc'), requirePermission('gmc', 'read'), gmcRoutes);
+// feed.tsv and local-inventory-feed.tsv are public (token-based auth handled in route)
+app.use('/api/gmc', (req, res, next) => {
+    if (req.path === '/feed.tsv' || req.path === '/local-inventory-feed.tsv') return next();
+    requireFeature('gmc')(req, res, next);
+}, (req, res, next) => {
+    if (req.path === '/feed.tsv' || req.path === '/local-inventory-feed.tsv') return next();
+    requirePermission('gmc', 'read')(req, res, next);
+}, gmcRoutes);
 
 // ==================== DELIVERY ROUTES ====================
 // Delivery order management, POD photos, route optimization

@@ -93,6 +93,7 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | AUDIT-3.8 | 9 modification routes missing requireWriteAccess |
 | AUDIT-2.3.1 | Public /subscriptions/status leaks plan name by email |
 | AUDIT-2.5.1 | Debug cron jobs hardcoded to merchant_id = 3 |
+| AUDIT-6.1 | Driver API routes (`driverApiRoutes` mounted at `/api`) bypass `/api/delivery` feature+permission gates. Authenticated driver management endpoints (e.g. `POST /api/delivery/route/:id/share`) use `requireAuth`+`requireMerchant` directly but skip `requireFeature('delivery')`. Low risk: driver routes are token-based, not session-based. **Pre-franchise review item.** |
 
 ---
 
