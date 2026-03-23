@@ -381,8 +381,8 @@ async function createSquareBatch(entries, merchantId, accessToken, taxIds = []) 
                 [realVarId, realItemId, entry.upc || null, entry.upc || null, entry.price_cents, merchantId]
             );
 
-            // INSERT into variation_vendors if cost and vendor exist
-            if (entry.cost_cents !== null && entry.cost_cents !== undefined && entry.vendor_id) {
+            // INSERT into variation_vendors if vendor exists (vendor_code stored even without cost)
+            if (entry.vendor_id) {
                 await client.query(
                     `INSERT INTO variation_vendors (variation_id, vendor_id, vendor_code, unit_cost_money, currency, merchant_id, updated_at)
                      VALUES ($1, $2, $3, $4, 'CAD', $5, CURRENT_TIMESTAMP)
@@ -390,7 +390,7 @@ async function createSquareBatch(entries, merchantId, accessToken, taxIds = []) 
                          vendor_code = EXCLUDED.vendor_code,
                          unit_cost_money = EXCLUDED.unit_cost_money,
                          updated_at = CURRENT_TIMESTAMP`,
-                    [realVarId, entry.vendor_id, entry.vendor_item_number || null, entry.cost_cents, merchantId]
+                    [realVarId, entry.vendor_id, entry.vendor_item_number || null, entry.cost_cents ?? null, merchantId]
                 );
             }
 

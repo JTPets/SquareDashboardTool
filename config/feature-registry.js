@@ -30,7 +30,7 @@ const modules = {
             '/api/admin',
             '/api/subscriptions',
             '/api/square',
-            '/api/square-attributes',
+            '/api/square/custom-attributes',
             '/api/logs',
             '/api/locations',
             '/api/categories',
