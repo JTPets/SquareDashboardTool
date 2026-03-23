@@ -64,7 +64,7 @@ router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, a
         // Manual creation with force=true proceeds with warning; without force, returns 400.
         // Automated PO generation should NOT pass force=true, so minimums hard-block automation.
         const vendor = vendorCheck.rows[0];
-        const minimumCents = vendor.minimum_order_amount ? Math.round(Number(vendor.minimum_order_amount) * 100) : null;
+        const minimumCents = vendor.minimum_order_amount ? Math.round(Number(vendor.minimum_order_amount)) : null;
         let minimumWarning = null;
         if (minimumCents && minimumCents > 0) {
             let subtotalCheck = 0;

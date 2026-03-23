@@ -98,6 +98,7 @@ const labelsRoutes = require('./routes/labels');
 const seniorsRoutes = require('./routes/seniors');
 const adminRoutes = require('./routes/admin');
 const catalogHealthRoutes = require('./routes/catalog-health');
+const staffRoutes = require('./routes/staff');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -301,7 +302,8 @@ const apiAuthMiddleware = (req, res, next) => {
 
     // Allow public routes without auth
     // Also allow driver API routes (token-based auth handled in route)
-    if (publicPaths.includes(req.path) || req.path.startsWith('/driver/')) {
+    // Also allow staff invitation acceptance (token-based, no login required)
+    if (publicPaths.includes(req.path) || req.path.startsWith('/driver/') || req.path === '/staff/accept') {
         return next();
     }
 
@@ -418,6 +420,10 @@ app.get('/api/merchant/features', requireMerchant, async (req, res) => {
         res.status(500).json({ success: false, error: 'Failed to load features' });
     }
 });
+
+// ==================== STAFF ROUTES ====================
+// Staff membership and invitation management (BACKLOG-41)
+app.use('/api/staff', staffRoutes);
 
 // ==================== ADMIN ROUTES ====================
 // Platform administration endpoints (merchant management, settings)

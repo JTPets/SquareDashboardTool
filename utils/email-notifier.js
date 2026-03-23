@@ -460,6 +460,53 @@ class EmailNotifier {
     }
 
     /**
+     * Send a staff invitation email with an accept link.
+     * @param {Object} opts
+     * @param {string} opts.to - Invitee email address
+     * @param {string} opts.role - Assigned role (manager, clerk, readonly)
+     * @param {string} opts.merchantName - Merchant's business name
+     * @param {string} opts.inviteUrl - Full URL to accept the invitation
+     * @param {string} opts.invitedByEmail - Email of the person who sent the invite
+     */
+    async sendStaffInvitation({ to, role, merchantName, inviteUrl, invitedByEmail }) {
+        if (!this.enabled) {
+            logger.warn('Email notifications disabled, would have sent staff invitation', { to, role });
+            return;
+        }
+
+        try {
+            await this._send({
+                to,
+                subject: `You've been invited to join ${merchantName} on SqTools`,
+                html: `
+          <h2>You've been invited!</h2>
+          <p><strong>${invitedByEmail}</strong> has invited you to join
+          <strong>${merchantName}</strong> on SqTools as a <strong>${role}</strong>.</p>
+
+          <p style="margin: 24px 0;">
+            <a href="${inviteUrl}"
+               style="background:#2563eb;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;">
+              Accept Invitation
+            </a>
+          </p>
+
+          <p style="color:#6b7280;font-size:13px;">
+            This invitation expires in 7 days. If you did not expect this invitation, you can ignore it.
+          </p>
+
+          <hr>
+          <p style="color:#9ca3af;font-size:11px;">SqTools — Square POS Management</p>
+        `
+            });
+
+            logger.info('Staff invitation email sent', { to, role, merchantName });
+        } catch (error) {
+            logger.error('Failed to send staff invitation email', { error: error.message, to });
+            throw error;
+        }
+    }
+
+    /**
      * Get current provider name (for diagnostics)
      * @returns {string}
      */

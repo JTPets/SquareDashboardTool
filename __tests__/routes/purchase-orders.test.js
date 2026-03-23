@@ -209,8 +209,8 @@ describe('Purchase Orders Routes', () => {
         });
 
         test('returns 400 when below vendor minimum without force (BACKLOG-91)', async () => {
-            // vendor check with minimum_order_amount = $500.00 (50000 cents)
-            db.query.mockResolvedValueOnce({ rows: [{ id: 5, minimum_order_amount: '500.00' }] });
+            // vendor check with minimum_order_amount = 50000 cents = $500.00
+            db.query.mockResolvedValueOnce({ rows: [{ id: 5, minimum_order_amount: '50000' }] });
             // location check
             db.query.mockResolvedValueOnce({ rows: [{ id: 'loc-1' }] });
 
@@ -225,7 +225,7 @@ describe('Purchase Orders Routes', () => {
         });
 
         test('succeeds with force=true when below vendor minimum (BACKLOG-91)', async () => {
-            db.query.mockResolvedValueOnce({ rows: [{ id: 5, minimum_order_amount: '500.00' }] });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 5, minimum_order_amount: '50000' }] });
             db.query.mockResolvedValueOnce({ rows: [{ id: 'loc-1' }] });
             db.query.mockResolvedValueOnce({ rows: [{ count: '0' }] });
 
