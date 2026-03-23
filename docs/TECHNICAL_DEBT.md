@@ -42,7 +42,42 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | BACKLOG-64 | `sold_out` flag not reconciled with inventory = 0 |
 | BACKLOG-65 | Website catalog categories not synced |
 | BACKLOG-63 | Product image captions not populated (SEO/accessibility) |
-| BACKLOG-61 | GMC v1beta deprecated — Google Shopping feed broken since Feb 28 2026 (**P0**) |
+| BACKLOG-61 | GMC v1beta deprecated — Google Shopping feed broken since Feb 28 2026 (**P0**) — see detailed notes below |
+
+### BACKLOG-61: GMC v1beta → v1 Migration (P0)
+
+**Status**: Broken since February 28, 2026. Google deprecated the v1beta Merchant API endpoints.
+
+**Current state**: All API calls in `services/gmc/merchant-service.js` use `v1beta` paths:
+- `getDataSourceInfo()` (line ~310): `/datasources/v1beta/accounts/...`
+- `upsertProduct()` (line ~340): `/products/v1beta/accounts/.../productInputs:insert`
+- `updateLocalInventory()` (line ~694): `/inventories/v1beta/accounts/.../localInventories:insert`
+- `testConnection()` (line ~1037): `/accounts/v1beta/accounts/...`
+
+**Impact**: Product catalog sync and local inventory sync to Google Merchant Center are non-functional. Google Shopping feed generation (`feed-service.js`) still works (TSV from DB), but pushed products are stale.
+
+**Migration path**:
+1. Update all 4 API paths from `v1beta` to `v1` in `merchant-service.js`
+2. Verify request/response schemas haven't changed between v1beta and v1 (Google may have added required fields)
+3. Test `upsertProduct` and `updateLocalInventory` against live GMC sandbox
+4. Verify OAuth scopes — current `content` scope may need updating for v1
+5. Check if `buildMerchantApiProduct()` payload format still matches v1 expectations
+
+**Risk**: Low complexity (path changes), but requires live API testing. Cannot be validated in unit tests alone.
+
+**Do NOT attempt** without access to a GMC test account and time to validate each endpoint.
+
+---
+
+### Email Alert Infrastructure (BACKLOG-80)
+
+**Status**: Role-based alert recipients implemented in code (`utils/alert-recipients.js`). Transactional email delivery infrastructure is a separate task.
+
+**What's needed**:
+- Cloudflare Email Routing configured for the alert FROM domain
+- Transactional email provider (Resend/Mailgun) verified sender setup for `ALERT_FROM_EMAIL`
+- DNS records: SPF, DKIM, DMARC for deliverability
+- Test end-to-end flow with a real merchant that has owner + manager staff members
 
 ---
 
@@ -86,13 +121,13 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 
 | ID | Description |
 |----|-------------|
-| AUDIT-4.2.1 | LIKE wildcard injection in taxonomy search |
+| AUDIT-4.2.1 | ~~LIKE wildcard injection in taxonomy search~~ — **FIXED** (escapeLikePattern utility) |
 | AUDIT-4.5.1 | Server-generated IDs unescaped in HTML attributes |
 | AUDIT-5.2.1 | Token refresh race condition — no mutex for concurrent requests |
 | AUDIT-5.8.1 | Webhook notificationUrl accepts any URL |
-| AUDIT-3.8 | 9 modification routes missing requireWriteAccess |
+| AUDIT-3.8 | ~~9 modification routes missing requireWriteAccess~~ — **FIXED** (10 routes in catalog.js) |
 | AUDIT-2.3.1 | Public /subscriptions/status leaks plan name by email |
-| AUDIT-2.5.1 | Debug cron jobs hardcoded to merchant_id = 3 |
+| AUDIT-2.5.1 | ~~Debug cron jobs hardcoded to merchant_id = 3~~ — **FIXED** (multi-tenant iteration) |
 | AUDIT-6.1 | Driver API routes (`driverApiRoutes` mounted at `/api`) bypass `/api/delivery` feature+permission gates. Authenticated driver management endpoints (e.g. `POST /api/delivery/route/:id/share`) use `requireAuth`+`requireMerchant` directly but skip `requireFeature('delivery')`. Low risk: driver routes are token-based, not session-based. **Pre-franchise review item.** |
 
 ---

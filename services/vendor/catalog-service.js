@@ -19,6 +19,7 @@ const ExcelJS = require('exceljs');
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const crypto = require('crypto');
+const { escapeLikePattern } = require('../../utils/escape-like');
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -875,7 +876,7 @@ async function searchVendorCatalog(options = {}) {
     if (vendorName) {
         paramCount++;
         sql += ` AND LOWER(vci.vendor_name) LIKE LOWER($${paramCount})`;
-        params.push(`%${vendorName}%`);
+        params.push(`%${escapeLikePattern(vendorName)}%`);
     }
 
     if (upc) {
@@ -891,7 +892,7 @@ async function searchVendorCatalog(options = {}) {
             OR LOWER(vci.vendor_item_number) LIKE LOWER($${paramCount})
             OR vci.upc LIKE $${paramCount}
         )`;
-        params.push(`%${search}%`);
+        params.push(`%${escapeLikePattern(search)}%`);
     }
 
     if (matchedOnly) {
