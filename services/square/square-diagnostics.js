@@ -475,24 +475,48 @@ async function enableItemAtAllLocations(itemId, merchantId) {
         };
     }
 
-    // Build batch: parent ITEM + every child ITEM_VARIATION.
-    // IMPORTANT: strip item_data.variations before including the ITEM entry.
-    // Square's batch-upsert would see each variation ID twice — once inline
-    // inside item_data.variations and once as an explicit ITEM_VARIATION
-    // object — and reject the request with "Duplicate object {id}".
-    // The variations are handled exclusively via the separate ITEM_VARIATION entries.
+    // Only send objects that actually need changing.
+    // Square implicitly locks all child variations when processing an ITEM upsert —
+    // even when item_data.variations is absent from the payload. Sending an explicit
+    // ITEM_VARIATION entry for a child in the same batch therefore causes Square to
+    // count that variation twice and reject with "Duplicate object {id}".
+    //
+    // Two-path approach that avoids mixing ITEM + sibling ITEM_VARIATION entries:
+    //   • Item needs fixing → one nested ITEM entry; unfixed variations go inside
+    //     item_data.variations (nested). No separate ITEM_VARIATION entries.
+    //   • Only variations need fixing → standalone ITEM_VARIATION entries only.
+    //     No ITEM entry means no implicit child-locking.
+    const itemNeedsUpdate = currentObject.present_at_all_locations !== true;
+    const variationsNeedingUpdate = variations.filter(v => v.present_at_all_locations !== true);
+
     const { variations: _stripped, ...itemDataWithoutVariations } = currentObject.item_data || {};
-    const batchObjects = [
-        {
+
+    let batchObjects;
+    if (itemNeedsUpdate) {
+        batchObjects = [{
             type: 'ITEM',
             id: itemId,
             version: currentObject.version,
             present_at_all_locations: true,
             present_at_location_ids: [],
             absent_at_location_ids: [],
-            item_data: itemDataWithoutVariations
-        },
-        ...variations.map(v => ({
+            item_data: {
+                ...itemDataWithoutVariations,
+                ...(variationsNeedingUpdate.length > 0 && {
+                    variations: variationsNeedingUpdate.map(v => ({
+                        ...v,
+                        present_at_all_locations: true,
+                        present_at_location_ids: [],
+                        absent_at_location_ids: []
+                    }))
+                })
+            }
+        }];
+    } else {
+        // Item already present_at_all_locations=true.
+        // Send only the unfixed variations as standalone entries — no ITEM entry,
+        // which would implicitly lock child variations and cause "Duplicate object".
+        batchObjects = variationsNeedingUpdate.map(v => ({
             type: 'ITEM_VARIATION',
             id: v.id,
             version: v.version,
@@ -500,8 +524,8 @@ async function enableItemAtAllLocations(itemId, merchantId) {
             present_at_location_ids: [],
             absent_at_location_ids: [],
             item_variation_data: v.item_variation_data
-        }))
-    ];
+        }));
+    }
 
     const idempotencyKey = generateIdempotencyKey('enable-item-locations');
 
