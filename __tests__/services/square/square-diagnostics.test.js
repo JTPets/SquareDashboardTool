@@ -385,10 +385,14 @@ describe('enableItemAtAllLocations', () => {
         expect(itemObj.version).toBe(5);
     });
 
-    test('strips variations from item_data in the ITEM batch entry to avoid Duplicate object error', async () => {
+    test('nests unfixed variations inside item_data when item also needs fixing', async () => {
+        // Item needs fixing (no present_at_all_locations in retrieve mock) → nested approach.
+        // Variations must appear inside item_data.variations, NOT as separate batch entries.
+        // Separate entries + ITEM would cause Square "Duplicate object" via implicit child-locking.
         mockThreeCalls({
             retrieveVariations: [
-                { id: 'VAR_A', version: 3, item_variation_data: { name: 'Small' } }
+                { id: 'VAR_A', version: 3, present_at_all_locations: false,
+                  item_variation_data: { name: 'Small' } }
             ],
             verifyVariations: [
                 { id: 'VAR_A', version: 4, present_at_all_locations: true }
@@ -398,14 +402,19 @@ describe('enableItemAtAllLocations', () => {
         await enableItemAtAllLocations('ITEM_1', merchantId);
 
         const body = JSON.parse(makeSquareRequest.mock.calls[1][1].body);
-        const itemEntry = body.batches[0].objects.find(o => o.type === 'ITEM');
-        // Variations must NOT appear inline inside item_data — they are
-        // separate ITEM_VARIATION entries in the same batch. Including them
-        // both ways causes Square to reject with "Duplicate object {id}".
-        expect(itemEntry.item_data.variations).toBeUndefined();
+        const objects = body.batches[0].objects;
+        // Only 1 top-level entry (the ITEM) — no separate ITEM_VARIATION entries
+        expect(objects).toHaveLength(1);
+        const itemEntry = objects[0];
+        expect(itemEntry.type).toBe('ITEM');
+        expect(itemEntry.item_data.variations).toHaveLength(1);
+        expect(itemEntry.item_data.variations[0].id).toBe('VAR_A');
+        expect(itemEntry.item_data.variations[0].present_at_all_locations).toBe(true);
+        expect(itemEntry.item_data.variations[0].present_at_location_ids).toEqual([]);
+        expect(itemEntry.item_data.variations[0].absent_at_location_ids).toEqual([]);
     });
 
-    test('includes child variations in the batch upsert with present_at_all_locations=true', async () => {
+    test('includes all unfixed child variations nested in item_data when item needs fixing', async () => {
         mockThreeCalls({
             retrieveVariations: [
                 { id: 'VAR_A', version: 3, present_at_all_locations: false,
@@ -423,19 +432,58 @@ describe('enableItemAtAllLocations', () => {
 
         const body = JSON.parse(makeSquareRequest.mock.calls[1][1].body);
         const objects = body.batches[0].objects;
-        expect(objects).toHaveLength(3); // 1 ITEM + 2 ITEM_VARIATIONs
+        expect(objects).toHaveLength(1); // 1 ITEM only — variations are nested
+        expect(objects[0].type).toBe('ITEM');
+        expect(objects[0].item_data.variations).toHaveLength(2);
 
-        const varA = objects.find(o => o.id === 'VAR_A');
-        expect(varA.type).toBe('ITEM_VARIATION');
+        const varA = objects[0].item_data.variations.find(v => v.id === 'VAR_A');
         expect(varA.present_at_all_locations).toBe(true);
         expect(varA.present_at_location_ids).toEqual([]);
         expect(varA.absent_at_location_ids).toEqual([]);
         expect(varA.version).toBe(3);
 
-        const varB = objects.find(o => o.id === 'VAR_B');
-        expect(varB.type).toBe('ITEM_VARIATION');
+        const varB = objects[0].item_data.variations.find(v => v.id === 'VAR_B');
         expect(varB.present_at_all_locations).toBe(true);
         expect(varB.version).toBe(7);
+    });
+
+    test('sends standalone ITEM_VARIATION entries (no ITEM) when item already enabled', async () => {
+        // Item already has present_at_all_locations=true but variation does not.
+        // Must NOT include the ITEM — that would implicitly lock the variation
+        // causing Square "Duplicate object" even with item_data.variations stripped.
+        makeSquareRequest
+            .mockResolvedValueOnce({
+                object: {
+                    id: 'ITEM_1', type: 'ITEM', version: 6,
+                    present_at_all_locations: true,
+                    item_data: {
+                        name: 'Test Item',
+                        variations: [
+                            { type: 'ITEM_VARIATION', id: 'VAR_A', version: 3,
+                              present_at_all_locations: false, item_variation_data: {} }
+                        ]
+                    }
+                }
+            })
+            .mockResolvedValueOnce({ objects: [] })
+            .mockResolvedValueOnce({
+                object: {
+                    id: 'ITEM_1', type: 'ITEM', version: 6, present_at_all_locations: true,
+                    item_data: { variations: [
+                        { type: 'ITEM_VARIATION', id: 'VAR_A', version: 4, present_at_all_locations: true }
+                    ]}
+                }
+            });
+
+        await enableItemAtAllLocations('ITEM_1', merchantId);
+
+        const body = JSON.parse(makeSquareRequest.mock.calls[1][1].body);
+        const objects = body.batches[0].objects;
+        expect(objects.find(o => o.type === 'ITEM')).toBeUndefined();
+        expect(objects).toHaveLength(1);
+        expect(objects[0].type).toBe('ITEM_VARIATION');
+        expect(objects[0].id).toBe('VAR_A');
+        expect(objects[0].present_at_all_locations).toBe(true);
     });
 
     test('issues retrieve GET with include_related_objects=true', async () => {
@@ -652,10 +700,14 @@ describe('enableItemAtAllLocations', () => {
 
         const body = JSON.parse(makeSquareRequest.mock.calls[1][1].body);
         const objects = body.batches[0].objects;
-        // Only ITEM + VAR_ACTIVE — deleted variation must not appear
-        expect(objects).toHaveLength(2);
-        expect(objects.find(o => o.id === 'VAR_DELETED')).toBeUndefined();
-        expect(objects.find(o => o.id === 'VAR_ACTIVE')).toBeDefined();
+        // Item needs fixing (no present_at_all_locations) → nested approach: 1 ITEM only
+        expect(objects).toHaveLength(1);
+        expect(objects[0].type).toBe('ITEM');
+        const nestedVariations = objects[0].item_data.variations;
+        // Only VAR_ACTIVE nested inside — deleted variation excluded entirely
+        expect(nestedVariations).toHaveLength(1);
+        expect(nestedVariations.find(v => v.id === 'VAR_DELETED')).toBeUndefined();
+        expect(nestedVariations.find(v => v.id === 'VAR_ACTIVE')).toBeDefined();
     });
 
     test('does not count deleted variations as failed during verification', async () => {
