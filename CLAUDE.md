@@ -311,9 +311,8 @@ See [docs/WORK-ITEMS.md](docs/WORK-ITEMS.md) for the complete consolidated work 
 | Medium | BACKLOG-1 | Frontend polling rate limits |
 | Low | BACKLOG-97 | Vendor bulk create missing `vendor_code` — import CSV has vendor item number but no `variation_vendors` link created |
 | Low | BACKLOG-98 | Oversized toast on PO edit — reorder page confirmation toast too large |
-| Low | BACKLOG-8 | Vendor management — pull vendor data from Square Vendors API |
+| Low | BACKLOG-8 | Vendor API sync gaps — `contact_name`/`contact_phone` synced but not displayed (S). `account_number`/`address` not synced (M, needed for BACKLOG-44). Only first contact synced. Square `note` not synced. |
 | Low | BACKLOG-12 | Driver share link validation failure |
-| Low | BACKLOG-29 | Existing tenants missing `invoice.payment_made` webhook |
 | Low | BACKLOG-43 | Min/Max stock per item per location |
 | Low | BACKLOG-46 | QuickBooks daily sync |
 | Low | BACKLOG-47 | Multi-channel inventory sync (Shopify, WooCommerce, BigCommerce) |

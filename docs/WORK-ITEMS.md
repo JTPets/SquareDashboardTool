@@ -289,8 +289,7 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 
 | ID | Description | Effort | Discovered |
 |----|-------------|--------|------------|
-| BACKLOG-8 | Vendor management — pull vendor data from Square Vendors API. | M | 2026-02-01 |
-| BACKLOG-29 | Existing tenants missing `invoice.payment_made` webhook. | S | 2026-02-19 |
+| BACKLOG-8 | Vendor API sync gaps — `contact_name`/`contact_phone` synced but not displayed in vendor dashboard (trivial fix). `account_number` and `address` not synced (needed for branded POs, BACKLOG-44). Only first contact synced, additional contacts dropped. Square vendor `note` not synced (local `notes` field exists separately). | S (display fix) / M (full sync) | 2026-02-01 |
 | BACKLOG-12 | Driver share link validation failure. | S | 2026-01-01 |
 | BACKLOG-43 | Min/Max stock per item per location — investigate Square thresholds first. | S | 2026-02-01 |
 | BACKLOG-66 | Customer email bounce tracking for loyalty notifications. | S | 2026-03-15 |
