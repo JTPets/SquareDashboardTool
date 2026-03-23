@@ -309,6 +309,7 @@ async function createSquareBatch(entries, merchantId, accessToken, taxIds = []) 
             variations: [{
                 type: 'ITEM_VARIATION',
                 id: varTempId,
+                present_at_all_locations: true,
                 ...variationData
             }]
         };
@@ -320,6 +321,7 @@ async function createSquareBatch(entries, merchantId, accessToken, taxIds = []) 
         const itemObject = {
             type: 'ITEM',
             id: itemTempId,
+            present_at_all_locations: true,
             item_data: itemData
         };
 
@@ -365,16 +367,16 @@ async function createSquareBatch(entries, merchantId, accessToken, taxIds = []) 
 
             // INSERT into items table
             await client.query(
-                `INSERT INTO items (id, name, merchant_id, created_at, updated_at)
-                 VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                `INSERT INTO items (id, name, present_at_all_locations, merchant_id, created_at, updated_at)
+                 VALUES ($1, $2, TRUE, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                  ON CONFLICT (id) DO NOTHING`,
                 [realItemId, entry.product_name.trim(), merchantId]
             );
 
             // INSERT into variations table
             await client.query(
-                `INSERT INTO variations (id, item_id, name, sku, upc, price_money, currency, merchant_id, created_at, updated_at)
-                 VALUES ($1, $2, 'Regular', $3, $4, $5, 'CAD', $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                `INSERT INTO variations (id, item_id, name, sku, upc, price_money, currency, present_at_all_locations, merchant_id, created_at, updated_at)
+                 VALUES ($1, $2, 'Regular', $3, $4, $5, 'CAD', TRUE, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                  ON CONFLICT (id) DO NOTHING`,
                 [realVarId, realItemId, entry.upc || null, entry.upc || null, entry.price_cents, merchantId]
             );
