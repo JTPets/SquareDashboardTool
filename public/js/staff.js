@@ -129,6 +129,9 @@ function renderInvitationsTable(invitations) {
 function showInviteModal() {
   document.getElementById('invite-email').value = '';
   document.getElementById('invite-role').value = 'clerk';
+  document.getElementById('invite-url-display').style.display = 'none';
+  document.getElementById('invite-url-field').value = '';
+  document.getElementById('btn-submit-invite').style.display = '';
   document.getElementById('invite-modal').classList.add('visible');
 }
 
@@ -156,8 +159,16 @@ function submitInvite() {
         showToast(result.data.error || 'Failed to send invitation', 'error');
         return;
       }
-      showToast('Invitation sent to ' + email, 'success');
-      hideInviteModal();
+      if (result.data.inviteUrl) {
+        // Email failed — show the invite URL so the owner can copy and share it
+        document.getElementById('invite-url-field').value = result.data.inviteUrl;
+        document.getElementById('invite-url-display').style.display = 'block';
+        document.getElementById('btn-submit-invite').style.display = 'none';
+        showToast('Invitation created — email failed. Copy the link below.', 'info');
+      } else {
+        showToast('Invitation sent to ' + email, 'success');
+        hideInviteModal();
+      }
       loadStaff();
     })
     .catch(function () { showToast('Failed to send invitation', 'error'); });
@@ -224,9 +235,26 @@ function resendInvite(element) {
 
 function cancelInvite(element) {
   var inviteId = element.dataset.actionParam;
-  // Cancel is effectively deleting the invitation - not yet a backend endpoint
-  // For now, inform the user
-  showToast('Invitation cancellation not yet available', 'info');
+  fetch('/api/staff/invitations/' + encodeURIComponent(inviteId), { method: 'DELETE' })
+    .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, data: d }; }); })
+    .then(function (result) {
+      if (!result.ok) {
+        showToast(result.data.error || 'Failed to cancel invitation', 'error');
+        return;
+      }
+      showToast('Invitation cancelled', 'success');
+      loadStaff();
+    })
+    .catch(function () { showToast('Failed to cancel invitation', 'error'); });
+}
+
+function copyInviteUrl() {
+  var field = document.getElementById('invite-url-field');
+  field.select();
+  field.setSelectionRange(0, 99999);
+  navigator.clipboard.writeText(field.value)
+    .then(function () { showToast('Invite link copied', 'success'); })
+    .catch(function () { showToast('Copy failed — select and copy manually', 'error'); });
 }
 
 function checkPermissions() {
@@ -318,3 +346,4 @@ window.confirmRemove = confirmRemove;
 window.changeRole = changeRole;
 window.resendInvite = resendInvite;
 window.cancelInvite = cancelInvite;
+window.copyInviteUrl = copyInviteUrl;

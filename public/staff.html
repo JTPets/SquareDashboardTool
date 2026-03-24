@@ -257,9 +257,14 @@
           <option value="readonly">Read Only</option>
         </select>
       </div>
+      <div id="invite-url-display" style="display:none;margin-top:15px;padding:12px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;">
+        <p style="font-size:13px;color:#92400e;font-weight:600;margin-bottom:8px;">Email delivery failed. Share this link manually:</p>
+        <input type="text" id="invite-url-field" readonly class="form-input" style="font-size:12px;background:#fffbeb;">
+        <button class="btn btn-secondary" style="margin-top:8px;width:100%;font-size:12px;" data-action="copyInviteUrl">Copy Link</button>
+      </div>
       <div class="modal-actions">
-        <button class="btn btn-secondary" data-action="hideInviteModal">Cancel</button>
-        <button class="btn btn-primary" data-action="submitInvite">Send Invitation</button>
+        <button class="btn btn-secondary" data-action="hideInviteModal">Close</button>
+        <button class="btn btn-primary" id="btn-submit-invite" data-action="submitInvite">Send Invitation</button>
       </div>
     </div>
   </div>

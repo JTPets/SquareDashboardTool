@@ -56,4 +56,9 @@ const validateTokenQuery = [
     handleValidationErrors
 ];
 
-module.exports = { inviteStaff, acceptInvitation, removeStaff, changeRole, validateTokenQuery };
+const cancelInvitation = [
+    validateIntId('id'),
+    handleValidationErrors
+];
+
+module.exports = { inviteStaff, acceptInvitation, removeStaff, changeRole, validateTokenQuery, cancelInvitation };

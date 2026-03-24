@@ -25,6 +25,7 @@ jest.mock('../../services/staff', () => ({
     acceptInvitation: jest.fn(),
     removeStaff: jest.fn(),
     changeRole: jest.fn(),
+    cancelInvitation: jest.fn(),
 }));
 
 jest.mock('../../utils/email-notifier', () => ({
@@ -284,6 +285,43 @@ describe('DELETE /api/staff/:userId', () => {
     test('returns 400 for invalid userId param', async () => {
         const app = createTestApp('owner');
         const res = await request(app).delete('/api/staff/notanumber').expect(400);
+        expect(res.body).toMatchObject({ error: 'Validation failed' });
+    });
+});
+
+// ==================== DELETE /api/staff/invitations/:id ====================
+
+describe('DELETE /api/staff/invitations/:id', () => {
+    test('owner can cancel a pending invitation', async () => {
+        staffService.cancelInvitation.mockResolvedValue(undefined);
+
+        const app = createTestApp('owner', 1);
+        const res = await request(app)
+            .delete('/api/staff/invitations/7')
+            .expect(200);
+
+        expect(res.body.success).toBe(true);
+        expect(staffService.cancelInvitation).toHaveBeenCalledWith({ merchantId: 10, invitationId: 7 });
+    });
+
+    test('manager gets 403 on cancel (no staff:admin permission)', async () => {
+        const app = createTestApp('manager');
+        const res = await request(app).delete('/api/staff/invitations/7').expect(403);
+        expect(res.body.success).toBe(false);
+    });
+
+    test('returns 404 when invitation not found or belongs to another merchant', async () => {
+        const err = Object.assign(new Error('Invitation not found'), { statusCode: 404, code: 'NOT_FOUND' });
+        staffService.cancelInvitation.mockRejectedValue(err);
+
+        const app = createTestApp('owner', 1);
+        const res = await request(app).delete('/api/staff/invitations/999').expect(404);
+        expect(res.body).toMatchObject({ success: false, code: 'NOT_FOUND' });
+    });
+
+    test('returns 400 for non-integer invitation id', async () => {
+        const app = createTestApp('owner');
+        const res = await request(app).delete('/api/staff/invitations/notanumber').expect(400);
         expect(res.body).toMatchObject({ error: 'Validation failed' });
     });
 });
