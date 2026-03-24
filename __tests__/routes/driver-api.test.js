@@ -48,6 +48,8 @@ const session = require('express-session');
 const deliveryApi = require('../../services/delivery');
 
 const VALID_TOKEN = 'a'.repeat(64);
+const VALID_ROUTE_ID = '530ffc89-ded6-4b63-8a71-88428f01d416';
+const VALID_ORDER_ID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
 
 function createTestApp() {
     const app = express();
@@ -78,14 +80,14 @@ describe('Driver API Routes', () => {
             deliveryApi.generateRouteToken.mockResolvedValueOnce(mockToken);
 
             const res = await request(app)
-                .post('/api/delivery/route/5/share')
+                .post(`/api/delivery/route/${VALID_ROUTE_ID}/share`)
                 .send({ expiresInHours: 48 })
                 .expect(200);
 
             expect(res.body.token).toEqual(mockToken);
             expect(res.body.shareUrl).toContain(`token=${VALID_TOKEN}`);
             expect(res.body.expiresAt).toBe('2026-03-16T00:00:00Z');
-            expect(deliveryApi.generateRouteToken).toHaveBeenCalledWith(1, '5', 1, { expiresInHours: 48 });
+            expect(deliveryApi.generateRouteToken).toHaveBeenCalledWith(1, VALID_ROUTE_ID, 1, { expiresInHours: 48 });
         });
 
         it('should default to 24-hour expiration', async () => {
@@ -93,11 +95,11 @@ describe('Driver API Routes', () => {
             deliveryApi.generateRouteToken.mockResolvedValueOnce(mockToken);
 
             await request(app)
-                .post('/api/delivery/route/5/share')
+                .post(`/api/delivery/route/${VALID_ROUTE_ID}/share`)
                 .send({})
                 .expect(200);
 
-            expect(deliveryApi.generateRouteToken).toHaveBeenCalledWith(1, '5', 1, { expiresInHours: 24 });
+            expect(deliveryApi.generateRouteToken).toHaveBeenCalledWith(1, VALID_ROUTE_ID, 1, { expiresInHours: 24 });
         });
     });
 
@@ -107,7 +109,7 @@ describe('Driver API Routes', () => {
             deliveryApi.getActiveRouteToken.mockResolvedValueOnce(mockToken);
 
             const res = await request(app)
-                .get('/api/delivery/route/5/token')
+                .get(`/api/delivery/route/${VALID_ROUTE_ID}/token`)
                 .expect(200);
 
             expect(res.body.token).toEqual(mockToken);
@@ -118,7 +120,7 @@ describe('Driver API Routes', () => {
             deliveryApi.getActiveRouteToken.mockResolvedValueOnce(null);
 
             const res = await request(app)
-                .get('/api/delivery/route/5/token')
+                .get(`/api/delivery/route/${VALID_ROUTE_ID}/token`)
                 .expect(200);
 
             expect(res.body.token).toBeNull();
@@ -132,7 +134,7 @@ describe('Driver API Routes', () => {
             deliveryApi.revokeRouteToken.mockResolvedValueOnce();
 
             const res = await request(app)
-                .delete('/api/delivery/route/5/token')
+                .delete(`/api/delivery/route/${VALID_ROUTE_ID}/token`)
                 .expect(200);
 
             expect(res.body.success).toBe(true);
@@ -143,7 +145,7 @@ describe('Driver API Routes', () => {
             deliveryApi.getActiveRouteToken.mockResolvedValueOnce(null);
 
             const res = await request(app)
-                .delete('/api/delivery/route/5/token')
+                .delete(`/api/delivery/route/${VALID_ROUTE_ID}/token`)
                 .expect(200);
 
             expect(res.body.success).toBe(true);
@@ -211,7 +213,7 @@ describe('Driver API Routes', () => {
             deliveryApi.completeOrderByToken.mockResolvedValueOnce({ id: 1, status: 'completed' });
 
             const res = await request(app)
-                .post(`/api/driver/${VALID_TOKEN}/orders/1/complete`)
+                .post(`/api/driver/${VALID_TOKEN}/orders/${VALID_ORDER_ID}/complete`)
                 .expect(200);
 
             expect(res.body.success).toBe(true);
@@ -224,7 +226,7 @@ describe('Driver API Routes', () => {
             deliveryApi.skipOrderByToken.mockResolvedValueOnce({ id: 1, status: 'skipped' });
 
             const res = await request(app)
-                .post(`/api/driver/${VALID_TOKEN}/orders/1/skip`)
+                .post(`/api/driver/${VALID_TOKEN}/orders/${VALID_ORDER_ID}/skip`)
                 .expect(200);
 
             expect(res.body.success).toBe(true);
@@ -235,7 +237,7 @@ describe('Driver API Routes', () => {
     describe('POST /api/driver/:token/orders/:orderId/pod', () => {
         it('should reject request with no photo', async () => {
             const res = await request(app)
-                .post(`/api/driver/${VALID_TOKEN}/orders/1/pod`)
+                .post(`/api/driver/${VALID_TOKEN}/orders/${VALID_ORDER_ID}/pod`)
                 .expect(400);
 
             expect(res.body.error).toBe('No photo uploaded');
