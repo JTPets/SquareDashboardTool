@@ -1460,7 +1460,7 @@
       }
 
       tbody.innerHTML = locationSettings.map((loc, idx) => `
-        <tr data-location-id="${loc.location_id}">
+        <tr data-location-id="${escapeAttr(loc.location_id)}">
           <td>${escapeHtml(loc.location_name || 'Unknown')}</td>
           <td style="font-size: 12px; color: #6b7280;">${escapeHtml(loc.location_address || '-')}</td>
           <td>

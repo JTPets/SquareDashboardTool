@@ -15,8 +15,8 @@ const validateUrl = (fieldName) =>
         .trim()
         .notEmpty()
         .withMessage(`${fieldName} is required`)
-        .isURL({ protocols: ['http', 'https'], require_protocol: true })
-        .withMessage(`${fieldName} must be a valid URL with http or https protocol`);
+        .isURL({ protocols: ['https'], require_protocol: true })
+        .withMessage(`${fieldName} must be a valid HTTPS URL`);
 
 /**
  * Validate optional URL format
@@ -25,8 +25,8 @@ const validateOptionalUrl = (fieldName) =>
     body(fieldName)
         .optional()
         .trim()
-        .isURL({ protocols: ['http', 'https'], require_protocol: true })
-        .withMessage(`${fieldName} must be a valid URL with http or https protocol if provided`);
+        .isURL({ protocols: ['https'], require_protocol: true })
+        .withMessage(`${fieldName} must be a valid HTTPS URL if provided`);
 
 /**
  * Validate subscription ID parameter

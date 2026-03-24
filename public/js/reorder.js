@@ -402,8 +402,8 @@ function renderBundleRows() {
 
     // Parent header row
     let html = `
-      <tr class="bundle-parent-row" data-bundle-id="${bundle.bundle_id}">
-        <td colspan="20" data-action="toggleBundleExpand" data-action-param="${bundle.bundle_id}">
+      <tr class="bundle-parent-row" data-bundle-id="${escapeAttr(bundle.bundle_id)}">
+        <td colspan="20" data-action="toggleBundleExpand" data-action-param="${escapeAttr(bundle.bundle_id)}">
           <span class="bundle-toggle">${toggle}</span>
           <strong>Bundle: ${escapeHtml(bundle.bundle_item_name)}</strong>
           <span class="bundle-header-meta">
@@ -456,7 +456,7 @@ function renderBundleRows() {
         const isEdited = editedBundleChildQtys.has(child.variation_id);
 
         return `
-          <tr class="bundle-child-row${deletedClass}" data-bundle-id="${bundle.bundle_id}" data-variation-id="${child.variation_id}">
+          <tr class="bundle-child-row${deletedClass}" data-bundle-id="${escapeAttr(bundle.bundle_id)}" data-variation-id="${escapeAttr(child.variation_id)}">
             <td colspan="4" style="padding-left:24px;">
               <span class="bundle-child-label">|--</span>
               ${escapeHtml(child.child_item_name || '')}
@@ -487,8 +487,8 @@ function renderBundleRows() {
                      placeholder="${child.individual_need}"
                      min="0"
                      data-field="bundle_child_qty"
-                     data-variation-id="${child.variation_id}"
-                     data-bundle-id="${bundle.bundle_id}"
+                     data-variation-id="${escapeAttr(child.variation_id)}"
+                     data-bundle-id="${escapeAttr(bundle.bundle_id)}"
                      data-suggested="${child.individual_need}"
                      data-change="updateBundleChildQty"
                      data-blur="updateBundleChildQty"
@@ -505,7 +505,7 @@ function renderBundleRows() {
 
       // Summary row
       html += `
-        <tr class="bundle-summary-row" data-bundle-id="${bundle.bundle_id}">
+        <tr class="bundle-summary-row" data-bundle-id="${escapeAttr(bundle.bundle_id)}">
           <td colspan="12" style="text-align:right;font-weight:600;color:#374151;padding-right:12px;">
             Bundle Group Total:
           </td>
@@ -717,12 +717,12 @@ function renderTable() {
     }
 
     return `
-      <tr class="${isSelected ? 'selected' : 'unchecked'} ${combinedRowClass}" data-id="${item.variation_id}" data-expiry-tier="${expiryTier || ''}">
+      <tr class="${isSelected ? 'selected' : 'unchecked'} ${combinedRowClass}" data-id="${escapeAttr(item.variation_id)}" data-expiry-tier="${escapeAttr(expiryTier || '')}">
         <td class="text-center">
           <input type="checkbox"
                  ${isSelected ? 'checked' : ''}
                  data-change="toggleItemFromCheckbox"
-                 data-variation-id="${item.variation_id}">
+                 data-variation-id="${escapeAttr(item.variation_id)}">
         </td>
         <td>
           <span class="priority-badge ${priorityClass}">${item.priority}</span>
@@ -774,7 +774,7 @@ function renderTable() {
                  placeholder="${casesToOrder}"
                  min="0"
                  data-field="order_qty"
-                 data-variation-id="${item.variation_id}"
+                 data-variation-id="${escapeAttr(item.variation_id)}"
                  data-suggested="${casesToOrder}"
                  data-change="updateOrderQty"
                  data-blur="updateOrderQty"
@@ -790,7 +790,7 @@ function renderTable() {
                  placeholder="-"
                  min="1"
                  data-field="case_pack_quantity"
-                 data-variation-id="${item.variation_id}"
+                 data-variation-id="${escapeAttr(item.variation_id)}"
                  data-blur="saveField"
                  data-keydown="blurOnEnter">
         </td>
@@ -802,8 +802,8 @@ function renderTable() {
                  min="0"
                  step="0.01"
                  data-field="unit_cost_cents"
-                 data-variation-id="${item.variation_id}"
-                 data-vendor-id="${item.current_vendor_id || ''}"
+                 data-variation-id="${escapeAttr(item.variation_id)}"
+                 data-vendor-id="${escapeAttr(item.current_vendor_id || '')}"
                  data-original-value="${item.unit_cost_cents || 0}"
                  data-blur="saveCost"
                  data-keydown="blurOnEnter"
@@ -2151,13 +2151,13 @@ function renderManualItemRow(item) {
     : '';
 
   return `
-    <tr class="manual-row selected" data-id="${item.variation_id}" data-manual="true">
+    <tr class="manual-row selected" data-id="${escapeAttr(item.variation_id)}" data-manual="true">
       <td class="text-center">
         <input type="checkbox" checked disabled title="Manual item (use × to remove)">
       </td>
       <td>
         <span class="priority-badge priority-MANUAL">MANUAL</span>
-        <span class="manual-remove-btn" data-action="removeManualItem" data-action-param="${item.variation_id}" title="Remove from order">&times;</span>
+        <span class="manual-remove-btn" data-action="removeManualItem" data-action-param="${escapeAttr(item.variation_id)}" title="Remove from order">&times;</span>
       </td>
       <td><div class="no-image">📦</div></td>
       <td>
@@ -2178,7 +2178,7 @@ function renderManualItemRow(item) {
                placeholder="1"
                min="0"
                data-field="order_qty"
-               data-variation-id="${item.variation_id}"
+               data-variation-id="${escapeAttr(item.variation_id)}"
                data-suggested="1"
                data-change="updateManualOrderQty"
                data-blur="updateManualOrderQty"

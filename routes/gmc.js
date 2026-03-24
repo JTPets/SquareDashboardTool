@@ -494,7 +494,7 @@ router.post('/brands/bulk-assign', requireAuth, requireMerchant, requireWriteAcc
                 results.errors.push(...squareResult.errors.map(e => ({ type: 'square_sync', ...e })));
             }
         } catch (syncError) {
-            logger.error('Square batch sync failed', { error: syncError.message });
+            logger.error('Square batch sync failed', { error: syncError.message, merchantId });
             results.errors.push({ type: 'square_batch_sync', error: syncError.message });
         }
     }
@@ -885,7 +885,7 @@ router.get('/local-inventory-feed.tsv', asyncHandler(async (req, res) => {
             });
             allItems = allItems.concat(items);
         } catch (err) {
-            logger.warn('Skipping location in combined feed', { locationId: loc.location_id, error: err.message });
+            logger.warn('Skipping location in combined feed', { merchantId, locationId: loc.location_id, error: err.message });
         }
     }
 

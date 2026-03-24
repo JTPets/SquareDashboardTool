@@ -111,7 +111,7 @@ function renderMerchants() {
         ` : `
           <span class="btn btn-outline" style="cursor: default;">Currently Active</span>
         `}
-        <button class="btn btn-outline" data-action="showDisconnectModal" data-merchant-id="${merchant.id}" data-merchant-name="${escapeHtml(merchant.business_name)}">
+        <button class="btn btn-outline" data-action="showDisconnectModal" data-merchant-id="${escapeAttr(merchant.id)}" data-merchant-name="${escapeHtml(merchant.business_name)}">
           Disconnect
         </button>
       </div>

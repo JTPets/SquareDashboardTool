@@ -158,7 +158,7 @@ function renderRoute() {
     }
 
     return `
-      <div class="${cardClass}" data-id="${stop.id}">
+      <div class="${cardClass}" data-id="${escapeAttr(stop.id)}">
         <div class="stop-header">
           <div class="stop-number">${stop.position || index + 1}</div>
           <div class="stop-customer">

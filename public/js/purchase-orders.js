@@ -100,14 +100,14 @@ async function loadPurchaseOrders() {
                       &#128465; Delete
                     </button>
                   ` : ''}
-                  <a href="/api/purchase-orders/${po.po_number}/export-xlsx"
-                     download="PO_${po.po_number}.xlsx"
+                  <a href="/api/purchase-orders/${escapeAttr(po.po_number)}/export-xlsx"
+                     download="PO_${escapeAttr(po.po_number)}.xlsx"
                      class="btn btn-primary btn-small"
                      title="Download Square XLSX (recommended)">
                     &#128229; XLSX
                   </a>
-                  <a href="/api/purchase-orders/${po.po_number}/export-csv"
-                     download="PO_${po.po_number}.csv"
+                  <a href="/api/purchase-orders/${escapeAttr(po.po_number)}/export-csv"
+                     download="PO_${escapeAttr(po.po_number)}.csv"
                      class="btn btn-secondary btn-small"
                      title="Download CSV (legacy)">
                     &#128196; CSV
