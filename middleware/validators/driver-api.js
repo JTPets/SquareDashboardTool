@@ -8,7 +8,6 @@
 const { body, param } = require('express-validator');
 const {
     handleValidationErrors,
-    validateIntId,
     validateLatitude,
     validateLongitude,
     validateOptionalString,
@@ -26,12 +25,12 @@ const validateDriverToken = param('token')
 /**
  * Validate route ID for authenticated share/token endpoints
  */
-const validateRouteId = validateIntId('id');
+const validateRouteId = param('id').isUUID().withMessage('Invalid route ID');
 
 /**
  * Validate order ID for driver operations
  */
-const validateOrderId = validateIntId('orderId');
+const validateOrderId = param('orderId').isUUID().withMessage('Invalid order ID');
 
 // ==================== ROUTE-SPECIFIC VALIDATORS ====================
 
