@@ -22,10 +22,12 @@ const FAKE_APP_TOKEN = 'sq0atp-FAKE_APP_TOKEN_FOR_TESTING';
 describe('square-webhooks', () => {
     let squareWebhooks;
     const originalEnv = process.env.SQUARE_ACCESS_TOKEN;
+    const originalAppUrl = process.env.PUBLIC_APP_URL;
 
     beforeEach(() => {
         jest.clearAllMocks();
         process.env.SQUARE_ACCESS_TOKEN = FAKE_APP_TOKEN;
+        process.env.PUBLIC_APP_URL = 'https://example.com';
         // Re-require to pick up env changes
         jest.resetModules();
         jest.mock('../../utils/logger', () => ({
@@ -45,6 +47,11 @@ describe('square-webhooks', () => {
             process.env.SQUARE_ACCESS_TOKEN = originalEnv;
         } else {
             delete process.env.SQUARE_ACCESS_TOKEN;
+        }
+        if (originalAppUrl !== undefined) {
+            process.env.PUBLIC_APP_URL = originalAppUrl;
+        } else {
+            delete process.env.PUBLIC_APP_URL;
         }
     });
 
