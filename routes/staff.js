@@ -6,12 +6,13 @@
  * Manages staff membership and invitations for a merchant.
  *
  * Endpoints:
- *   GET    /api/staff                  - List staff + pending invitations
- *   POST   /api/staff/invite           - Send invitation (owner only)
- *   GET    /api/staff/validate-token   - Validate invitation token (public)
- *   POST   /api/staff/accept           - Accept invitation (public, token-based)
- *   DELETE /api/staff/:userId          - Remove staff member (owner only)
- *   PATCH  /api/staff/:userId/role     - Change role (owner only)
+ *   GET    /api/staff                       - List staff + pending invitations
+ *   POST   /api/staff/invite                - Send invitation (owner only)
+ *   GET    /api/staff/validate-token        - Validate invitation token (public)
+ *   POST   /api/staff/accept               - Accept invitation (public, token-based)
+ *   DELETE /api/staff/invitations/:id      - Cancel pending invitation (owner only)
+ *   DELETE /api/staff/:userId              - Remove staff member (owner only)
+ *   PATCH  /api/staff/:userId/role         - Change role (owner only)
  */
 
 const express = require('express');
@@ -109,6 +110,26 @@ router.post('/accept', validators.acceptInvitation, asyncHandler(async (req, res
         }
         if (err.code === 'PASSWORD_REQUIRED') {
             return sendError(res, err.message, 400, err.code);
+        }
+        throw err;
+    }
+}));
+
+/**
+ * DELETE /api/staff/invitations/:id
+ * Cancel a pending staff invitation (owner only via staff:admin).
+ * Must be declared before DELETE /:userId to avoid the wildcard matching "invitations".
+ */
+router.delete('/invitations/:id', requireAuth, requireMerchant, ADMIN, validators.cancelInvitation, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const invitationId = parseInt(req.params.id, 10);
+
+    try {
+        await staffService.cancelInvitation({ merchantId, invitationId });
+        sendSuccess(res, { message: 'Invitation cancelled' });
+    } catch (err) {
+        if (err.statusCode) {
+            return sendError(res, err.message, err.statusCode, err.code);
         }
         throw err;
     }

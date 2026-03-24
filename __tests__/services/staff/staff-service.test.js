@@ -330,3 +330,40 @@ describe('changeRole', () => {
         })).rejects.toMatchObject({ code: 'INVALID_ROLE', statusCode: 400 });
     });
 });
+
+// ==================== cancelInvitation ====================
+
+describe('cancelInvitation', () => {
+    test('deletes a pending invitation and resolves', async () => {
+        db.query.mockResolvedValueOnce({ rows: [{ id: 7 }] }); // DELETE RETURNING id
+
+        await expect(staffService.cancelInvitation({
+            merchantId: MERCHANT_ID,
+            invitationId: 7
+        })).resolves.toBeUndefined();
+
+        expect(db.query).toHaveBeenCalledWith(
+            expect.stringContaining('DELETE FROM staff_invitations'),
+            [7, MERCHANT_ID]
+        );
+    });
+
+    test('throws NOT_FOUND when invitation does not exist or belongs to another merchant', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] }); // no rows deleted
+
+        await expect(staffService.cancelInvitation({
+            merchantId: MERCHANT_ID,
+            invitationId: 999
+        })).rejects.toMatchObject({ code: 'NOT_FOUND', statusCode: 404 });
+    });
+
+    test('cannot cancel an already-accepted invitation (accepted_at IS NULL filter)', async () => {
+        // accepted invitation returns 0 rows because of AND accepted_at IS NULL
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        await expect(staffService.cancelInvitation({
+            merchantId: MERCHANT_ID,
+            invitationId: 5
+        })).rejects.toMatchObject({ code: 'NOT_FOUND', statusCode: 404 });
+    });
+});

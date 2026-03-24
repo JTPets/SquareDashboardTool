@@ -246,6 +246,26 @@ async function changeRole({ merchantId, userId, newRole, changedBy }) {
 }
 
 /**
+ * Cancel a pending staff invitation.
+ * Only cancels invitations belonging to the merchant (multi-tenant isolation).
+ * Already-accepted invitations cannot be cancelled.
+ */
+async function cancelInvitation({ merchantId, invitationId }) {
+    const result = await db.query(
+        `DELETE FROM staff_invitations
+         WHERE id = $1 AND merchant_id = $2 AND accepted_at IS NULL
+         RETURNING id`,
+        [invitationId, merchantId]
+    );
+
+    if (result.rows.length === 0) {
+        throw staffError('Invitation not found', 'NOT_FOUND', 404);
+    }
+
+    logger.info('Staff invitation cancelled', { merchantId, invitationId });
+}
+
+/**
  * Validate an invitation token without accepting it.
  * Returns token metadata for the accept-invite page.
  * @returns {{ valid, merchantName, role, existingUser }}
@@ -280,4 +300,4 @@ async function validateToken(token) {
     };
 }
 
-module.exports = { inviteStaff, acceptInvitation, listStaff, removeStaff, changeRole, validateToken };
+module.exports = { inviteStaff, acceptInvitation, listStaff, removeStaff, changeRole, validateToken, cancelInvitation };
