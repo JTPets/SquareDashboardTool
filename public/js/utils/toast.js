@@ -23,6 +23,7 @@
       'color: white; font-weight: 500;' +
       'box-shadow: 0 4px 12px rgba(0,0,0,0.15);' +
       'z-index: 10000; max-width: 400px;' +
+      'word-wrap: break-word; overflow-wrap: break-word;' +
       'background: #333;' +
       'transform: translateX(120%);' +
       'transition: transform 0.3s ease, opacity 0.3s ease;' +

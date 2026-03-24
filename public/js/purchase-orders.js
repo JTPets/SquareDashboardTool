@@ -484,7 +484,7 @@ async function saveChanges() {
       throw new Error(detail || result.message || result.error || 'Failed to update purchase order');
     }
 
-    showToast('Purchase order updated successfully', 'success');
+    showToast(`PO ${po.po_number} updated successfully`, 'success');
 
     // Reload PO data
     isEditMode = false;
@@ -497,7 +497,7 @@ async function saveChanges() {
 
   } catch (error) {
     console.error('Failed to save changes:', error);
-    showToast(error.message, 'error');
+    showToast('Failed to update purchase order', 'error');
   }
 }
 
@@ -593,7 +593,7 @@ async function submitPO() {
 
   } catch (error) {
     console.error('Failed to submit PO:', error);
-    showToast(error.message, 'error');
+    showToast('Failed to submit purchase order', 'error');
     closeConfirmModal();
   }
 }
