@@ -296,6 +296,7 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 | BACKLOG-61 | GMC v1beta → v1 migration — Google Merchant API v1beta discontinued Feb 28 2026. Product upserts failing with 409 ABORTED. Backup script running. Services still use v1beta endpoints. | M | 2026-03-09 |
 | BACKLOG-97 | Vendor bulk create missing `vendor_code` — import CSV has vendor item number but `createSquareBatch()` only creates Square catalog object and local rows. No `variation_vendors` link created. New items have no vendor association despite being created from a vendor import. | S | 2026-03-23 |
 | BACKLOG-98 | Oversized toast on PO edit — reorder page PO edit confirmation shows oversized toast bar. Toast message too long or CSS doesn't handle long content. | S | 2026-03-23 |
+| BACKLOG-101 | CSS centralization audit — toast.js injects styles at runtime but 35 HTML pages define their own .toast CSS locally, causing overrides and inconsistencies (purchase-orders.html missing max-width was the symptom). Audit all pages for duplicate/conflicting CSS. Move shared component styles (toast, modals, tables, buttons, cards) into a single shared stylesheet loaded by all pages. Remove page-local overrides. Also audit which pages use showToast from the utility vs inline toast implementations. | M | 2026-03-24 |
 
 ### Code TODOs in Source
 

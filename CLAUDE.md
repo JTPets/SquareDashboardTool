@@ -311,6 +311,7 @@ See [docs/WORK-ITEMS.md](docs/WORK-ITEMS.md) for the complete consolidated work 
 | Medium | BACKLOG-1 | Frontend polling rate limits |
 | Low | BACKLOG-97 | Vendor bulk create missing `vendor_code` — import CSV has vendor item number but no `variation_vendors` link created |
 | Low | BACKLOG-98 | Oversized toast on PO edit — reorder page confirmation toast too large |
+| Medium | BACKLOG-101 | CSS centralization audit — toast.js injects styles at runtime but 35 HTML pages define their own .toast CSS locally, causing overrides and inconsistencies (purchase-orders.html missing max-width was the symptom). Audit all pages for duplicate/conflicting CSS. Move shared component styles (toast, modals, tables, buttons, cards) into a single shared stylesheet loaded by all pages. Remove page-local overrides. Also audit which pages use showToast from the utility vs inline toast implementations. |
 | Low | BACKLOG-8 | Vendor API sync gaps — `contact_name`/`contact_phone` synced but not displayed (S). `account_number`/`address` not synced (M, needed for BACKLOG-44). Only first contact synced. Square `note` not synced. |
 | Low | BACKLOG-12 | Driver share link validation failure |
 | Low | BACKLOG-43 | Min/Max stock per item per location |
