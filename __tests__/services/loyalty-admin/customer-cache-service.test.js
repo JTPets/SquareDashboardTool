@@ -54,6 +54,29 @@ describe('customer-cache-service', () => {
             expect(params[3]).toBe('Doe');
         });
 
+        test('includes note field in upsert', async () => {
+            db.query.mockResolvedValue({ rows: [] });
+
+            await cacheCustomerDetails({
+                id: 'cust-note',
+                givenName: 'Test',
+                note: 'Leave at back door',
+            }, MERCHANT_ID);
+
+            const [sql, params] = db.query.mock.calls[0];
+            expect(sql).toContain('note');
+            expect(params[9]).toBe('Leave at back door');
+        });
+
+        test('stores null note when customer has no note', async () => {
+            db.query.mockResolvedValue({ rows: [] });
+
+            await cacheCustomerDetails({ id: 'cust-no-note', givenName: 'Test' }, MERCHANT_ID);
+
+            const [, params] = db.query.mock.calls[0];
+            expect(params[9]).toBeNull();
+        });
+
         test('handles camelCase and snake_case field names', async () => {
             db.query.mockResolvedValue({ rows: [] });
 
@@ -108,6 +131,7 @@ describe('customer-cache-service', () => {
                     total_orders: 5,
                     total_rewards_earned: 2,
                     has_active_rewards: true,
+                    note: 'Big dog, be careful',
                     last_updated_at: '2026-01-01',
                 }]
             });
@@ -125,6 +149,7 @@ describe('customer-cache-service', () => {
                 totalOrders: 5,
                 totalRewardsEarned: 2,
                 hasActiveRewards: true,
+                note: 'Big dog, be careful',
                 cached: true,
                 lastUpdatedAt: '2026-01-01',
             });

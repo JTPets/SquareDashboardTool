@@ -235,9 +235,13 @@ async function getOrders(merchantId, options = {}) {
             dord.*,
             dp.id as pod_id,
             dp.photo_path as pod_photo_path,
-            dp.captured_at as pod_captured_at
+            dp.captured_at as pod_captured_at,
+            lc.note AS customer_profile_note
         FROM delivery_orders dord
         LEFT JOIN delivery_pod dp ON dp.delivery_order_id = dord.id
+        LEFT JOIN loyalty_customers lc
+            ON lc.square_customer_id = dord.square_customer_id
+            AND lc.merchant_id = dord.merchant_id
         WHERE dord.merchant_id = $1
     `;
     const params = [merchantId];
@@ -1388,6 +1392,7 @@ async function ingestSquareOrder(merchantId, squareOrder) {
     let customerName = 'Unknown Customer';
     let address = null;
     let phone = null;
+    let fulfillmentNote = null;
 
     // Check fulfillments for delivery info
     // Note: Square SDK v43 uses camelCase, older versions use snake_case
@@ -1404,6 +1409,8 @@ async function ingestSquareOrder(merchantId, squareOrder) {
             const dd = deliveryDetails;
             customerName = dd.recipient?.displayName || dd.recipient?.display_name || customerName;
             phone = dd.recipient?.phoneNumber || dd.recipient?.phone_number;
+            // Capture per-order delivery instructions from checkout (Square Online "Delivery Instructions" field)
+            fulfillmentNote = dd.note || null;
             if (dd.recipient?.address) {
                 const addr = dd.recipient.address;
                 address = [
@@ -1525,7 +1532,8 @@ async function ingestSquareOrder(merchantId, squareOrder) {
         customerName,
         address,
         phone,
-        notes: squareOrder.note || null,  // Order-specific notes
+        notes: squareOrder.note || null,  // Order-level note (staff-visible)
+        customerNote: fulfillmentNote,    // Per-order checkout delivery instructions (delivery_details.note)
         status: initialStatus,
         squareOrderData,
         squareOrderState,

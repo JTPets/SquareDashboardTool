@@ -150,6 +150,7 @@ router.get('/driver/:token', deliveryRateLimit, validators.getDriverRoute, async
             phone: o.phone,
             notes: o.notes,
             customerNote: o.customer_note,
+            customerProfileNote: o.customer_profile_note || null,
             status: o.status,
             hasPod: !!o.pod_photo_path,
             orderData: o.square_order_data

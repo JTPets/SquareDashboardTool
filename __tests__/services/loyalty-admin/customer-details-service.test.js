@@ -68,6 +68,7 @@ describe('customer-details-service', () => {
                 phone: '555-1234',
                 companyName: 'Acme',
                 birthday: null,
+                note: null,
                 createdAt: '2025-01-01',
                 updatedAt: '2025-06-01',
             });

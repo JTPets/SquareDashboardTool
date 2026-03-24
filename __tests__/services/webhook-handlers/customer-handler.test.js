@@ -71,7 +71,9 @@ describe('CustomerHandler', () => {
         });
 
         it('syncs customer notes to delivery_orders when customer data present', async () => {
+            // First call: UPDATE delivery_orders; second call: UPDATE loyalty_customers
             db.query.mockResolvedValueOnce({ rowCount: 2, rows: [] });
+            db.query.mockResolvedValueOnce({ rowCount: 1, rows: [] });
             mockSquareApiInstance.getCustomer.mockResolvedValue(null);
 
             const result = await handler.handleCustomerChange({
@@ -88,8 +90,45 @@ describe('CustomerHandler', () => {
             expect(result.customerNotes).toEqual({ customerId: 'CUST_1', ordersUpdated: 2 });
         });
 
+        it('persists note to loyalty_customers on customer.updated webhook', async () => {
+            db.query.mockResolvedValueOnce({ rowCount: 1, rows: [] }); // delivery_orders
+            db.query.mockResolvedValueOnce({ rowCount: 1, rows: [] }); // loyalty_customers
+            mockSquareApiInstance.getCustomer.mockResolvedValue(null);
+
+            await handler.handleCustomerChange({
+                data: { customer: { id: 'CUST_1', note: 'Leave at back door' } },
+                merchantId: 1,
+                entityId: 'CUST_1',
+                event: { type: 'customer.updated' }
+            });
+
+            expect(db.query).toHaveBeenCalledWith(
+                expect.stringContaining('UPDATE loyalty_customers'),
+                ['Leave at back door', 1, 'CUST_1']
+            );
+        });
+
+        it('clears loyalty_customers note when customer note is removed', async () => {
+            db.query.mockResolvedValueOnce({ rowCount: 1, rows: [] }); // delivery_orders
+            db.query.mockResolvedValueOnce({ rowCount: 1, rows: [] }); // loyalty_customers
+            mockSquareApiInstance.getCustomer.mockResolvedValue(null);
+
+            await handler.handleCustomerChange({
+                data: { customer: { id: 'CUST_1' } }, // no note field
+                merchantId: 1,
+                entityId: 'CUST_1',
+                event: { type: 'customer.updated' }
+            });
+
+            expect(db.query).toHaveBeenCalledWith(
+                expect.stringContaining('UPDATE loyalty_customers'),
+                [null, 1, 'CUST_1']
+            );
+        });
+
         it('does not set customerNotes when no rows updated', async () => {
-            db.query.mockResolvedValueOnce({ rowCount: 0, rows: [] });
+            db.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // delivery_orders
+            db.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // loyalty_customers
             mockSquareApiInstance.getCustomer.mockResolvedValue(null);
 
             const result = await handler.handleCustomerChange({

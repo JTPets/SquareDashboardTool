@@ -485,6 +485,7 @@ describe('getCustomerDetails (customer-details-service)', () => {
             phone: '+16135551234',
             companyName: null,
             birthday: null,
+            note: null,
             createdAt: '2026-01-01',
             updatedAt: '2026-03-01',
         });

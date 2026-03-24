@@ -2121,6 +2121,7 @@ CREATE TABLE IF NOT EXISTS loyalty_customers (
     total_orders INTEGER DEFAULT 0,
     total_rewards_earned INTEGER DEFAULT 0,
     has_active_rewards BOOLEAN DEFAULT FALSE,
+    note TEXT,
     CONSTRAINT uq_loyalty_customers_merchant_square UNIQUE (merchant_id, square_customer_id)
 );
 
