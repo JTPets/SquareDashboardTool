@@ -105,6 +105,14 @@ class CustomerHandler {
             [customerNote, merchantId, customerId]
         );
 
+        // Persist note to loyalty_customers so driver API can show it as the persistent profile note
+        await db.query(
+            `UPDATE loyalty_customers
+             SET note = $1, last_updated_at = NOW()
+             WHERE merchant_id = $2 AND square_customer_id = $3`,
+            [customerNote, merchantId, customerId]
+        );
+
         if (updateResult.rowCount > 0) {
             logger.info('Customer notes synced via webhook', {
                 merchantId, customerId, ordersUpdated: updateResult.rowCount,

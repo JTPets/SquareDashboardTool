@@ -182,7 +182,7 @@ function renderRoute() {
 
           ${stop.customerNote ? `
             <div class="stop-customer-notes">
-              <strong>&#128221; Customer Info</strong>
+              <strong>&#128205; Delivery Instructions</strong>
               ${escapeHtml(stop.customerNote)}
             </div>
           ` : ''}
@@ -191,6 +191,13 @@ function renderRoute() {
             <div class="stop-notes">
               <strong>&#128203; Order Notes</strong>
               ${escapeHtml(stop.notes)}
+            </div>
+          ` : ''}
+
+          ${stop.customerProfileNote ? `
+            <div class="stop-profile-note">
+              <strong>&#128100; Customer Profile</strong>
+              ${escapeHtml(stop.customerProfileNote)}
             </div>
           ` : ''}
 

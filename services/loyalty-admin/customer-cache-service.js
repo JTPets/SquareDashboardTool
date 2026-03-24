@@ -22,6 +22,7 @@ const { escapeLikePattern } = require('../../utils/escape-like');
  * @param {string} [customer.email] - Email address
  * @param {string} [customer.companyName] - Company name
  * @param {string} [customer.birthday] - Birthday in YYYY-MM-DD format
+ * @param {string} [customer.note] - Customer profile note
  * @param {number} merchantId - Merchant ID
  * @returns {Promise<void>}
  */
@@ -33,8 +34,8 @@ async function cacheCustomerDetails(customer, merchantId) {
             INSERT INTO loyalty_customers (
                 merchant_id, square_customer_id, given_name, family_name,
                 display_name, phone_number, email_address, company_name,
-                birthday, last_updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+                birthday, note, last_updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
             ON CONFLICT (merchant_id, square_customer_id) DO UPDATE SET
                 given_name = COALESCE(EXCLUDED.given_name, loyalty_customers.given_name),
                 family_name = COALESCE(EXCLUDED.family_name, loyalty_customers.family_name),
@@ -43,6 +44,7 @@ async function cacheCustomerDetails(customer, merchantId) {
                 email_address = COALESCE(EXCLUDED.email_address, loyalty_customers.email_address),
                 company_name = COALESCE(EXCLUDED.company_name, loyalty_customers.company_name),
                 birthday = COALESCE(EXCLUDED.birthday, loyalty_customers.birthday),
+                note = EXCLUDED.note,
                 last_updated_at = NOW()
         `, [
             merchantId,
@@ -53,7 +55,8 @@ async function cacheCustomerDetails(customer, merchantId) {
             customer.phone || customer.phone_number || null,
             customer.email || customer.email_address || null,
             customer.companyName || customer.company_name || null,
-            customer.birthday || null
+            customer.birthday || null,
+            customer.note || null
         ]);
 
         logger.debug('Cached customer details', { customerId: customer.id, merchantId });
@@ -77,7 +80,7 @@ async function getCachedCustomer(customerId, merchantId) {
             SELECT square_customer_id as id, given_name, family_name, display_name,
                    phone_number as phone, email_address as email, company_name,
                    first_seen_at, last_updated_at, last_order_at,
-                   total_orders, total_rewards_earned, has_active_rewards
+                   total_orders, total_rewards_earned, has_active_rewards, note
             FROM loyalty_customers
             WHERE merchant_id = $1 AND square_customer_id = $2
         `, [merchantId, customerId]);
@@ -96,6 +99,7 @@ async function getCachedCustomer(customerId, merchantId) {
             totalOrders: row.total_orders,
             totalRewardsEarned: row.total_rewards_earned,
             hasActiveRewards: row.has_active_rewards,
+            note: row.note || null,
             cached: true,
             lastUpdatedAt: row.last_updated_at
         };
