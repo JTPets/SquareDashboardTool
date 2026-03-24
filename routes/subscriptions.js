@@ -138,7 +138,7 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
     // Verify Square configuration
     const locationId = process.env.SQUARE_LOCATION_ID;
     if (!locationId) {
-        logger.error('SQUARE_LOCATION_ID not configured');
+        logger.error('SQUARE_LOCATION_ID not configured', { merchantId });
         return sendError(res, 'Payment system not configured. Please contact support.', 500);
     }
 
@@ -157,7 +157,7 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
 
     // Verify Square subscription plan exists
     if (!selectedPlan.square_plan_id) {
-        logger.error('Square plan not configured', { plan: plan });
+        logger.error('Square plan not configured', { plan: plan, merchantId });
         return sendError(res, 'Subscription plan not configured. Please contact support.', 500);
     }
 
@@ -206,7 +206,7 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
 
     if (!customerResponse.customer) {
         const errorDetail = customerResponse.errors?.[0]?.detail || 'Unknown error';
-        logger.error('Square customer creation failed', { error: errorDetail, email });
+        logger.error('Square customer creation failed', { error: errorDetail, email, merchantId });
         return sendError(res, 'Account creation failed. Please try again.', 400, 'CUSTOMER_CREATION_FAILED');
     }
 
@@ -226,7 +226,7 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
 
     if (!cardResponse.card) {
         const errorDetail = cardResponse.errors?.[0]?.detail || 'Unknown error';
-        logger.error('Square card creation failed', { error: errorDetail, customerId: squareCustomerId });
+        logger.error('Square card creation failed', { error: errorDetail, customerId: squareCustomerId, merchantId });
         return sendError(res, 'Failed to save payment method. Please check your card details.', 400, 'CARD_CREATION_FAILED');
     }
 
@@ -412,7 +412,7 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
                 WHERE id = $3
             `, [promoCodeId, discountCents, subscriber.id]);
         } catch (promoError) {
-            logger.error('Failed to record promo code usage', { error: promoError.message });
+            logger.error('Failed to record promo code usage', { error: promoError.message, merchantId });
         }
     }
 
@@ -466,7 +466,7 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
             });
         }
     } catch (userError) {
-        logger.error('Failed to create user account', { error: userError.message });
+        logger.error('Failed to create user account', { error: userError.message, merchantId });
     }
 
     logger.info('Subscription created', {

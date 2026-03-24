@@ -72,7 +72,7 @@ class CatalogHandler {
                 }
             } catch (error) {
                 // Non-fatal — proceed with sync if dedup check fails
-                logger.warn('Catalog version dedup check failed', { error: error.message });
+                logger.warn('Catalog version dedup check failed', { merchantId, error: error.message });
             }
         }
 
@@ -116,7 +116,7 @@ class CatalogHandler {
                     WHERE sync_type = 'catalog' AND merchant_id = $2
                 `, [catalogVersionUpdatedAt, merchantId]);
             } catch (error) {
-                logger.warn('Failed to update catalog version', { error: error.message });
+                logger.warn('Failed to update catalog version', { merchantId, error: error.message });
             }
         }
 

@@ -62,8 +62,8 @@ function renderBundleList() {
         const cost = (bundle.bundle_cost_cents / 100).toFixed(2);
 
         return `
-            <div class="bundle-card" data-bundle-id="${bundle.id}">
-                <div class="bundle-card-header" data-action="toggleBundleCard" data-action-param="${bundle.id}">
+            <div class="bundle-card" data-bundle-id="${escapeAttr(bundle.id)}">
+                <div class="bundle-card-header" data-action="toggleBundleCard" data-action-param="${escapeAttr(bundle.id)}">
                     <div class="bundle-info">
                         <div class="bundle-name">${escapeHtml(bundle.bundle_item_name)}</div>
                         <div class="bundle-meta">

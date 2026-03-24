@@ -11,6 +11,53 @@ const { SQUARE: { API_VERSION: SQUARE_API_VERSION } } = require('../config/const
 const SQUARE_BASE_URL = 'https://connect.squareup.com';
 
 /**
+ * Validate that a notification URL is safe to pass to Square.
+ * Requires https and must match the app's configured domain (PUBLIC_APP_URL)
+ * or an explicitly allowed domain (ALLOWED_WEBHOOK_DOMAINS, comma-separated).
+ * Prevents SSRF if an admin UI ever exposes webhook URL configuration.
+ *
+ * @param {string} url - URL to validate
+ * @throws {Error} if the URL fails validation
+ */
+function validateNotificationUrl(url) {
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch {
+        throw new Error('notificationUrl must be a valid URL');
+    }
+
+    if (parsed.protocol !== 'https:') {
+        throw new Error('notificationUrl must use HTTPS');
+    }
+
+    // Build allowed hostnames from env vars
+    const allowedHosts = new Set();
+
+    if (process.env.PUBLIC_APP_URL) {
+        try {
+            allowedHosts.add(new URL(process.env.PUBLIC_APP_URL).hostname);
+        } catch {
+            // misconfigured PUBLIC_APP_URL — skip
+        }
+    }
+
+    if (process.env.ALLOWED_WEBHOOK_DOMAINS) {
+        for (const domain of process.env.ALLOWED_WEBHOOK_DOMAINS.split(',')) {
+            const trimmed = domain.trim();
+            if (trimmed) allowedHosts.add(trimmed);
+        }
+    }
+
+    if (allowedHosts.size > 0 && !allowedHosts.has(parsed.hostname)) {
+        throw new Error(
+            `notificationUrl hostname "${parsed.hostname}" is not in the allowed domain list. ` +
+            'Set PUBLIC_APP_URL or ALLOWED_WEBHOOK_DOMAINS to permit this domain.'
+        );
+    }
+}
+
+/**
  * All supported webhook event types for this application
  * Organized by category for easier management
  */
@@ -224,12 +271,7 @@ async function createWebhookSubscription(merchantId, options) {
         throw new Error('notificationUrl is required');
     }
 
-    // Validate URL format
-    try {
-        new URL(notificationUrl);
-    } catch {
-        throw new Error('notificationUrl must be a valid URL');
-    }
+    validateNotificationUrl(notificationUrl);
 
     const idempotencyKey = generateIdempotencyKey(`webhook-create-${merchantId}`);
 
@@ -289,6 +331,7 @@ async function updateWebhookSubscription(merchantId, subscriptionId, updates) {
         subscription.event_types = updates.eventTypes;
     }
     if (updates.notificationUrl) {
+        validateNotificationUrl(updates.notificationUrl);
         subscription.notification_url = updates.notificationUrl;
     }
     if (updates.name) {

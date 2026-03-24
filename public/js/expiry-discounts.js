@@ -455,7 +455,7 @@ async function loadTierConfig() {
     const data = await response.json();
 
     tbody.innerHTML = data.tiers.map(tier => `
-      <tr data-tier-id="${tier.id}">
+      <tr data-tier-id="${escapeAttr(tier.id)}">
         <td><span class="tier-badge tier-${escapeAttr(tier.tier_code)}">${escapeHtml(tier.tier_code)}</span></td>
         <td><input type="text" value="${escapeAttr(tier.tier_name || '')}" data-field="tier_name" placeholder="Display name" style="width: 160px;"></td>
         <td><input type="number" value="${tier.min_days_to_expiry ?? ''}" data-field="min_days_to_expiry" placeholder="None" style="width: 70px;"></td>

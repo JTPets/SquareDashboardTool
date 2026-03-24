@@ -114,7 +114,7 @@ async function loadOffers() {
     const rewardFilter = document.getElementById('reward-filter-offer');
     const redemptionFilter = document.getElementById('redemption-filter-offer');
     const offerOptions = '<option value="">All Offers</option>' +
-      allOffers.map(o => `<option value="${o.id}">${escapeHtml(o.offer_name)}</option>`).join('');
+      allOffers.map(o => `<option value="${escapeAttr(o.id)}">${escapeHtml(o.offer_name)}</option>`).join('');
     rewardFilter.innerHTML = offerOptions;
     redemptionFilter.innerHTML = offerOptions;
 
