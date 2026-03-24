@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Work Items](./WORK-ITEMS.md) | [Priorities](./PRIORITIES.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
-**Last Updated**: 2026-03-23
+**Last Updated**: 2026-03-24
 
 Known issues that are logged but not yet scheduled. These are not blocking any feature work — they represent latent risks, code smells, or minor correctness issues to address when touching nearby code.
 
@@ -16,10 +16,10 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | Square Online Store | 4 |
 | Logging | 1 |
 | Config | 1 |
-| Architecture | 1 |
+| Architecture | 0 |
 | Multi-Tenant Gaps | 5 |
 | Audit Findings (2026-03-22) | 4 |
-| **Total** | **~18** |
+| **Total** | **~17** |
 
 ---
 
@@ -99,9 +99,7 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 
 ## Architecture
 
-| ID | File | Description |
-|----|------|-------------|
-| O-4 | `services/square/square-pricing.js` | Scoping bug — `catch` references var from `try` block |
+No open items.
 
 ---
 

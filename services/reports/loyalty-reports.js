@@ -563,6 +563,11 @@ async function generateVendorReceipt(rewardId, merchantId) {
                     const basePriceCents = item.basePriceMoney?.amount != null
                         ? Number(item.basePriceMoney.amount)
                         : null;
+                    // BACKLOG-73: Capture actual total to detect items free via other rewards
+                    // in multi-redemption same-order scenarios
+                    const totalCents = item.totalMoney?.amount != null
+                        ? Number(item.totalMoney.amount)
+                        : null;
                     const itemQty = parseInt(item.quantity) || 1;
                     const isQualifyingVariation = !freeItemFound && qualifyingVariationIds.has(item.catalogObjectId);
 
@@ -600,12 +605,20 @@ async function generateVendorReceipt(rewardId, merchantId) {
                             wholesaleCostCents: redeemedWholesaleCostCents
                         });
                     } else {
-                        // Regular item (not the redeemed variation)
+                        // Regular item (not the redeemed variation for this reward).
+                        // BACKLOG-73: When multiple rewards are redeemed in the same order,
+                        // another reward's free item lands here with basePriceMoney = full price
+                        // but totalMoney = 0. Use totalMoney to show the correct $0 price rather
+                        // than the misleading base price, which would cause the receipt to
+                        // misrepresent the order total to the vendor.
+                        const displayPriceCents = (totalCents === 0 && basePriceCents > 0)
+                            ? 0
+                            : basePriceCents;
                         redemptionItems.push({
                             name: item.name,
                             variationName: item.variationName || null,
                             quantity: itemQty,
-                            unitPriceCents: basePriceCents,
+                            unitPriceCents: displayPriceCents,
                             isFreeItem: false,
                             vendorItemNumber: null,
                             wholesaleCostCents: null
