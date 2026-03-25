@@ -229,30 +229,13 @@
     }
     .empty-state h3 { font-size: 18px; margin-bottom: 8px; color: #374151; }
 
-    .toast {
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      padding: 12px 20px;
-      border-radius: 8px;
-      color: white;
-      font-weight: 500;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      z-index: 10000;
-      transform: translateX(120%);
-      transition: transform 0.3s ease;
-      max-width: 400px;
-    }
-    .toast.active { transform: translateX(0); }
-    .toast.success { background: #10b981; }
-    .toast.error { background: #ef4444; }
-
     @media (max-width: 768px) {
       .form-row { flex-direction: column; }
       .form-group { min-width: 100%; }
       .component-add-row { flex-direction: column; }
     }
   </style>
+  <link rel="stylesheet" href="/css/shared.css">
 </head>
 <body>
   <div class="container">

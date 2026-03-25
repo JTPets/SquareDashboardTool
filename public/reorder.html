@@ -636,36 +636,6 @@
       font-weight: 600;
     }
 
-    /* Toast notifications */
-    .toast {
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      padding: 12px 20px;
-      border-radius: 8px;
-      color: white;
-      font-weight: 500;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      z-index: 10000;
-      transform: translateX(120%);
-      transition: transform 0.3s ease;
-      max-width: 400px;
-      word-wrap: break-word;
-      overflow-wrap: break-word;
-    }
-    .toast.active {
-      transform: translateX(0);
-    }
-    .toast.success {
-      background: #10b981;
-    }
-    .toast.error {
-      background: #ef4444;
-    }
-    .toast.warning {
-      background: #f59e0b;
-    }
-
     /* Vendor prompt (shown when no vendor selected) */
     .vendor-prompt {
       text-align: center;
@@ -833,6 +803,7 @@
       font-style: italic;
     }
   </style>
+  <link rel="stylesheet" href="/css/shared.css">
 </head>
 <body>
   <div class="container">
