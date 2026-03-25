@@ -429,7 +429,12 @@ async function generateVendorReceipt(rewardId, merchantId) {
         orderGroups.get(orderId).qualifyingPurchases.push(p);
     }
 
-    const purchaseRows = Array.from(orderGroups.values()).map(order => {
+    // BACKLOG-73: exclude the redemption order from purchase history rows — it is rendered
+    // separately in the redemption section below. Without this filter, an order that is both
+    // a contributing purchase AND the redemption order appears twice on the receipt.
+    const purchaseRows = Array.from(orderGroups.values())
+        .filter(order => order.orderId !== data.square_order_id)
+        .map(order => {
         // Build qualifying items from purchase_events (these are the authoritative source)
         const qualifyingItems = order.qualifyingPurchases.map(p => ({
             name: p.item_name || 'Unknown',
