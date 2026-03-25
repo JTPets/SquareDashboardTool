@@ -52,6 +52,18 @@ async function getVariations(merchantId, filters = {}) {
 
     let query = `
         SELECT v.*, i.name as item_name, i.category_name, i.images as item_images,
+            i.description,
+            i.description_html,
+            i.abbreviation,
+            i.custom_attributes AS item_custom_attributes,
+            i.tax_ids AS item_tax_ids,
+            i.available_online,
+            i.available_for_pickup,
+            i.item_options,
+            i.seo_title,
+            i.seo_description,
+            i.visibility,
+            i.square_updated_at AS item_square_updated_at,
             vv_cost.unit_cost_money as cost_cents,
             vv_cost.vendor_id as primary_vendor_id,
             vv_cost.vendor_name as primary_vendor_name

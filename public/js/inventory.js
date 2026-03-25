@@ -1,562 +1,409 @@
 /**
- * Inventory page JavaScript
- * Externalized from inventory.html for CSP compliance (P0-4 Phase 2)
+ * Catalog Viewer — inventory.js
+ *
+ * Module breakdown map (file exceeds 300 lines; refactor-on-touch per CLAUDE.md):
+ *   COLUMNS defs     : ~1–58
+ *   State / init     : ~59–80
+ *   UI helpers       : ~81–100
+ *   Data loading     : ~101–135
+ *   Filter           : ~136–158
+ *   Render header    : ~159–178
+ *   Render table     : ~179–215
+ *   Sort             : ~216–237
+ *   Column toggle    : ~238–278
+ *   Stats            : ~279–292
+ *   CSV export       : ~293–322
+ *   Bootstrap        : ~323–end
+ * Extraction candidates: catalog-column-defs.js, catalog-cell-renderer.js
  */
 
+'use strict';
+
+// ─── Column definitions ───────────────────────────────────────────────────────
+// type: text | mono | money | num | bool | datetime | html_flag | jsonb | name
+const COLUMNS = [
+    // Fixed — always visible, sticky left
+    { k: 'item_name',               label: 'Product',           vis: true,  fixed: true, type: 'name' },
+    // Default visible
+    { k: 'sku',                     label: 'SKU',               vis: true,  type: 'mono' },
+    { k: 'upc',                     label: 'UPC',               vis: true,  type: 'mono' },
+    { k: 'price_money',             label: 'Price',             vis: true,  type: 'money' },
+    { k: 'cost_cents',              label: 'Cost',              vis: true,  type: 'money' },
+    { k: 'stock_alert_min',         label: 'Min Stock',         vis: true,  type: 'num' },
+    { k: 'category_name',           label: 'Category',          vis: true,  type: 'text' },
+    { k: 'primary_vendor_name',     label: 'Brand',             vis: true,  type: 'text' },
+    // Default hidden — general
+    { k: 'variation_name',          label: 'Variation',         vis: false, type: 'text' },
+    { k: 'description',             label: 'Description',       vis: false, type: 'text' },
+    { k: 'description_html',        label: 'HTML Desc',         vis: false, type: 'html_flag' },
+    { k: 'abbreviation',            label: 'Abbreviation',      vis: false, type: 'text' },
+    { k: 'notes',                   label: 'Notes',             vis: false, type: 'text' },
+    // Availability
+    { k: 'visibility',              label: 'Visibility',        vis: false, type: 'text' },
+    { k: 'available_online',        label: 'Online',            vis: false, type: 'bool' },
+    { k: 'available_for_pickup',    label: 'Pickup',            vis: false, type: 'bool' },
+    { k: 'present_at_all_locations',label: 'All Locations',     vis: false, type: 'bool' },
+    // Inventory flags
+    { k: 'track_inventory',         label: 'Track Inv',         vis: false, type: 'bool' },
+    { k: 'sellable',                label: 'Sellable',          vis: false, type: 'bool' },
+    { k: 'stockable',               label: 'Stockable',         vis: false, type: 'bool' },
+    { k: 'discontinued',            label: 'Discontinued',      vis: false, type: 'bool' },
+    // Pricing / inventory config
+    { k: 'pricing_type',            label: 'Pricing Type',      vis: false, type: 'text' },
+    { k: 'currency',                label: 'Currency',          vis: false, type: 'text' },
+    { k: 'inventory_alert_type',    label: 'Alert Type',        vis: false, type: 'text' },
+    { k: 'inventory_alert_threshold',label:'Alert Threshold',   vis: false, type: 'num' },
+    { k: 'stock_alert_max',         label: 'Max Stock',         vis: false, type: 'num' },
+    { k: 'case_pack_quantity',      label: 'Case Pack',         vis: false, type: 'num' },
+    { k: 'ordinal',                 label: 'Ordinal',           vis: false, type: 'num' },
+    { k: 'reorder_multiple',        label: 'Reorder Mult',      vis: false, type: 'num' },
+    { k: 'preferred_stock_level',   label: 'Pref. Stock',       vis: false, type: 'num' },
+    { k: 'shelf_location',          label: 'Shelf',             vis: false, type: 'text' },
+    { k: 'bin_location',            label: 'Bin',               vis: false, type: 'text' },
+    // JSONB
+    { k: 'item_option_values',      label: 'Option Values',     vis: false, type: 'jsonb' },
+    { k: 'custom_attributes',       label: 'Var Custom Attrs',  vis: false, type: 'jsonb' },
+    { k: 'item_custom_attributes',  label: 'Item Custom Attrs', vis: false, type: 'jsonb' },
+    { k: 'tax_ids',                 label: 'Var Tax IDs',       vis: false, type: 'jsonb' },
+    { k: 'item_tax_ids',            label: 'Item Tax IDs',      vis: false, type: 'jsonb' },
+    { k: 'images',                  label: 'Var Images',        vis: false, type: 'jsonb' },
+    { k: 'item_options',            label: 'Item Options',      vis: false, type: 'jsonb' },
+    // SEO / meta
+    { k: 'seo_title',               label: 'SEO Title',         vis: false, type: 'text' },
+    { k: 'seo_description',         label: 'SEO Desc',          vis: false, type: 'text' },
+    // Timestamps
+    { k: 'square_updated_at',       label: 'Var Updated',       vis: false, type: 'datetime' },
+    { k: 'item_square_updated_at',  label: 'Item Updated',      vis: false, type: 'datetime' },
+    // IDs
+    { k: 'primary_vendor_id',       label: 'Vendor ID',         vis: false, type: 'mono' },
+];
+
+const LS_KEY = 'catalog_col_vis_v1';
+
+// ─── State ────────────────────────────────────────────────────────────────────
 let allData = [];
 let filteredData = [];
-let locations = new Set();
-let categories = new Set();
-let vendors = new Set();
-let currentSortField = null;
-let sortDirections = {}; // Track direction for each field
+let colVisible = {};
+let sortState = { field: null, asc: true };
 
-// Setup event delegation for dynamic elements
-document.addEventListener('DOMContentLoaded', function() {
-  // Handle image errors via delegation
-  document.addEventListener('error', function(event) {
-    if (event.target.classList && event.target.classList.contains('product-image')) {
-      event.target.style.display = 'none';
-      const nextSibling = event.target.nextElementSibling;
-      if (nextSibling && nextSibling.classList.contains('no-image')) {
-        nextSibling.style.display = 'flex';
-      }
-    }
-  }, true);
-
-  // Handle clicks on editable display elements
-  document.addEventListener('click', function(event) {
-    const editableDisplay = event.target.closest('.editable-display');
-    if (editableDisplay) {
-      const variationId = editableDisplay.dataset.variationId;
-      const field = editableDisplay.dataset.field;
-      const currentValue = editableDisplay.dataset.currentValue === 'null' ? null : parseInt(editableDisplay.dataset.currentValue);
-      enterEditMode(editableDisplay, variationId, field, currentValue);
-    }
-  });
-
-  // Handle blur/keydown on case pack inputs via delegation
-  document.addEventListener('blur', function(event) {
-    if (event.target.classList && event.target.classList.contains('case-pack-input')) {
-      saveField(event.target);
-    }
-  }, true);
-
-  document.addEventListener('keydown', function(event) {
-    if (event.target.classList && event.target.classList.contains('case-pack-input')) {
-      if (event.key === 'Enter') {
-        event.target.blur();
-      }
-    }
-  });
-
-  // Load data on page load
-  loadData();
-});
-
-function showLoading() {
-  document.querySelector('.loading').style.display = 'block';
-  document.querySelector('.error').style.display = 'none';
-  document.getElementById('dataTable').style.display = 'none';
-  document.getElementById('stats').style.display = 'none';
+// ─── Column visibility persistence ───────────────────────────────────────────
+function initColVisibility() {
+    const saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
+    COLUMNS.forEach(c => {
+        colVisible[c.k] = c.fixed ? true : (saved ? (c.k in saved ? saved[c.k] : c.vis) : c.vis);
+    });
 }
 
-function showError(message) {
-  document.querySelector('.loading').style.display = 'none';
-  document.querySelector('.error').style.display = 'block';
-  document.getElementById('errorMessage').textContent = message;
-  document.getElementById('dataTable').style.display = 'none';
-  document.getElementById('stats').style.display = 'none';
+function saveColVisibility() {
+    localStorage.setItem(LS_KEY, JSON.stringify(colVisible));
+}
+
+// ─── UI state helpers ─────────────────────────────────────────────────────────
+function showLoading() {
+    document.querySelector('.loading').style.display = 'block';
+    document.querySelector('.error-msg').style.display = 'none';
+    document.getElementById('dataTable').style.display = 'none';
+    document.getElementById('stats').style.display = 'none';
+}
+
+function showError(msg) {
+    document.querySelector('.loading').style.display = 'none';
+    document.querySelector('.error-msg').style.display = 'block';
+    document.getElementById('errorMessage').textContent = msg;
+    document.getElementById('dataTable').style.display = 'none';
+    document.getElementById('stats').style.display = 'none';
 }
 
 function showData() {
-  document.querySelector('.loading').style.display = 'none';
-  document.querySelector('.error').style.display = 'none';
-  document.getElementById('dataTable').style.display = 'table';
-  document.getElementById('stats').style.display = 'grid';
+    document.querySelector('.loading').style.display = 'none';
+    document.querySelector('.error-msg').style.display = 'none';
+    document.getElementById('dataTable').style.display = 'table';
+    document.getElementById('stats').style.display = 'grid';
 }
 
-function getStockBadge(item) {
-  const qty = parseFloat(item.quantity || 0);
-  const min = parseFloat(item.stock_alert_min || 0);
-
-  if (qty === 0) {
-    return '<span class="stock-badge stock-out">OUT</span>';
-  } else if (min > 0 && qty <= min) {
-    return '<span class="stock-badge stock-low">LOW</span>';
-  } else {
-    return '<span class="stock-badge stock-good">OK</span>';
-  }
-}
-
-function calculateStats(data) {
-  const totalRecords = data.length;
-  const uniqueProducts = new Set(data.map(item => item.variation_id)).size;
-  const totalUnits = data.reduce((sum, item) => sum + parseFloat(item.quantity || 0), 0);
-  const totalValue = data.reduce((sum, item) => {
-    const qty = parseFloat(item.quantity || 0);
-    const cost = parseFloat(item.unit_cost_cents || 0);
-    return sum + (qty * cost / 100);
-  }, 0);
-  const outOfStock = data.filter(item => parseFloat(item.quantity || 0) === 0).length;
-
-  // LOGIC CHANGE: using shared formatCurrency/formatNumber (BACKLOG-23)
-  document.getElementById('totalRecords').textContent = formatNumber(totalRecords);
-  document.getElementById('uniqueProducts').textContent = formatNumber(uniqueProducts);
-  document.getElementById('totalUnits').textContent = formatNumber(Math.floor(totalUnits));
-  document.getElementById('totalValue').textContent = formatDollars(totalValue);
-  document.getElementById('outOfStock').textContent = formatNumber(outOfStock);
-}
-
-function filterData() {
-  const searchTerm = document.getElementById('searchBox').value.toLowerCase();
-  const locationFilter = document.getElementById('locationFilter').value;
-  const categoryFilter = document.getElementById('categoryFilter').value;
-  const vendorFilter = document.getElementById('vendorFilter').value;
-  const stockFilter = document.getElementById('stockFilter').value;
-
-  filteredData = allData.filter(item => {
-    const matchesSearch = !searchTerm ||
-      (item.item_name && item.item_name.toLowerCase().includes(searchTerm)) ||
-      (item.variation_name && item.variation_name.toLowerCase().includes(searchTerm)) ||
-      (item.sku && item.sku.toLowerCase().includes(searchTerm));
-
-    const matchesLocation = !locationFilter || item.location_name === locationFilter;
-    const matchesCategory = !categoryFilter || item.category_name === categoryFilter;
-    const matchesVendor = !vendorFilter || item.vendor_name === vendorFilter;
-
-    const qty = parseFloat(item.quantity || 0);
-    const min = parseFloat(item.stock_alert_min || 0);
-    const matchesStock = !stockFilter ||
-      (stockFilter === 'in_stock' && qty > 0) ||
-      (stockFilter === 'low_stock' && min > 0 && qty <= min) ||
-      (stockFilter === 'out_of_stock' && qty === 0) ||
-      (stockFilter === 'negative_stock' && qty < 0);
-
-    return matchesSearch && matchesLocation && matchesCategory && matchesVendor && matchesStock;
-  });
-
-  renderTable(filteredData);
-  calculateStats(filteredData);
-  document.getElementById('statusBadge').textContent =
-    `Showing ${filteredData.length} of ${allData.length} records`;
-}
-
+// ─── Data loading ─────────────────────────────────────────────────────────────
 async function loadData() {
-  showLoading();
+    showLoading();
+    try {
+        const res = await fetch('/api/variations');
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        const data = await res.json();
+        allData = data.variations || [];
 
-  try {
-    const response = await fetch('/api/inventory');
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        if (allData.length === 0) { showError('No catalog data found.'); return; }
 
-    const result = await response.json();
-    allData = result.inventory || [];
-
-    if (allData.length === 0) {
-      showError('No inventory data available');
-      return;
+        populateFilters();
+        filteredData = allData;
+        renderHeader();
+        renderTable(filteredData);
+        calculateStats(filteredData);
+        showData();
+        document.getElementById('statusBadge').textContent =
+            `${formatNumber(allData.length)} variations • ${new Date().toLocaleTimeString()}`;
+    } catch (err) {
+        console.error('Catalog load error:', err);
+        const msg = window.ErrorHelper
+            ? ErrorHelper.getFriendlyMessage(err, 'catalog', 'load')
+            : 'Failed to load catalog data. Please refresh.';
+        showError(msg);
     }
+}
 
-    // Calculate total value for sorting
-    allData = allData.map(item => ({
-      ...item,
-      total_value: (parseFloat(item.quantity || 0) * parseFloat(item.unit_cost_cents || 0)) / 100
-    }));
+function populateFilters() {
+    const cats = [...new Set(allData.map(v => v.category_name).filter(Boolean))].sort();
+    const catSel = document.getElementById('categoryFilter');
+    catSel.innerHTML = '<option value="">All Categories</option>' +
+        cats.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
 
-    // Populate location filter
-    locations = new Set(allData.map(item => item.location_name).filter(Boolean));
-    const locationSelect = document.getElementById('locationFilter');
-    locationSelect.innerHTML = '<option value="">All Locations</option>';
-    Array.from(locations).sort().forEach(location => {
-      const option = document.createElement('option');
-      option.value = location;
-      option.textContent = location;
-      locationSelect.appendChild(option);
+    const brands = [...new Set(allData.map(v => v.primary_vendor_name).filter(Boolean))].sort();
+    const vendSel = document.getElementById('vendorFilter');
+    vendSel.innerHTML = '<option value="">All Brands</option>' +
+        brands.map(b => `<option value="${escapeAttr(b)}">${escapeHtml(b)}</option>`).join('');
+}
+
+// ─── Filter ───────────────────────────────────────────────────────────────────
+function filterData() {
+    const search = document.getElementById('searchBox').value.toLowerCase();
+    const cat    = document.getElementById('categoryFilter').value;
+    const vendor = document.getElementById('vendorFilter').value;
+
+    filteredData = allData.filter(v => {
+        if (search && !([v.item_name, v.variation_name, v.sku, v.upc]
+            .some(f => (f || '').toLowerCase().includes(search)))) return false;
+        if (cat    && v.category_name       !== cat)    return false;
+        if (vendor && v.primary_vendor_name !== vendor) return false;
+        return true;
     });
 
-    // Populate category filter
-    categories = new Set(allData.map(item => item.category_name).filter(Boolean));
-    const categorySelect = document.getElementById('categoryFilter');
-    categorySelect.innerHTML = '<option value="">All Categories</option>';
-    Array.from(categories).sort().forEach(category => {
-      const option = document.createElement('option');
-      option.value = category;
-      option.textContent = category;
-      categorySelect.appendChild(option);
-    });
-
-    // Populate vendor filter
-    vendors = new Set(allData.map(item => item.vendor_name).filter(Boolean));
-    const vendorSelect = document.getElementById('vendorFilter');
-    vendorSelect.innerHTML = '<option value="">All Vendors</option>';
-    Array.from(vendors).sort().forEach(vendor => {
-      const option = document.createElement('option');
-      option.value = vendor;
-      option.textContent = vendor;
-      vendorSelect.appendChild(option);
-    });
-
-    filteredData = allData;
     renderTable(filteredData);
     calculateStats(filteredData);
-    showData();
-
     document.getElementById('statusBadge').textContent =
-      `${allData.length} records • Updated: ${new Date().toLocaleTimeString()}`;
-
-  } catch (error) {
-    console.error('Error loading data:', error);
-    const friendlyMsg = window.ErrorHelper
-      ? ErrorHelper.getFriendlyMessage(error, 'inventory', 'load')
-      : 'Unable to load inventory. Please refresh the page.';
-    showError(friendlyMsg);
-  }
+        `Showing ${formatNumber(filteredData.length)} of ${formatNumber(allData.length)}`;
 }
 
-function sortTable(element, event, field, forceDirection = null) {
-  // Support both direct call and event delegation
-  if (typeof element === 'string') {
-    field = element;
-    forceDirection = event; // event is actually forceDirection in direct call
-  }
-  // Toggle sort direction or use forced direction
-  if (forceDirection !== null) {
-    sortDirections[field] = forceDirection;
-  } else {
-    sortDirections[field] = !sortDirections[field];
-  }
-  const ascending = sortDirections[field];
+// ─── Render header ────────────────────────────────────────────────────────────
+function renderHeader() {
+    const thead = document.getElementById('tableHead');
+    const visCols = COLUMNS.filter(c => colVisible[c.k]);
+    const sortableTypes = new Set(['text', 'mono', 'num', 'money', 'datetime']);
 
-  // Update current sort field
-  currentSortField = field;
+    thead.innerHTML = '<tr>' + visCols.map(c => {
+        const fixedCls = c.fixed ? ' col-fixed' : '';
+        const isSortable = sortableTypes.has(c.type);
+        const sortCls = isSortable ? ' sortable' : '';
+        const indicator = isSortable ? ` <span class="sort-indicator" id="sort-${c.k}"></span>` : '';
+        const sortAttr = isSortable ? ` data-sort-key="${escapeAttr(c.k)}"` : '';
+        return `<th class="${fixedCls}${sortCls}"${sortAttr}>${escapeHtml(c.label)}${indicator}</th>`;
+    }).join('') + '</tr>';
 
-  // Clear all sort indicators
-  document.querySelectorAll('.sort-indicator').forEach(el => {
-    el.className = 'sort-indicator';
-  });
-
-  // Set current indicator
-  const indicator = document.getElementById(`sort-${field}`);
-  if (indicator) {
-    indicator.className = `sort-indicator ${ascending ? 'asc' : 'desc'}`;
-  }
-
-  // Sort the data
-  filteredData.sort((a, b) => {
-    let aVal = a[field];
-    let bVal = b[field];
-
-    // Handle special cases
-    switch(field) {
-      case 'item_name':
-      case 'variation_name':
-      case 'sku':
-      case 'location_name':
-      case 'vendor_name':
-      case 'vendor_code':
-      case 'category_name':
-        // String comparison (case-insensitive)
-        aVal = (aVal || '').toString().toLowerCase();
-        bVal = (bVal || '').toString().toLowerCase();
-        break;
-
-      case 'quantity':
-      case 'stock_alert_min':
-      case 'stock_alert_max':
-      case 'case_pack_quantity':
-      case 'unit_cost_cents':
-      case 'total_value':
-      case 'weekly_avg_91d':
-      case 'weekly_avg_182d':
-      case 'weekly_avg_365d':
-      case 'days_until_stockout':
-        // Numeric comparison (handle null/undefined)
-        aVal = parseFloat(aVal) || 0;
-        bVal = parseFloat(bVal) || 0;
-        break;
-    }
-
-    // Compare values
-    if (aVal === bVal) return 0;
-
-    if (ascending) {
-      return aVal > bVal ? 1 : -1;
-    } else {
-      return aVal < bVal ? 1 : -1;
-    }
-  });
-
-  // Re-render table with sorted data
-  renderTable(filteredData);
-}
-
-function renderTable(data) {
-  const tbody = document.getElementById('tableBody');
-  tbody.innerHTML = '';
-
-  data.forEach(item => {
-    const row = document.createElement('tr');
-    const qty = parseFloat(item.quantity || 0);
-    const unitCost = parseFloat(item.unit_cost_cents || 0) / 100;
-    const totalValue = qty * unitCost;
-
-    // Get image URL
-    const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
-    const imageHtml = imageUrl
-      ? `<img src="${escapeAttr(imageUrl)}" class="product-image" alt="Product">
-         <div class="no-image" style="display:none;">📦</div>`
-      : `<div class="no-image">📦</div>`;
-
-    // Get velocity class and formatting
-    const dailyVelocity = (item.weekly_avg_91d || 0) / 7;
-    const getVelocityClass = (velocity) => {
-      if (velocity >= 1) return 'velocity-fast';
-      if (velocity >= 0.3) return 'velocity-moderate';
-      if (velocity > 0) return 'velocity-slow';
-      return 'velocity-none';
-    };
-    const velocityClass = getVelocityClass(dailyVelocity);
-    const formatVelocity = (weekly) => {
-      const weeklyNum = parseFloat(weekly) || 0;
-      if (weeklyNum === 0) return '<span class="velocity-none">None</span>';
-      return `<span class="${getVelocityClass(weeklyNum / 7)}">${weeklyNum.toFixed(1)}</span>`;
-    };
-    const velocityHtml = `
-      ${formatVelocity(item.weekly_avg_91d)} /
-      ${formatVelocity(item.weekly_avg_182d)} /
-      ${formatVelocity(item.weekly_avg_365d)}
-    `;
-
-    // Get days until stockout formatting
-    const daysLeft = parseFloat(item.days_until_stockout) || 0;
-    const getDaysClass = (days) => {
-      if (days <= 0) return 'days-urgent';
-      if (days <= 7) return 'days-urgent';
-      if (days <= 30) return 'days-warning';
-      return 'days-ok';
-    };
-    const daysHtml = daysLeft === 999
-      ? '<span class="days-ok">∞</span>'
-      : `<span class="${getDaysClass(daysLeft)}">${daysLeft.toFixed(0)}</span>`;
-
-    row.innerHTML = `
-      <td>${imageHtml}</td>
-      <td>
-        <div class="product-name">${escapeHtml(item.item_name || 'Unknown Product')}</div>
-        ${item.variation_name ? `<div class="variation-name">${escapeHtml(item.variation_name)}</div>` : ''}
-      </td>
-      <td><span class="sku">${escapeHtml(item.sku || '-')}</span></td>
-      <td>${escapeHtml(item.location_name || '-')}</td>
-      <td class="text-right"><strong>${qty.toFixed(1)}</strong></td>
-      <td class="text-right"><small>${velocityHtml}</small></td>
-      <td class="text-right">${daysHtml}</td>
-      <td class="text-right">${item.stock_alert_min || '-'}</td>
-      <td class="text-right editable-cell">
-        <div class="editable-display ${item.stock_alert_max ? 'has-value' : ''}"
-             data-variation-id="${escapeHtml(item.variation_id)}"
-             data-field="stock_alert_max"
-             data-current-value="${item.stock_alert_max || 'null'}">
-          ${item.stock_alert_max ? escapeHtml(String(item.stock_alert_max)) : '<span class="infinity-symbol">∞</span>'}
-        </div>
-      </td>
-      <td class="text-right editable-cell">
-        <input type="number"
-               class="editable-input case-pack-input"
-               value="${escapeHtml(String(item.case_pack_quantity || ''))}"
-               placeholder="-"
-               min="1"
-               data-field="case_pack_quantity"
-               data-variation-id="${escapeHtml(item.variation_id)}">
-      </td>
-      <td class="text-right">$${unitCost.toFixed(2)}</td>
-      <td class="text-right"><strong>$${totalValue.toFixed(2)}</strong></td>
-      <td>${escapeHtml(item.vendor_name || '-')}</td>
-      <td>${escapeHtml(item.vendor_code || '-')}</td>
-      <td>${escapeHtml(item.category_name || '-')}</td>
-      <td>${getStockBadge(item)}</td>
-    `;
-    tbody.appendChild(row);
-  });
-}
-
-// Save editable field to database
-async function saveField(input) {
-  const variationId = input.dataset.variationId;
-  const field = input.dataset.field;
-  const value = input.value.trim();
-
-  // Don't save if value is empty or unchanged
-  const item = allData.find(s => s.variation_id === variationId);
-  if (!item) return;
-
-  const currentValue = item[field];
-  const newValue = value === '' ? null : parseInt(value, 10);
-
-  // Check if value actually changed
-  if (currentValue === newValue || (currentValue == null && newValue == null)) {
-    return;
-  }
-
-  // Validate
-  if (value !== '' && (isNaN(newValue) || newValue < 0)) {
-    input.classList.add('error');
-    setTimeout(() => input.classList.remove('error'), 2000);
-    input.value = currentValue || '';
-    return;
-  }
-
-  // Show saving state
-  input.classList.add('saving');
-  input.disabled = true;
-
-  try {
-    const response = await fetch(`/api/variations/${variationId}/extended`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        [field]: newValue
-      })
+    thead.querySelectorAll('th[data-sort-key]').forEach(th => {
+        th.addEventListener('click', () => sortBy(th.dataset.sortKey));
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    // Restore active sort indicator
+    if (sortState.field) {
+        const el = document.getElementById(`sort-${sortState.field}`);
+        if (el) el.className = `sort-indicator ${sortState.asc ? 'asc' : 'desc'}`;
     }
-
-    // Update local data
-    item[field] = newValue;
-
-    // Show success state
-    input.classList.remove('saving');
-    input.classList.add('saved');
-    setTimeout(() => input.classList.remove('saved'), 2000);
-
-  } catch (error) {
-    console.error('Failed to save field:', error);
-    input.classList.remove('saving');
-    input.classList.add('error');
-    setTimeout(() => input.classList.remove('error'), 2000);
-
-    // Revert to original value
-    input.value = currentValue || '';
-    alert(`Failed to save ${field}: ${error.message}`);
-  } finally {
-    input.disabled = false;
-  }
 }
 
-// Enter edit mode for stock maximum field
-function enterEditMode(displayElement, variationId, field, currentValue) {
-  // Create input element
-  const input = document.createElement('input');
-  input.type = 'number';
-  input.className = 'editable-input';
-  input.value = currentValue === null ? '' : currentValue;
-  input.placeholder = '∞';
-  input.min = '0';
-  input.dataset.variationId = variationId;
-  input.dataset.field = field;
-
-  // Save on blur or Enter key
-  input.onblur = function() {
-    exitEditMode(this, true);
-  };
-  input.onkeydown = function(e) {
-    if (e.key === 'Enter') {
-      this.blur();
-    } else if (e.key === 'Escape') {
-      exitEditMode(this, false);
-    }
-  };
-
-  // Replace display with input
-  const cell = displayElement.parentElement;
-  cell.innerHTML = '';
-  cell.appendChild(input);
-  input.focus();
-  input.select();
+// ─── Render table ─────────────────────────────────────────────────────────────
+function renderTable(data) {
+    const tbody = document.getElementById('tableBody');
+    const visCols = COLUMNS.filter(c => colVisible[c.k]);
+    tbody.innerHTML = '';
+    data.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = visCols.map(c => {
+            const cls = c.fixed ? ' class="col-fixed"' : '';
+            return `<td${cls}>${renderCell(c, item)}</td>`;
+        }).join('');
+        tbody.appendChild(tr);
+    });
 }
 
-// Exit edit mode and optionally save
-async function exitEditMode(input, save) {
-  const variationId = input.dataset.variationId;
-  const field = input.dataset.field;
-  const value = input.value.trim();
-
-  const item = allData.find(s => s.variation_id === variationId);
-  if (!item) return;
-
-  const currentValue = item[field];
-  const newValue = value === '' ? null : parseInt(value, 10);
-
-  // If saving and value changed, save it
-  if (save && currentValue !== newValue) {
-    // Validate
-    if (value !== '' && (isNaN(newValue) || newValue < 0)) {
-      alert('Please enter a valid positive number or leave empty for unlimited.');
-      recreateDisplay(input.parentElement, variationId, field, currentValue);
-      return;
+function renderCell(col, item) {
+    const val = item[col.k];
+    switch (col.type) {
+        case 'name':
+            return `<div class="product-name">${escapeHtml(item.item_name || 'Unknown')}` +
+                (item.variation_name
+                    ? `<div class="variation-name">${escapeHtml(item.variation_name)}</div>`
+                    : '') + '</div>';
+        case 'mono':
+            return val ? `<span class="mono">${escapeHtml(String(val))}</span>` : '-';
+        case 'money':
+            return val != null ? `<span class="text-right-cell">${formatCurrency(val)}</span>` : '--';
+        case 'num':
+            return val != null ? escapeHtml(String(val)) : '-';
+        case 'bool':
+            if (val === null || val === undefined) return '<span style="color:#9ca3af">—</span>';
+            return val ? '<span class="bool-true">✓</span>' : '<span class="bool-false">✗</span>';
+        case 'datetime':
+            return `<span style="font-size:12px">${formatDateTime(val)}</span>`;
+        case 'html_flag':
+            return val ? '<span class="html-flag">(has HTML)</span>' : '-';
+        case 'jsonb': {
+            if (!val) return '-';
+            const parsed = typeof val === 'object'
+                ? val
+                : (() => { try { return JSON.parse(val); } catch (e) { return null; } })();
+            if (!parsed) return '-';
+            const count = Array.isArray(parsed) ? parsed.length : Object.keys(parsed).length;
+            const tip = escapeAttr(JSON.stringify(parsed, null, 2));
+            return `<span class="jsonb-badge" title="${tip}">${count}</span>`;
+        }
+        case 'text':
+        default:
+            return val != null && val !== '' ? escapeHtml(String(val)) : '-';
     }
-
-    // Show saving state
-    input.classList.add('saving');
-    input.disabled = true;
-
-    try {
-      const response = await fetch(`/api/variations/${variationId}/extended`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          [field]: newValue
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      // Update local data
-      item[field] = newValue;
-
-      // Recreate display with new value
-      recreateDisplay(input.parentElement, variationId, field, newValue);
-
-    } catch (error) {
-      console.error('Failed to save field:', error);
-      const friendlyMsg = window.ErrorHelper
-        ? ErrorHelper.getFriendlyMessage(error, 'inventory', 'update')
-        : 'Failed to save changes. Please try again.';
-      alert(friendlyMsg);
-      recreateDisplay(input.parentElement, variationId, field, currentValue);
-    }
-  } else {
-    // Not saving or no change, just recreate display
-    recreateDisplay(input.parentElement, variationId, field, currentValue);
-  }
 }
 
-// Recreate the display element
-function recreateDisplay(cell, variationId, field, value) {
-  const displayDiv = document.createElement('div');
-  displayDiv.className = `editable-display ${value ? 'has-value' : ''}`;
-  displayDiv.dataset.variationId = variationId;
-  displayDiv.dataset.field = field;
-  displayDiv.dataset.currentValue = value === null ? 'null' : value;
+// ─── Sort ─────────────────────────────────────────────────────────────────────
+function sortBy(field) {
+    sortState.asc = sortState.field === field ? !sortState.asc : true;
+    sortState.field = field;
 
-  if (value) {
-    displayDiv.textContent = value;
-  } else {
-    displayDiv.innerHTML = '<span class="infinity-symbol">∞</span>';
-  }
+    document.querySelectorAll('.sort-indicator').forEach(el => { el.className = 'sort-indicator'; });
+    const el = document.getElementById(`sort-${field}`);
+    if (el) el.className = `sort-indicator ${sortState.asc ? 'asc' : 'desc'}`;
 
-  cell.innerHTML = '';
-  cell.appendChild(displayDiv);
+    const col = COLUMNS.find(c => c.k === field);
+    const numeric = col && ['num', 'money'].includes(col.type);
+
+    filteredData.sort((a, b) => {
+        let av = a[field], bv = b[field];
+        if (numeric) { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+        else { av = (av || '').toString().toLowerCase(); bv = (bv || '').toString().toLowerCase(); }
+        if (av === bv) return 0;
+        return (av > bv ? 1 : -1) * (sortState.asc ? 1 : -1);
+    });
+
+    renderTable(filteredData);
 }
 
-// Expose functions to global scope for event delegation
-window.loadData = loadData;
-window.sortTable = sortTable;
+// ─── Column toggle ────────────────────────────────────────────────────────────
+function buildColTogglePanel() {
+    const list = document.getElementById('colToggleList');
+    list.innerHTML = COLUMNS.filter(c => !c.fixed).map(c => `
+        <label class="col-toggle-item">
+          <input type="checkbox" data-col="${escapeAttr(c.k)}" ${colVisible[c.k] ? 'checked' : ''}>
+          ${escapeHtml(c.label)}
+        </label>`).join('');
+
+    list.addEventListener('change', function (e) {
+        const key = e.target.dataset.col;
+        if (!key) return;
+        colVisible[key] = e.target.checked;
+        saveColVisibility();
+        renderHeader();
+        renderTable(filteredData);
+    });
+}
+
+function toggleColPanel() {
+    document.getElementById('colTogglePanel').classList.toggle('open');
+}
+
+function setAllCols(visible) {
+    COLUMNS.forEach(c => { if (!c.fixed) colVisible[c.k] = visible; });
+    saveColVisibility();
+    document.querySelectorAll('#colToggleList input[type="checkbox"]')
+        .forEach(cb => { cb.checked = visible; });
+    renderHeader();
+    renderTable(filteredData);
+}
+
+function resetCols() {
+    COLUMNS.forEach(c => { colVisible[c.k] = c.fixed ? true : c.vis; });
+    saveColVisibility();
+    document.querySelectorAll('#colToggleList input[type="checkbox"]').forEach(cb => {
+        const col = COLUMNS.find(c => c.k === cb.dataset.col);
+        if (col) cb.checked = col.vis;
+    });
+    renderHeader();
+    renderTable(filteredData);
+}
+
+// ─── Stats ────────────────────────────────────────────────────────────────────
+function calculateStats(data) {
+    document.getElementById('statVariations').textContent = formatNumber(data.length);
+    document.getElementById('statItems').textContent =
+        formatNumber(new Set(data.map(v => v.item_id)).size);
+    document.getElementById('statWithPrice').textContent =
+        formatNumber(data.filter(v => v.price_money).length);
+    document.getElementById('statWithCost').textContent =
+        formatNumber(data.filter(v => v.cost_cents).length);
+    document.getElementById('statMissingUpc').textContent =
+        formatNumber(data.filter(v => !v.upc).length);
+}
+
+// ─── CSV export ───────────────────────────────────────────────────────────────
+function csvEscape(str) {
+    if (str == null) return '';
+    const s = String(str);
+    return (s.includes(',') || s.includes('"') || s.includes('\n'))
+        ? '"' + s.replace(/"/g, '""') + '"'
+        : s;
+}
+
+function exportCsv() {
+    const visCols = COLUMNS.filter(c => colVisible[c.k] && c.type !== 'image');
+    const headers = visCols.map(c => csvEscape(c.label)).join(',');
+
+    const rows = filteredData.map(item =>
+        visCols.map(c => {
+            const val = item[c.k];
+            if (val == null || val === '') return '';
+            if (c.type === 'jsonb') {
+                const parsed = typeof val === 'object'
+                    ? val
+                    : (() => { try { return JSON.parse(val); } catch (e) { return null; } })();
+                return parsed ? csvEscape(JSON.stringify(parsed)) : '';
+            }
+            if (c.type === 'money')     return (val / 100).toFixed(2);
+            if (c.type === 'bool')      return val ? 'true' : 'false';
+            if (c.type === 'html_flag') return val ? '(has HTML)' : '';
+            if (c.type === 'name')      return csvEscape(item.item_name || '');
+            return csvEscape(String(val));
+        }).join(',')
+    );
+
+    const csv = [headers, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `catalog-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// ─── Bootstrap ────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function () {
+    initColVisibility();
+    buildColTogglePanel();
+    loadData();
+
+    document.getElementById('searchBox').addEventListener('input', filterData);
+    document.getElementById('categoryFilter').addEventListener('change', filterData);
+    document.getElementById('vendorFilter').addEventListener('change', filterData);
+    document.getElementById('refreshBtn').addEventListener('click', loadData);
+    document.getElementById('exportCsvBtn').addEventListener('click', exportCsv);
+    document.getElementById('colToggleBtn').addEventListener('click', toggleColPanel);
+    document.getElementById('showAllCols').addEventListener('click', () => setAllCols(true));
+    document.getElementById('hideAllCols').addEventListener('click', () => setAllCols(false));
+    document.getElementById('resetCols').addEventListener('click', resetCols);
+
+    // Close column panel on outside click
+    document.addEventListener('click', function (e) {
+        const panel = document.getElementById('colTogglePanel');
+        if (!panel.classList.contains('open')) return;
+        if (!panel.contains(e.target) && e.target.id !== 'colToggleBtn') {
+            panel.classList.remove('open');
+        }
+    });
+});
+
+window.loadData   = loadData;
 window.filterData = filterData;

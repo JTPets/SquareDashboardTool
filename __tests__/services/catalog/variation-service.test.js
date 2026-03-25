@@ -165,6 +165,82 @@ describe('variation-service', () => {
             await expect(getVariations(undefined)).rejects.toThrow('merchantId is required');
             await expect(getVariations(0)).rejects.toThrow('merchantId is required');
         });
+
+        // ── Expanded item-level fields (STEP 1 catalog viewer) ──────────────
+        it('SQL includes all new item-level fields', async () => {
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            await getVariations(merchantId);
+
+            const [query] = db.query.mock.calls[0];
+            expect(query).toContain('i.description');
+            expect(query).toContain('i.description_html');
+            expect(query).toContain('i.abbreviation');
+            expect(query).toContain('i.custom_attributes AS item_custom_attributes');
+            expect(query).toContain('i.seo_title');
+            expect(query).toContain('i.seo_description');
+            expect(query).toContain('i.visibility');
+            expect(query).toContain('i.available_online');
+            expect(query).toContain('i.available_for_pickup');
+        });
+
+        it('response passes through new item-level fields from DB row', async () => {
+            const rowWithItemFields = {
+                id: 'VAR1', sku: 'SKU-001', name: 'Small', item_name: 'Dog Food',
+                category_name: 'Pet Food', item_images: null, cost_cents: 500,
+                primary_vendor_id: 'VEN1', primary_vendor_name: 'Acme',
+                description: 'Premium dry food',
+                description_html: '<p>Premium dry food</p>',
+                abbreviation: 'DogFd',
+                item_custom_attributes: { brand: 'Acme' },
+                item_tax_ids: ['TAX1'],
+                seo_title: 'Best Dog Food',
+                seo_description: 'Great for all dogs',
+                visibility: 'PRIVATE',
+                available_online: true,
+                available_for_pickup: false,
+                item_options: null,
+                item_square_updated_at: '2026-01-01T00:00:00Z',
+            };
+            db.query.mockResolvedValueOnce({ rows: [rowWithItemFields] });
+
+            const result = await getVariations(merchantId);
+
+            const v = result.variations[0];
+            expect(v.description).toBe('Premium dry food');
+            expect(v.description_html).toBe('<p>Premium dry food</p>');
+            expect(v.abbreviation).toBe('DogFd');
+            expect(v.item_custom_attributes).toEqual({ brand: 'Acme' });
+            expect(v.item_tax_ids).toEqual(['TAX1']);
+            expect(v.seo_title).toBe('Best Dog Food');
+            expect(v.seo_description).toBe('Great for all dogs');
+            expect(v.visibility).toBe('PRIVATE');
+            expect(v.available_online).toBe(true);
+            expect(v.available_for_pickup).toBe(false);
+            expect(v.item_square_updated_at).toBe('2026-01-01T00:00:00Z');
+        });
+
+        it('response handles null item-level fields gracefully', async () => {
+            const rowWithNulls = {
+                id: 'VAR1', sku: 'SKU-001', name: 'Small', item_name: 'Dog Food',
+                category_name: null, item_images: null, cost_cents: null,
+                primary_vendor_id: null, primary_vendor_name: null,
+                description: null, description_html: null, abbreviation: null,
+                item_custom_attributes: null, item_tax_ids: null,
+                seo_title: null, seo_description: null, visibility: null,
+                available_online: null, available_for_pickup: null,
+                item_options: null, item_square_updated_at: null,
+            };
+            db.query.mockResolvedValueOnce({ rows: [rowWithNulls] });
+
+            const result = await getVariations(merchantId);
+
+            const v = result.variations[0];
+            expect(v.description).toBeNull();
+            expect(v.seo_title).toBeNull();
+            expect(v.available_online).toBeNull();
+            expect(result.count).toBe(1);
+        });
     });
 
     // ==================== getVariationsWithCosts ====================
