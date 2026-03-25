@@ -233,6 +233,10 @@ async function ensureSchema() {
                 deleted_at TIMESTAMPTZ,
                 is_archived BOOLEAN DEFAULT FALSE,
                 archived_at TIMESTAMPTZ,
+                description_html TEXT,
+                abbreviation TEXT,
+                custom_attributes JSONB,
+                square_updated_at TIMESTAMPTZ,
                 merchant_id INTEGER NOT NULL REFERENCES merchants(id),
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -281,6 +285,11 @@ async function ensureSchema() {
                 deleted_at TIMESTAMPTZ,
                 is_archived BOOLEAN DEFAULT FALSE,
                 archived_at TIMESTAMPTZ,
+                ordinal INTEGER,
+                tax_ids JSONB,
+                sellable BOOLEAN,
+                stockable BOOLEAN,
+                square_updated_at TIMESTAMPTZ,
                 merchant_id INTEGER NOT NULL REFERENCES merchants(id),
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -1060,6 +1069,17 @@ async function ensureSchema() {
         // Review tracking for expiration items (91-120 day review window)
         { table: 'variation_expiration', column: 'reviewed_at', sql: 'ALTER TABLE variation_expiration ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ' },
         { table: 'variation_expiration', column: 'reviewed_by', sql: 'ALTER TABLE variation_expiration ADD COLUMN IF NOT EXISTS reviewed_by TEXT' },
+
+        // BACKLOG-76: Expanded catalog sync fields
+        { table: 'items', column: 'description_html', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS description_html TEXT' },
+        { table: 'items', column: 'abbreviation', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS abbreviation TEXT' },
+        { table: 'items', column: 'custom_attributes', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS custom_attributes JSONB' },
+        { table: 'items', column: 'square_updated_at', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS square_updated_at TIMESTAMPTZ' },
+        { table: 'variations', column: 'ordinal', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS ordinal INTEGER' },
+        { table: 'variations', column: 'tax_ids', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS tax_ids JSONB' },
+        { table: 'variations', column: 'sellable', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS sellable BOOLEAN' },
+        { table: 'variations', column: 'stockable', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS stockable BOOLEAN' },
+        { table: 'variations', column: 'square_updated_at', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS square_updated_at TIMESTAMPTZ' },
     ];
 
     // ==================== VARIATION EXPIRATION TABLE ====================

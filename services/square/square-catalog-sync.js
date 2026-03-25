@@ -756,15 +756,20 @@ async function syncItem(obj, category_name, merchantId) {
     // Archived items are hidden in Square Dashboard but still operational via API
     const isArchived = data.is_archived === true;
 
+    // Read available_for_pickup directly from Square instead of hardcoding false
+    const availableForPickup = data.available_for_pickup === true;
+
     await db.query(`
         INSERT INTO items (
             id, name, description, category_id, category_name, product_type,
             taxable, tax_ids, visibility, present_at_all_locations, present_at_location_ids,
             absent_at_location_ids, modifier_list_info, item_options, images,
             available_online, available_for_pickup, seo_title, seo_description,
-            is_archived, archived_at, merchant_id, updated_at
+            is_archived, archived_at,
+            description_html, abbreviation, custom_attributes, square_updated_at,
+            merchant_id, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, CURRENT_TIMESTAMP)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, CURRENT_TIMESTAMP)
         ON CONFLICT (id) DO UPDATE SET
             name = EXCLUDED.name,
             description = EXCLUDED.description,
@@ -790,6 +795,10 @@ async function syncItem(obj, category_name, merchantId) {
                 WHEN EXCLUDED.is_archived = FALSE THEN NULL
                 ELSE items.archived_at
             END,
+            description_html = EXCLUDED.description_html,
+            abbreviation = EXCLUDED.abbreviation,
+            custom_attributes = EXCLUDED.custom_attributes,
+            square_updated_at = EXCLUDED.square_updated_at,
             merchant_id = EXCLUDED.merchant_id,
             updated_at = CURRENT_TIMESTAMP
     `, [
@@ -809,11 +818,15 @@ async function syncItem(obj, category_name, merchantId) {
         data.item_options ? JSON.stringify(data.item_options) : null,
         data.image_ids ? JSON.stringify(data.image_ids) : null,
         availableOnline,  // Derived from ecom_visibility === 'VISIBLE'
-        false,  // availableForPickup - Square doesn't expose this per-item via API
+        availableForPickup,  // Read from Square item_data.available_for_pickup
         seoTitle,
         seoDescription,
         isArchived,
         isArchived ? new Date() : null,  // archived_at - set when first archived
+        data.description_html || null,
+        data.abbreviation || null,
+        obj.custom_attribute_values ? JSON.stringify(obj.custom_attribute_values) : null,
+        obj.updated_at || null,
         merchantId
     ]);
 
@@ -898,9 +911,11 @@ async function syncVariation(obj, merchantId) {
             id, item_id, name, sku, upc, price_money, currency, pricing_type,
             track_inventory, inventory_alert_type, inventory_alert_threshold,
             present_at_all_locations, present_at_location_ids, absent_at_location_ids,
-            item_option_values, custom_attributes, images, merchant_id, updated_at
+            item_option_values, custom_attributes, images,
+            ordinal, tax_ids, sellable, stockable, square_updated_at,
+            merchant_id, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CURRENT_TIMESTAMP)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, CURRENT_TIMESTAMP)
         ON CONFLICT (id) DO UPDATE SET
             item_id = EXCLUDED.item_id,
             name = EXCLUDED.name,
@@ -918,6 +933,11 @@ async function syncVariation(obj, merchantId) {
             item_option_values = EXCLUDED.item_option_values,
             custom_attributes = EXCLUDED.custom_attributes,
             images = EXCLUDED.images,
+            ordinal = EXCLUDED.ordinal,
+            tax_ids = EXCLUDED.tax_ids,
+            sellable = EXCLUDED.sellable,
+            stockable = EXCLUDED.stockable,
+            square_updated_at = EXCLUDED.square_updated_at,
             merchant_id = EXCLUDED.merchant_id,
             updated_at = CURRENT_TIMESTAMP
     `, [
@@ -936,8 +956,13 @@ async function syncVariation(obj, merchantId) {
         obj.present_at_location_ids ? JSON.stringify(obj.present_at_location_ids) : null,
         obj.absent_at_location_ids ? JSON.stringify(obj.absent_at_location_ids) : null,
         data.item_option_values ? JSON.stringify(data.item_option_values) : null,
-        obj.custom_attribute_values ? JSON.stringify(obj.custom_attribute_values) : null,
+        obj.custom_attribute_values ? JSON.stringify(obj.custom_attribute_values) : null,  // index 15
         data.image_ids ? JSON.stringify(data.image_ids) : null,
+        data.ordinal ?? null,
+        data.tax_ids ? JSON.stringify(data.tax_ids) : null,
+        data.sellable ?? null,
+        data.stockable ?? null,
+        obj.updated_at || null,
         merchantId
     ]);
 

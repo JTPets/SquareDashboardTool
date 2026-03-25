@@ -1043,4 +1043,184 @@ describe('syncVariation', () => {
         // custom_attributes param (index 15) should be JSON stringified
         expect(insertCall[1][15]).toBe(JSON.stringify(customAttrs));
     });
+
+    it('stores ordinal from item_variation_data.ordinal', async () => {
+        const variation = {
+            ...baseVariation,
+            item_variation_data: {
+                ...baseVariation.item_variation_data,
+                ordinal: 3
+            }
+        };
+
+        await syncVariation(variation, MERCHANT_ID);
+
+        const insertCall = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('INSERT INTO variations')
+        );
+        expect(insertCall[1][17]).toBe(3); // ordinal at index 17
+    });
+
+    it('stores tax_ids from item_variation_data.tax_ids as JSONB', async () => {
+        const taxIds = ['TAX_A', 'TAX_B'];
+        const variation = {
+            ...baseVariation,
+            item_variation_data: {
+                ...baseVariation.item_variation_data,
+                tax_ids: taxIds
+            }
+        };
+
+        await syncVariation(variation, MERCHANT_ID);
+
+        const insertCall = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('INSERT INTO variations')
+        );
+        expect(insertCall[1][18]).toBe(JSON.stringify(taxIds)); // tax_ids at index 18
+    });
+
+    it('stores square_updated_at from top-level obj.updated_at', async () => {
+        const squareTimestamp = '2026-03-20T14:30:00.000Z';
+        const variation = {
+            ...baseVariation,
+            updated_at: squareTimestamp
+        };
+
+        await syncVariation(variation, MERCHANT_ID);
+
+        const insertCall = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('INSERT INTO variations')
+        );
+        expect(insertCall[1][21]).toBe(squareTimestamp); // square_updated_at at index 21
+    });
+
+    it('stores null for ordinal, tax_ids, square_updated_at when absent', async () => {
+        await syncVariation(baseVariation, MERCHANT_ID);
+
+        const insertCall = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('INSERT INTO variations')
+        );
+        expect(insertCall[1][17]).toBeNull(); // ordinal
+        expect(insertCall[1][18]).toBeNull(); // tax_ids
+        expect(insertCall[1][19]).toBeNull(); // sellable
+        expect(insertCall[1][20]).toBeNull(); // stockable
+        expect(insertCall[1][21]).toBeNull(); // square_updated_at
+    });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// syncItem — new fields (BACKLOG-76)
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('syncItem via syncCatalog — BACKLOG-76 new fields', () => {
+    function buildItemObject(overrides = {}) {
+        return {
+            type: 'ITEM',
+            id: 'ITEM_TEST',
+            present_at_all_locations: true,
+            updated_at: overrides.updated_at || null,
+            custom_attribute_values: overrides.custom_attribute_values || null,
+            item_data: {
+                name: 'Test Item',
+                description: 'Plain text',
+                description_html: overrides.description_html || null,
+                abbreviation: overrides.abbreviation || null,
+                available_for_pickup: overrides.available_for_pickup ?? false,
+                ecom_visibility: 'UNINDEXED',
+                categories: [],
+                variations: [{
+                    type: 'ITEM_VARIATION',
+                    id: 'VAR_TEST',
+                    item_variation_data: {
+                        item_id: 'ITEM_TEST',
+                        name: 'Regular',
+                        track_inventory: true
+                    }
+                }]
+            }
+        };
+    }
+
+    function buildSingleItemResponse(itemObj) {
+        return {
+            objects: [itemObj],
+            related_objects: []
+        };
+    }
+
+    it('stores description_html from item_data', async () => {
+        const itemObj = buildItemObject({ description_html: '<p>Rich <b>text</b></p>' });
+        makeSquareRequest.mockResolvedValue(buildSingleItemResponse(itemObj));
+
+        await syncCatalog(MERCHANT_ID);
+
+        const insertCall = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('INSERT INTO items')
+        );
+        expect(insertCall).toBeDefined();
+        expect(insertCall[1]).toContain('<p>Rich <b>text</b></p>');
+    });
+
+    it('stores abbreviation from item_data', async () => {
+        const itemObj = buildItemObject({ abbreviation: 'KIBBL' });
+        makeSquareRequest.mockResolvedValue(buildSingleItemResponse(itemObj));
+
+        await syncCatalog(MERCHANT_ID);
+
+        const insertCall = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('INSERT INTO items')
+        );
+        expect(insertCall[1]).toContain('KIBBL');
+    });
+
+    it('stores custom_attribute_values as JSONB on items', async () => {
+        const customAttrs = { brand: { string_value: 'Acme' }, size: { string_value: 'Large' } };
+        const itemObj = buildItemObject({ custom_attribute_values: customAttrs });
+        makeSquareRequest.mockResolvedValue(buildSingleItemResponse(itemObj));
+
+        await syncCatalog(MERCHANT_ID);
+
+        const insertCall = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('INSERT INTO items')
+        );
+        expect(insertCall[1]).toContain(JSON.stringify(customAttrs));
+    });
+
+    it('stores square_updated_at from obj.updated_at', async () => {
+        const squareTimestamp = '2026-03-15T10:00:00.000Z';
+        const itemObj = buildItemObject({ updated_at: squareTimestamp });
+        makeSquareRequest.mockResolvedValue(buildSingleItemResponse(itemObj));
+
+        await syncCatalog(MERCHANT_ID);
+
+        const insertCall = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('INSERT INTO items')
+        );
+        expect(insertCall[1]).toContain(squareTimestamp);
+    });
+
+    it('reads available_for_pickup from Square instead of hardcoding false', async () => {
+        const itemObj = buildItemObject({ available_for_pickup: true });
+        makeSquareRequest.mockResolvedValue(buildSingleItemResponse(itemObj));
+
+        await syncCatalog(MERCHANT_ID);
+
+        const insertCall = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('INSERT INTO items')
+        );
+        // available_for_pickup is at index 16 in the params array
+        expect(insertCall[1][16]).toBe(true);
+    });
+
+    it('stores false for available_for_pickup when Square has it false', async () => {
+        const itemObj = buildItemObject({ available_for_pickup: false });
+        makeSquareRequest.mockResolvedValue(buildSingleItemResponse(itemObj));
+
+        await syncCatalog(MERCHANT_ID);
+
+        const insertCall = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('INSERT INTO items')
+        );
+        expect(insertCall[1][16]).toBe(false);
+    });
 });
