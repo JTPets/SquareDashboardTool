@@ -396,7 +396,7 @@ function checkMissingOnlineContent(items) {
                 object_id: itemId,
                 object_type: 'ITEM',
                 parent_id: null,
-                severity: 'warning',
+                severity: 'warn',
                 notes: `Public item missing ${missing.join(' and ')}. Add HTML description and product images for online store listings.`
             });
         }
@@ -430,7 +430,7 @@ function checkMissingSeoData(items) {
                 object_id: itemId,
                 object_type: 'ITEM',
                 parent_id: null,
-                severity: 'warning',
+                severity: 'warn',
                 notes: `Public item missing ${missing.join(' and ')}. Use AI autofill to generate SEO metadata.`
             });
         }
@@ -457,7 +457,7 @@ function checkSellableNotTracked(items) {
                     object_id: variation.id,
                     object_type: 'ITEM_VARIATION',
                     parent_id: itemId,
-                    severity: 'warning',
+                    severity: 'warn',
                     notes: 'Variation is sellable but inventory not tracked — potential shrink risk. Enable inventory tracking in Square.'
                 });
             }

@@ -514,13 +514,13 @@
     <div id="catalogHealthSection" style="display: none;">
       <div style="padding: 20px; border-top: 3px solid #2563eb;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-          <h2 style="font-size: 18px; font-weight: 600; color: #111827;">Structural Health Issues</h2>
+          <h2 style="font-size: 18px; font-weight: 600; color: #111827;">Catalog Health Issues</h2>
           <button data-action="runHealthCheck" id="healthCheckBtn" style="background: #6b7280; color: white; border: none; padding: 8px 16px; border-radius: 4px; font-size: 13px; font-weight: 500; cursor: pointer;">Run Health Check Now</button>
         </div>
         <div id="healthCheckResult" style="display: none; padding: 10px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; margin-bottom: 15px; font-size: 13px;"></div>
 
         <div id="healthDetailPrompt" style="display: none; text-align: center; padding: 20px; color: #6b7280;">
-          <p>Click a health card above to view structural issue details (orphans, deleted parents).</p>
+          <p>Click a health card above to view issue details (orphans, deleted parents, content quality).</p>
         </div>
         <div class="loading" id="healthDetailLoading" style="display: none;">
           <div class="spinner"></div>
@@ -528,13 +528,20 @@
         </div>
         <div id="healthFilterRow" style="display: none; margin-bottom: 10px;">
           <select id="healthCheckTypeFilter" data-change="filterHealthIssues" style="padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px; background: white;">
-            <option value="">All Structural Issues</option>
-            <option value="orphaned_variation">Orphaned Variation</option>
-            <option value="deleted_parent">Deleted Parent</option>
-            <option value="category_orphan">Category Orphan</option>
-            <option value="image_orphan">Image Orphan</option>
-            <option value="modifier_orphan">Modifier Orphan</option>
-            <option value="pricing_rule_orphan">Pricing Rule Orphan</option>
+            <option value="">All Health Issues</option>
+            <optgroup label="Structural">
+              <option value="orphaned_variation">Orphaned Variation</option>
+              <option value="deleted_parent">Deleted Parent</option>
+              <option value="category_orphan">Category Orphan</option>
+              <option value="image_orphan">Image Orphan</option>
+              <option value="modifier_orphan">Modifier Orphan</option>
+              <option value="pricing_rule_orphan">Pricing Rule Orphan</option>
+            </optgroup>
+            <optgroup label="Content Quality">
+              <option value="missing_online_content">Missing Online Content</option>
+              <option value="missing_seo_data">Missing SEO Data</option>
+              <option value="sellable_not_tracked">Sellable Not Tracked</option>
+            </optgroup>
           </select>
         </div>
         <div class="table-container" id="healthTableContainer" style="display: none; max-height: 400px;">
