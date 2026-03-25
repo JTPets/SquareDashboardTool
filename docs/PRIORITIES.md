@@ -16,7 +16,7 @@
 | BACKLOG-50 | Post-trial conversion — $1 first month. Capture payment method, prove intent. Decide Stripe vs Square for SaaS billing | CLAUDE.md | L |
 | BACKLOG-39 | Vendor bill-back tracking — track promotional discounts funded by vendors. Need `vendor_billbacks` table, reporting view for claim submission | CLAUDE.md | L |
 | BACKLOG-80 | Email alerts not visible — system sends from/to same email. Set up Cloudflare Email Routing + transactional sender | WORK-ITEMS | S |
-| BACKLOG-81 | Margin erosion alerts — alert when item margin drops due to cost/price changes | WORK-ITEMS | M |
+| BACKLOG-81 | Margin erosion tracking — unified dashboard for margin impact from cost/price changes, loyalty redemptions, and expiry discounts | WORK-ITEMS | L |
 
 ---
 
