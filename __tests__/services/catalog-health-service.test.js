@@ -1,17 +1,17 @@
 /**
  * Tests for services/catalog/catalog-health-service.js
  *
- * Covers all 7 structural check types:
- *   1. location_mismatch
- *   2. orphaned_variation
- *   3. deleted_parent
- *   4. category_orphan
+ * Covers all 10 check types (7 structural + 3 content quality):
+ *   1. location_mismatch        7. pricing_rule_orphan
+ *   2. orphaned_variation       8. missing_online_content
+ *   3. deleted_parent           9. missing_seo_data
+ *   4. category_orphan         10. sellable_not_tracked
  *   5. image_orphan
  *   6. modifier_orphan
- *   7. pricing_rule_orphan
  *
  * missing_tax removed — redundant with catalog audit "No Tax IDs" card.
- * Also covers: merchant guard, resolution, idempotency, legacy cleanup, getHealthHistory, getOpenIssues
+ * Also covers: merchant guard, resolution, idempotency, legacy cleanup, getHealthHistory, getOpenIssues,
+ * and constraint string-match guard to prevent DB constraint violations.
  */
 
 let db;
@@ -570,6 +570,338 @@ describe('CHECK 7: pricing_rule_orphan', () => {
 });
 
 // ============================================================================
+// CHECK 8: missing_online_content
+// ============================================================================
+describe('CHECK 8: missing_online_content', () => {
+    test('detects public item missing description_html and images', async () => {
+        const item = buildItem('ITEM_1', {
+            item_data: {
+                ecom_visibility: 'VISIBLE',
+                description_html: null,
+                image_ids: [],
+                categories: [], variations: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValue({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        expect(result.newIssues).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    check_type: 'missing_online_content',
+                    object_id: 'ITEM_1',
+                    object_type: 'ITEM',
+                    severity: 'warn'
+                })
+            ])
+        );
+    });
+
+    test('detects public item missing only images', async () => {
+        const item = buildItem('ITEM_1', {
+            item_data: {
+                ecom_visibility: 'VISIBLE',
+                description_html: '<p>Has content</p>',
+                image_ids: [],
+                categories: [], variations: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValue({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        const issues = result.newIssues.filter(i => i.check_type === 'missing_online_content');
+        expect(issues).toHaveLength(1);
+    });
+
+    test('no issue when item is not public', async () => {
+        const item = buildItem('ITEM_1', {
+            item_data: {
+                ecom_visibility: 'HIDDEN',
+                description_html: null,
+                image_ids: [],
+                categories: [], variations: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        const issues = result.newIssues.filter(i => i.check_type === 'missing_online_content');
+        expect(issues).toHaveLength(0);
+    });
+
+    test('no issue when public item has both description_html and images', async () => {
+        const item = buildItem('ITEM_1', {
+            item_data: {
+                ecom_visibility: 'VISIBLE',
+                description_html: '<p>Content</p>',
+                image_ids: ['IMG_1'],
+                categories: [], variations: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        const issues = result.newIssues.filter(i => i.check_type === 'missing_online_content');
+        expect(issues).toHaveLength(0);
+    });
+
+    test('treats whitespace-only description_html as missing', async () => {
+        const item = buildItem('ITEM_1', {
+            item_data: {
+                ecom_visibility: 'VISIBLE',
+                description_html: '   ',
+                image_ids: ['IMG_1'],
+                categories: [], variations: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValue({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        const issues = result.newIssues.filter(i => i.check_type === 'missing_online_content');
+        expect(issues).toHaveLength(1);
+    });
+});
+
+// ============================================================================
+// CHECK 9: missing_seo_data
+// ============================================================================
+describe('CHECK 9: missing_seo_data', () => {
+    test('detects public item missing both seo_title and seo_description', async () => {
+        const item = buildItem('ITEM_1', {
+            item_data: {
+                ecom_visibility: 'VISIBLE',
+                ecom_seo_data: {},
+                categories: [], variations: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValue({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        expect(result.newIssues).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    check_type: 'missing_seo_data',
+                    object_id: 'ITEM_1',
+                    object_type: 'ITEM',
+                    severity: 'warn'
+                })
+            ])
+        );
+    });
+
+    test('detects public item missing only seo_description', async () => {
+        const item = buildItem('ITEM_1', {
+            item_data: {
+                ecom_visibility: 'VISIBLE',
+                ecom_seo_data: { page_title: 'Has Title' },
+                categories: [], variations: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValue({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        const issues = result.newIssues.filter(i => i.check_type === 'missing_seo_data');
+        expect(issues).toHaveLength(1);
+    });
+
+    test('no issue when item is not public', async () => {
+        const item = buildItem('ITEM_1', {
+            item_data: {
+                ecom_visibility: 'UNINDEXED',
+                ecom_seo_data: {},
+                categories: [], variations: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        const issues = result.newIssues.filter(i => i.check_type === 'missing_seo_data');
+        expect(issues).toHaveLength(0);
+    });
+
+    test('no issue when public item has both SEO fields', async () => {
+        const item = buildItem('ITEM_1', {
+            item_data: {
+                ecom_visibility: 'VISIBLE',
+                ecom_seo_data: { page_title: 'Title', page_description: 'Description' },
+                categories: [], variations: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        const issues = result.newIssues.filter(i => i.check_type === 'missing_seo_data');
+        expect(issues).toHaveLength(0);
+    });
+
+    test('notes include suggested action for AI autofill', async () => {
+        const item = buildItem('ITEM_1', {
+            item_data: {
+                ecom_visibility: 'VISIBLE',
+                ecom_seo_data: {},
+                categories: [], variations: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValue({ rows: [] });
+
+        await runFullHealthCheck(3);
+        const insertCall = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('INSERT INTO catalog_location_health') &&
+                 c[1] && c[1][4] === 'missing_seo_data'
+        );
+        expect(insertCall).toBeDefined();
+        expect(insertCall[1][8]).toContain('AI autofill'); // notes is $9
+    });
+});
+
+// ============================================================================
+// CHECK 10: sellable_not_tracked
+// ============================================================================
+describe('CHECK 10: sellable_not_tracked', () => {
+    test('detects sellable variation with inventory tracking disabled', async () => {
+        const item = buildItem('ITEM_1', {
+            item_data: {
+                variations: [{
+                    id: 'VAR_1',
+                    present_at_all_locations: true,
+                    item_variation_data: { item_id: 'ITEM_1', sellable: true, track_inventory: false }
+                }],
+                categories: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValue({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        expect(result.newIssues).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    check_type: 'sellable_not_tracked',
+                    object_id: 'VAR_1',
+                    object_type: 'ITEM_VARIATION',
+                    severity: 'warn'
+                })
+            ])
+        );
+    });
+
+    test('detects sellable variation where track_inventory is undefined', async () => {
+        const item = buildItem('ITEM_1', {
+            item_data: {
+                variations: [{
+                    id: 'VAR_1',
+                    present_at_all_locations: true,
+                    item_variation_data: { item_id: 'ITEM_1', sellable: true }
+                    // track_inventory omitted — should still flag
+                }],
+                categories: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValue({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        const issues = result.newIssues.filter(i => i.check_type === 'sellable_not_tracked');
+        expect(issues).toHaveLength(1);
+    });
+
+    test('no issue when sellable and tracking enabled', async () => {
+        const item = buildItem('ITEM_1', {
+            item_data: {
+                variations: [{
+                    id: 'VAR_1',
+                    present_at_all_locations: true,
+                    item_variation_data: { item_id: 'ITEM_1', sellable: true, track_inventory: true }
+                }],
+                categories: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        const issues = result.newIssues.filter(i => i.check_type === 'sellable_not_tracked');
+        expect(issues).toHaveLength(0);
+    });
+
+    test('no issue when not sellable', async () => {
+        const item = buildItem('ITEM_1', {
+            item_data: {
+                variations: [{
+                    id: 'VAR_1',
+                    present_at_all_locations: true,
+                    item_variation_data: { item_id: 'ITEM_1', sellable: false, track_inventory: false }
+                }],
+                categories: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        const issues = result.newIssues.filter(i => i.check_type === 'sellable_not_tracked');
+        expect(issues).toHaveLength(0);
+    });
+
+    test('parent_id points to parent item', async () => {
+        const item = buildItem('ITEM_PARENT', {
+            item_data: {
+                variations: [{
+                    id: 'VAR_1',
+                    present_at_all_locations: true,
+                    item_variation_data: { item_id: 'ITEM_PARENT', sellable: true, track_inventory: false }
+                }],
+                categories: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValue({ rows: [] });
+
+        await runFullHealthCheck(3);
+        const insertCall = db.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('INSERT INTO catalog_location_health') &&
+                 c[1] && c[1][4] === 'sellable_not_tracked'
+        );
+        expect(insertCall).toBeDefined();
+        expect(insertCall[1][6]).toBe('ITEM_PARENT'); // parent_id is $7
+    });
+});
+
+// ============================================================================
 // Resolution + idempotency
 // ============================================================================
 describe('resolution and idempotency', () => {
@@ -720,5 +1052,94 @@ describe('getOpenIssues', () => {
 
     test('throws without merchantId', async () => {
         await expect(getOpenIssues()).rejects.toThrow('merchantId is required');
+    });
+});
+
+// ============================================================================
+// Constraint string-match guard
+// Ensures check_type values emitted by the service match the DB CHECK constraint.
+// Prevents "violates check constraint" errors from reaching production.
+// ============================================================================
+describe('check_type values match DB constraint', () => {
+    // Allowed values from schema.sql CHECK constraint (source of truth)
+    const DB_ALLOWED_CHECK_TYPES = [
+        'location_mismatch',
+        'orphaned_variation',
+        'deleted_parent',
+        'category_orphan',
+        'image_orphan',
+        'modifier_orphan',
+        'pricing_rule_orphan',
+        'missing_online_content',
+        'missing_seo_data',
+        'sellable_not_tracked'
+    ];
+
+    test('all check_type values in service code are in the DB constraint', async () => {
+        // Build a catalog that triggers every check type
+        const item = buildItem('ITEM_1', {
+            present_at_all_locations: true,
+            item_data: {
+                ecom_visibility: 'VISIBLE',
+                description_html: null,
+                image_ids: ['IMG_MISSING'],
+                ecom_seo_data: {},
+                categories: [{ id: 'CAT_MISSING' }],
+                modifier_list_info: [{ modifier_list_id: 'MOD_MISSING' }],
+                variations: [{
+                    id: 'VAR_1',
+                    present_at_all_locations: false,  // location_mismatch
+                    item_variation_data: { item_id: 'ITEM_1', sellable: true, track_inventory: false }
+                }],
+                tax_ids: ['TAX_1']
+            }
+        });
+        // orphaned_variation: variation whose parent is not in the live catalog
+        const orphanVar = buildVariation('VAR_ORPHAN', 'ITEM_GONE');
+        // deleted_parent: variation whose parent IS in the deleted set
+        const deletedParentVar = buildVariation('VAR_DELETED_PARENT', 'ITEM_DELETED');
+        const deletedParent = { id: 'ITEM_DELETED', type: 'ITEM', is_deleted: true };
+        const rule = {
+            id: 'RULE_1', type: 'PRICING_RULE',
+            pricing_rule_data: { match_products_id: 'PSET_DEL' }
+        };
+        const deletedPset = { id: 'PSET_DEL', type: 'PRODUCT_SET', is_deleted: true };
+
+        setupSquareMocks(
+            [item, orphanVar, deletedParentVar, rule],
+            [deletedParent, deletedPset]
+        );
+        db.query.mockResolvedValueOnce({ rows: [] }); // open issues
+        db.query.mockResolvedValue({ rows: [] }); // INSERTs + legacy cleanup
+
+        const result = await runFullHealthCheck(3);
+
+        // Extract all unique check_type values emitted
+        const emittedTypes = new Set(result.newIssues.map(i => i.check_type));
+
+        for (const checkType of emittedTypes) {
+            expect(DB_ALLOWED_CHECK_TYPES).toContain(checkType);
+        }
+
+        // Verify we actually triggered all 10 check types
+        expect(emittedTypes.size).toBe(DB_ALLOWED_CHECK_TYPES.length);
+    });
+
+    test('DB constraint list matches schema.sql', () => {
+        const fs = require('fs');
+        const schemaPath = require('path').join(__dirname, '../../database/schema.sql');
+        const schema = fs.readFileSync(schemaPath, 'utf8');
+
+        // Extract check_type values from the catalog_location_health CHECK constraint
+        // The constraint spans multiple lines: CHECK (check_type IN (\n'val1',\n'val2',...\n))
+        const match = schema.match(/CHECK\s*\(\s*check_type\s+IN\s*\(([\s\S]*?)\)\s*\)/);
+        expect(match).toBeTruthy();
+
+        const constraintValues = match[1]
+            .split(',')
+            .map(s => s.trim().replace(/'/g, ''))
+            .filter(Boolean);
+
+        expect(constraintValues.sort()).toEqual(DB_ALLOWED_CHECK_TYPES.sort());
     });
 });

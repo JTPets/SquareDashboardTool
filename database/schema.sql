@@ -2376,7 +2376,10 @@ CREATE TABLE IF NOT EXISTS catalog_location_health (
             'category_orphan',
             'image_orphan',
             'modifier_orphan',
-            'pricing_rule_orphan'
+            'pricing_rule_orphan',
+            'missing_online_content',
+            'missing_seo_data',
+            'sellable_not_tracked'
         )),
     object_type TEXT,
     parent_id TEXT,
