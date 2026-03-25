@@ -584,6 +584,7 @@ async function generateVendorReceipt(rewardId, merchantId) {
                             variationName: item.variationName || null,
                             quantity: freeQuantity,
                             unitPriceCents: 0,
+                            retailPriceCents: basePriceCents,
                             isFreeItem: true,
                             vendorItemNumber: redeemedVendorCode,
                             wholesaleCostCents: redeemedWholesaleCostCents
@@ -605,6 +606,7 @@ async function generateVendorReceipt(rewardId, merchantId) {
                             variationName: item.variationName || null,
                             quantity: itemQty,
                             unitPriceCents: 0,
+                            retailPriceCents: basePriceCents,
                             isFreeItem: true,
                             vendorItemNumber: redeemedVendorCode,
                             wholesaleCostCents: redeemedWholesaleCostCents
@@ -634,6 +636,17 @@ async function generateVendorReceipt(rewardId, merchantId) {
                 // Sort: free items first (the redeemed item), then others
                 redemptionItems.sort((a, b) => (b.isFreeItem ? 1 : 0) - (a.isFreeItem ? 1 : 0));
 
+                // Capture redeemed item's retail price and wholesale cost for vendor credit summary
+                const freeItem = redemptionItems.find(i => i.isFreeItem);
+                if (freeItem) {
+                    if (freeItem.retailPriceCents) {
+                        data.redeemedRetailPriceCents = freeItem.retailPriceCents;
+                    }
+                    if (freeItem.wholesaleCostCents) {
+                        data.redeemedWholesaleCostCents = freeItem.wholesaleCostCents;
+                    }
+                }
+
                 const redemptionPaymentType = redemptionOrder.tenders?.[0]?.type || 'N/A';
                 const redemptionTotalCents = redemptionOrder.totalMoney?.amount != null
                     ? Number(redemptionOrder.totalMoney.amount)
@@ -655,7 +668,7 @@ async function generateVendorReceipt(rewardId, merchantId) {
                         <td>${escapeHtml(item.name || 'Unknown')}${item.variationName ? ` - ${escapeHtml(item.variationName)}` : ''}${item.isFreeItem ? ' <strong>(FREE)</strong>' : ''}</td>
                         <td>${item.isFreeItem ? escapeHtml(item.vendorItemNumber || '') : ''}</td>
                         <td class="quantity">${item.quantity}</td>
-                        <td class="currency">${item.isFreeItem ? '$0.00' : formatCents(item.unitPriceCents)}</td>
+                        <td class="currency">${item.isFreeItem ? `<span style="text-decoration: line-through; color: #999;">${formatCents(item.retailPriceCents)}</span> $0.00` : formatCents(item.unitPriceCents)}</td>
                         <td class="currency">${item.isFreeItem ? formatCents(item.wholesaleCostCents) : ''}</td>
                         ${isFirst ? `<td rowspan="${redemptionItems.length}">${escapeHtml(redemptionPaymentType)}</td>` : ''}
                         ${isFirst ? `<td rowspan="${redemptionItems.length}" style="font-size: 8px; word-break: break-all;">${escapeHtml(data.square_order_id || 'N/A')}</td>` : ''}
@@ -1014,9 +1027,9 @@ async function generateVendorReceipt(rewardId, merchantId) {
             <div class="summary-row"><span>Refunds:</span><span>${totalRefunds} units</span></div>
             <div class="summary-row"><span>Required:</span><span>${data.required_quantity} units</span></div>
             <div class="summary-row total"><span>Net Qualifying:</span><span>${netQuantity} units</span></div>
-            <div class="summary-row"><span>Item Value:</span><span>${formatCents(data.redeemed_value_cents)}</span></div>
-            <div class="summary-row"><span>Lowest Price:</span><span>${formatCents(data.lowestPriceCents)}</span></div>
-            <div class="summary-row total credit"><span><strong>VENDOR CREDIT:</strong></span><span><strong>${formatCents(data.lowestPriceCents)}</strong></span></div>
+            <div class="summary-row"><span>Retail Price:</span><span>${formatCents(data.redeemedRetailPriceCents || data.redeemed_value_cents)}</span></div>
+            <div class="summary-row"><span>Lowest Paid:</span><span>${formatCents(data.lowestPriceCents)}</span></div>
+            <div class="summary-row"><span>Wholesale Cost:</span><span>${formatCents(data.redeemedWholesaleCostCents)}</span></div>
         </div>
         <div class="signature-section">
             <div class="signature-line">
