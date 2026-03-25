@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Work Items](./WORK-ITEMS.md) | [Roadmap](./ROADMAP.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Updated**: 2026-03-23
+**Last Updated**: 2026-03-25
 
 ---
 
@@ -56,8 +56,8 @@
 | ID | Description | Source | Effort |
 |----|-------------|--------|--------|
 | BACKLOG-8 | Vendor API sync gaps — `contact_name`/`contact_phone` synced but not displayed in vendor dashboard (trivial fix). `account_number` and `address` not synced (needed for branded POs, BACKLOG-44). Only first contact synced, additional contacts dropped. Square vendor `note` not synced (local `notes` field exists separately). | CLAUDE.md | S (display fix) / M (full sync) |
-| BACKLOG-12 | Driver share link validation failure | CLAUDE.md | S |
 | BACKLOG-43 | Min/Max stock per item per location | CLAUDE.md | S |
+| BACKLOG-99 | PO inventory push — push received quantities to Square inventory on PO receive | Session 2026-03-25 | M |
 
 ### Code Quality
 
@@ -65,8 +65,6 @@
 |----|-------------|--------|--------|
 | BACKLOG-34 | Doc: Square reuses variation IDs on POS reorder | CLAUDE.md | S |
 | BACKLOG-40 | exceljs pulls deprecated transitive deps | CLAUDE.md | S |
-| BACKLOG-97 | Vendor bulk create missing `vendor_code` — no `variation_vendors` link on import | Session 2026-03-23 | S |
-| BACKLOG-98 | Oversized toast on PO edit — reorder page confirmation toast too large | Session 2026-03-23 | S |
 
 ---
 
