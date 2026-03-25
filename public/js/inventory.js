@@ -7,13 +7,13 @@
  *   UI helpers       : ~81–100
  *   Data loading     : ~101–135
  *   Filter           : ~136–158
- *   Render header    : ~159–178
- *   Render table     : ~179–215
- *   Sort             : ~216–237
- *   Column toggle    : ~238–278
- *   Stats            : ~279–292
- *   CSV export       : ~293–322
- *   Bootstrap        : ~323–end
+ *   Render header    : ~159–175
+ *   Render table     : ~176–228
+ *   Sort             : ~229–275
+ *   Column toggle    : ~276–295
+ *   Stats            : ~296–310
+ *   CSV export       : ~311–350
+ *   Bootstrap        : ~351–end
  * Extraction candidates: catalog-column-defs.js, catalog-cell-renderer.js
  */
 
@@ -175,6 +175,7 @@ function filterData() {
         return true;
     });
 
+    applySortToFiltered();
     renderTable(filteredData);
     calculateStats(filteredData);
     document.getElementById('statusBadge').textContent =
@@ -185,14 +186,12 @@ function filterData() {
 function renderHeader() {
     const thead = document.getElementById('tableHead');
     const visCols = COLUMNS.filter(c => colVisible[c.k]);
-    const sortableTypes = new Set(['text', 'mono', 'num', 'money', 'datetime']);
 
     thead.innerHTML = '<tr>' + visCols.map(c => {
         const fixedCls = c.fixed ? ' col-fixed' : '';
-        const isSortable = sortableTypes.has(c.type);
-        const sortCls = isSortable ? ' sortable' : '';
-        const indicator = isSortable ? ` <span class="sort-indicator" id="sort-${c.k}"></span>` : '';
-        const sortAttr = isSortable ? ` data-sort-key="${escapeAttr(c.k)}"` : '';
+        const sortCls = ' sortable';
+        const indicator = ` <span class="sort-indicator" id="sort-${c.k}"></span>`;
+        const sortAttr = ` data-sort-key="${escapeAttr(c.k)}"`;
         return `<th class="${fixedCls}${sortCls}"${sortAttr}>${escapeHtml(c.label)}${indicator}</th>`;
     }).join('') + '</tr>';
 
@@ -260,6 +259,31 @@ function renderCell(col, item) {
 }
 
 // ─── Sort ─────────────────────────────────────────────────────────────────────
+function isNullish(v) { return v === null || v === undefined || v === ''; }
+
+function getSortValue(field, col, row) {
+    const v = col.type === 'name' ? row.item_name : row[field];
+    if (isNullish(v)) return null;
+    switch (col.type) {
+        case 'num': case 'money':
+            return parseFloat(v) || 0;
+        case 'bool':
+            return v === true ? 1 : 0;
+        case 'html_flag':
+            return v ? 1 : 0;
+        case 'datetime':
+            return new Date(v).getTime() || 0;
+        case 'jsonb': {
+            const parsed = typeof v === 'object'
+                ? v : (() => { try { return JSON.parse(v); } catch (_) { return null; } })();
+            if (!parsed) return 0;
+            return Array.isArray(parsed) ? parsed.length : Object.keys(parsed).length;
+        }
+        default: // text, mono, name
+            return String(v).toLowerCase();
+    }
+}
+
 function sortBy(field) {
     sortState.asc = sortState.field === field ? !sortState.asc : true;
     sortState.field = field;
@@ -268,18 +292,25 @@ function sortBy(field) {
     const el = document.getElementById(`sort-${field}`);
     if (el) el.className = `sort-indicator ${sortState.asc ? 'asc' : 'desc'}`;
 
-    const col = COLUMNS.find(c => c.k === field);
-    const numeric = col && ['num', 'money'].includes(col.type);
+    applySortToFiltered();
+    renderTable(filteredData);
+}
+
+function applySortToFiltered() {
+    if (!sortState.field) return;
+    const col = COLUMNS.find(c => c.k === sortState.field);
+    if (!col) return;
 
     filteredData.sort((a, b) => {
-        let av = a[field], bv = b[field];
-        if (numeric) { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
-        else { av = (av || '').toString().toLowerCase(); bv = (bv || '').toString().toLowerCase(); }
+        const av = getSortValue(sortState.field, col, a);
+        const bv = getSortValue(sortState.field, col, b);
+        // NULL/empty always sorts to bottom (asc) or top (desc)
+        if (av === null && bv === null) return 0;
+        if (av === null) return sortState.asc ? 1 : -1;
+        if (bv === null) return sortState.asc ? -1 : 1;
         if (av === bv) return 0;
         return (av > bv ? 1 : -1) * (sortState.asc ? 1 : -1);
     });
-
-    renderTable(filteredData);
 }
 
 // ─── Column toggle ────────────────────────────────────────────────────────────
