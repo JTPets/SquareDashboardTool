@@ -639,30 +639,6 @@
       margin-top: 20px;
     }
 
-    .toast {
-      position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%) translateY(-100px);
-      background: #111827;
-      color: white;
-      padding: 16px 24px;
-      border-radius: 12px;
-      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.2);
-      z-index: 2000;
-      transition: transform 0.3s;
-      max-width: 90%;
-    }
-    .toast.active {
-      transform: translateX(-50%) translateY(0);
-    }
-    .toast.success {
-      background: #10b981;
-    }
-    .toast.error {
-      background: #ef4444;
-    }
-
     @media (min-width: 768px) {
       .items-container {
         max-width: 600px;
@@ -700,6 +676,7 @@
       }
     }
   </style>
+  <link rel="stylesheet" href="/css/shared.css">
 </head>
 <body>
   <div class="header">

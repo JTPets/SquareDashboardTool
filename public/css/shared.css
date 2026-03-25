@@ -1,0 +1,43 @@
+/**
+ * shared.css — Shared component styles loaded by all pages.
+ *
+ * This is the single source of truth for toast appearance.
+ * Pages must not define local .toast CSS — override here if needed.
+ *
+ * Script dependency: /js/utils/toast.js
+ * Load order: <link rel="stylesheet" href="/css/shared.css"> before page scripts.
+ */
+
+/* =============================================================
+   Toast notification
+   ============================================================= */
+
+.toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  color: white;
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10000;
+  max-width: 400px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  background: #333;
+  transform: translateX(120%);
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  opacity: 0;
+}
+
+.toast.active,
+.toast.visible {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.toast.success  { background: #10b981; }
+.toast.error    { background: #ef4444; }
+.toast.warning  { background: #f59e0b; }
+.toast.info     { background: #3b82f6; }
