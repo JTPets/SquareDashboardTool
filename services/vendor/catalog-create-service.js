@@ -328,6 +328,10 @@ async function createSquareBatch(entries, merchantId, accessToken, taxIds = []) 
             }]
         };
 
+        if (entry.description_html) {
+            itemData.description_html = entry.description_html;
+        }
+
         if (taxIds.length > 0) {
             itemData.tax_ids = taxIds;
         }

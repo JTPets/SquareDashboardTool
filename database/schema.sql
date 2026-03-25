@@ -267,6 +267,10 @@ CREATE TABLE items (
     available_for_pickup BOOLEAN DEFAULT FALSE,
     seo_title TEXT,
     seo_description TEXT,
+    description_html TEXT,
+    abbreviation TEXT,
+    custom_attributes JSONB,
+    square_updated_at TIMESTAMPTZ,
     merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -306,6 +310,11 @@ CREATE TABLE variations (
     -- LOGIC CHANGE: supplier_item_number removed (BACKLOG-89) — vendor codes stored in variation_vendors.vendor_code
     -- LOGIC CHANGE: last_cost_cents/last_cost_date dropped (0a) — dead columns, vendor costs in variation_vendors.unit_cost_money
     notes TEXT,
+    ordinal INTEGER,
+    tax_ids JSONB,
+    sellable BOOLEAN,
+    stockable BOOLEAN,
+    square_updated_at TIMESTAMPTZ,
     merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -2436,6 +2445,32 @@ CREATE TABLE IF NOT EXISTS staff_invitations (
 
 CREATE INDEX IF NOT EXISTS idx_staff_invitations_merchant ON staff_invitations(merchant_id);
 CREATE INDEX IF NOT EXISTS idx_staff_invitations_token_hash ON staff_invitations(token_hash);
+
+-- ========================================
+-- MIGRATION: BACKLOG-76 Expand catalog sync fields
+-- ========================================
+-- Captures missing Square CatalogItem and CatalogItemVariation fields
+
+ALTER TABLE items ADD COLUMN IF NOT EXISTS description_html TEXT;
+ALTER TABLE items ADD COLUMN IF NOT EXISTS abbreviation TEXT;
+ALTER TABLE items ADD COLUMN IF NOT EXISTS custom_attributes JSONB;
+ALTER TABLE items ADD COLUMN IF NOT EXISTS square_updated_at TIMESTAMPTZ;
+
+ALTER TABLE variations ADD COLUMN IF NOT EXISTS ordinal INTEGER;
+ALTER TABLE variations ADD COLUMN IF NOT EXISTS tax_ids JSONB;
+ALTER TABLE variations ADD COLUMN IF NOT EXISTS sellable BOOLEAN;
+ALTER TABLE variations ADD COLUMN IF NOT EXISTS stockable BOOLEAN;
+ALTER TABLE variations ADD COLUMN IF NOT EXISTS square_updated_at TIMESTAMPTZ;
+
+COMMENT ON COLUMN items.description_html IS 'Rich-text HTML description from Square item_data.description_html';
+COMMENT ON COLUMN items.abbreviation IS 'Short name shown on receipts/POS from Square item_data.abbreviation';
+COMMENT ON COLUMN items.custom_attributes IS 'All custom_attribute_values from Square as JSONB blob';
+COMMENT ON COLUMN items.square_updated_at IS 'Square authoritative updated_at timestamp (RFC3339)';
+COMMENT ON COLUMN variations.ordinal IS 'Sort order within parent item from Square item_variation_data.ordinal';
+COMMENT ON COLUMN variations.tax_ids IS 'Variation-level tax overrides from Square item_variation_data.tax_ids';
+COMMENT ON COLUMN variations.sellable IS 'Whether variation can be sold, from Square item_variation_data.sellable';
+COMMENT ON COLUMN variations.stockable IS 'Whether variation has stockable inventory, from Square item_variation_data.stockable';
+COMMENT ON COLUMN variations.square_updated_at IS 'Square authoritative updated_at timestamp (RFC3339)';
 
 -- ========================================
 -- FINAL: Schema creation complete
