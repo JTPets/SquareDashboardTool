@@ -330,6 +330,7 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 | BACKLOG-66 | Customer email bounce tracking for loyalty notifications. | S | 2026-03-15 |
 | BACKLOG-61 | GMC v1beta → v1 migration — Google Merchant API v1beta discontinued Feb 28 2026. Product upserts failing with 409 ABORTED. Backup script running. Services still use v1beta endpoints. | M | 2026-03-09 |
 | BACKLOG-99 | PO inventory push — when receiving a PO, push the received quantities to Square inventory as an adjustment so Square stock levels stay in sync without a manual sync. | M | 2026-03-25 |
+| BACKLOG-102 | Vendor dashboard header order total uses uncapped reorder quantities; reorder page uses capped. Fix: vendor dashboard aggregation must apply max-stock caps when computing the header total. Show capped total as the primary value (actual order cost). Add secondary uncapped total as a visual hint for minimum-order planning. Root cause traced: $626.95 (dashboard) vs $556.60 (reorder page) — $70.35 delta is exactly the wholesale cost of XL Bistro 30lb capped at max stock. Bug is in dashboard aggregation only; reorder page total is correct. | S | 2026-03-25 |
 
 ### Code TODOs in Source
 
