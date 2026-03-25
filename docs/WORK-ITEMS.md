@@ -2,11 +2,47 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
-**Last Validated**: 2026-03-23
-**Total Open Items**: ~50
+**Last Validated**: 2026-03-25
+**Total Open Items**: ~44
 
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
+
+### Purge Log — 2026-03-25 Session Wrap-up (BACKLOG-12/29/73/97/98/101, Security LOWs, L-2)
+
+**BACKLOG-12 FIXED** — Driver share link UUID validation failure resolved. Share link generation validates token format correctly.
+
+**BACKLOG-29 FIXED** — Webhook subscription confirmed; `invoice.payment_made` event present and handled by order webhook processor.
+
+**BACKLOG-73 FIXED** — Vendor receipt multi-redemption duplicate rows bug resolved. Same-order multiple redemptions no longer create duplicate receipt entries.
+
+**BACKLOG-96 FIXED** (confirmed) — Enable-item-at-locations duplicate object error confirmed resolved from 2026-03-23 session.
+
+**BACKLOG-97 FIXED** — Vendor bulk create now creates `variation_vendors` link with `vendor_code` from import CSV. `present_at_all_locations` also set on vendor bulk create. Confirmed present.
+
+**BACKLOG-98 FIXED** — Oversized toast on PO edit resolved. Root cause: `purchase-orders.html` had local `.toast` CSS with `min-width: 300px` and non-standard structure overriding the shared toast utility. Fixed as part of BACKLOG-101 CSS centralization.
+
+**AUDIT-4.5.1 FIXED** — Server-generated IDs in HTML attributes now escaped with `escapeAttr()`.
+
+**AUDIT-5.2.1 FIXED** — Token refresh race condition resolved with mutex preventing concurrent refresh requests.
+
+**AUDIT-2.3.1 FIXED** — `/subscriptions/status` no longer leaks plan name by email lookup.
+
+**AUDIT-5.8.1 FIXED** — Webhook `notificationUrl` now validated against SSRF allowlist before registration.
+
+**O-4 FIXED** — Confirmed resolved. `currentVariationData` scoping bug in `square-pricing.js` was fixed in prior session; removed from tech debt.
+
+**L-2 FIXED** — 10 logger call sites now include `merchantId` in error log metadata.
+
+**BACKLOG-101 FIXED** — Toast CSS centralized. Removed runtime style injection IIFE from `toast.js`. Created `public/css/shared.css` as single source of truth. Removed local `.toast` CSS blocks from 8 HTML pages (purchase-orders, vendor-dashboard, expiry-audit, bundle-manager, cycle-count, delivery-route, driver, reorder). Added `<link rel="stylesheet" href="/css/shared.css">` to all 11 pages using toast.js. Sets pattern for future shared component styles. 239 suites / 4,852 tests passing.
+
+**BACKLOG-80 PARTIAL** — Alert recipients helper built (`utils/alert-recipients.js`, 135 tests). Email delivery infrastructure (Cloudflare Email Routing + transactional sender) not yet configured — remains open.
+
+**BACKLOG-100 FIXED** — Driver order notes added to driver view. Customer profile notes now visible to delivery drivers on the route page.
+
+**Additional fixes this session**: `square-webhooks.js` fixed to use app-level token (not per-merchant token). `driver.html` added to `publicPages` list in `server.js`. `deploy.sh` fixed (NODE_ENV production, PM2 name `sqtools`, `npm test` step). OAuth `merchant_id` nullable fix for new merchant flow. Location mismatch detection: 3 bugs fixed, `not_at_all_locations` audit category added to catalog-location-health job. `present_at_all_locations` set correctly on vendor bulk create. Staff invitation cancel endpoint added; invite URL fallback for missing BASE_URL.
+
+**New items discovered**: BACKLOG-99 (PO inventory push to Square on receive).
 
 ### Purge Log — 2026-03-23 Security Audit LOWs + BACKLOG-41 + Catalog Fixes
 
@@ -290,13 +326,10 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 | ID | Description | Effort | Discovered |
 |----|-------------|--------|------------|
 | BACKLOG-8 | Vendor API sync gaps — `contact_name`/`contact_phone` synced but not displayed in vendor dashboard (trivial fix). `account_number` and `address` not synced (needed for branded POs, BACKLOG-44). Only first contact synced, additional contacts dropped. Square vendor `note` not synced (local `notes` field exists separately). | S (display fix) / M (full sync) | 2026-02-01 |
-| BACKLOG-12 | Driver share link validation failure. | S | 2026-01-01 |
 | BACKLOG-43 | Min/Max stock per item per location — investigate Square thresholds first. | S | 2026-02-01 |
 | BACKLOG-66 | Customer email bounce tracking for loyalty notifications. | S | 2026-03-15 |
 | BACKLOG-61 | GMC v1beta → v1 migration — Google Merchant API v1beta discontinued Feb 28 2026. Product upserts failing with 409 ABORTED. Backup script running. Services still use v1beta endpoints. | M | 2026-03-09 |
-| BACKLOG-97 | Vendor bulk create missing `vendor_code` — import CSV has vendor item number but `createSquareBatch()` only creates Square catalog object and local rows. No `variation_vendors` link created. New items have no vendor association despite being created from a vendor import. | S | 2026-03-23 |
-| BACKLOG-98 | Oversized toast on PO edit — reorder page PO edit confirmation shows oversized toast bar. Toast message too long or CSS doesn't handle long content. | S | 2026-03-23 |
-| BACKLOG-101 | CSS centralization audit — toast.js injects styles at runtime but 35 HTML pages define their own .toast CSS locally, causing overrides and inconsistencies (purchase-orders.html missing max-width was the symptom). Audit all pages for duplicate/conflicting CSS. Move shared component styles (toast, modals, tables, buttons, cards) into a single shared stylesheet loaded by all pages. Remove page-local overrides. Also audit which pages use showToast from the utility vs inline toast implementations. | M | 2026-03-24 |
+| BACKLOG-99 | PO inventory push — when receiving a PO, push the received quantities to Square inventory as an adjustment so Square stock levels stay in sync without a manual sync. | M | 2026-03-25 |
 
 ### Code TODOs in Source
 
@@ -325,9 +358,9 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 |------|-------|
 | Critical | 0 |
 | High | 4 |
-| Medium | ~32 |
-| Low | ~12 |
+| Medium | ~31 |
+| Low | ~8 |
 | Nice to Have | 4 |
-| **Total** | **~50** |
+| **Total** | **~44** |
 
-**Validation delta**: ~95 → ~65 → ~49 → ~44 → ~37 → ~34 → ~31 → ~53 → ~49 → ~50 items. **90+ items purged** across nine validations. 2026-03-23: AUDIT-4.2.1/3.8/2.5.1 fixed, BACKLOG-96 fixed, BACKLOG-41 phases 3B-2+4 done. 3 new items discovered (BACKLOG-95/97/98).
+**Validation delta**: ~95 → ~65 → ~49 → ~44 → ~37 → ~34 → ~31 → ~53 → ~49 → ~50 → ~44 items. **95+ items purged** across ten validations. 2026-03-25: BACKLOG-12/29/73/97/98/101 fixed, AUDIT-4.5.1/5.2.1/2.3.1/5.8.1 fixed, L-2 fixed, O-4 confirmed. BACKLOG-99 discovered. Net −6.

@@ -271,8 +271,8 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 
 **Security Audit Grade**: B+ (13-section audit, 2026-03-22)
 **Core Security**: A+ (multi-tenant isolation, auth, injection prevention, data integrity)
-**Test Coverage**: 4,825 tests / 237 suites / 0 failures
-**Last Audit**: 2026-03-22
+**Test Coverage**: 4,852 tests / 239 suites / 0 failures
+**Last Audit**: 2026-03-25
 
 ### Audit Summary (13 sections)
 | Grade | Sections |
@@ -306,15 +306,11 @@ See [docs/WORK-ITEMS.md](docs/WORK-ITEMS.md) for the complete consolidated work 
 | Medium | BACKLOG-64 | Audit Square `sold_out` flag vs inventory = 0 |
 | Medium | BACKLOG-65 | Sync Square Online Store category assignments |
 | Medium | BACKLOG-95 | Multi-location expiry/count scoping — `variation_expiration`, `variation_discount_status`, cycle count tables lack `location_id`. Pre-franchise |
-| Medium | BACKLOG-73 | Vendor receipt display bug — multi-redemption same order |
 | Medium | BACKLOG-4 | Customer birthday sync for marketing |
 | Medium | BACKLOG-1 | Frontend polling rate limits |
-| Low | BACKLOG-97 | Vendor bulk create missing `vendor_code` — import CSV has vendor item number but no `variation_vendors` link created |
-| Low | BACKLOG-98 | Oversized toast on PO edit — reorder page confirmation toast too large |
-| Medium | BACKLOG-101 | CSS centralization audit — toast.js injects styles at runtime but 35 HTML pages define their own .toast CSS locally, causing overrides and inconsistencies (purchase-orders.html missing max-width was the symptom). Audit all pages for duplicate/conflicting CSS. Move shared component styles (toast, modals, tables, buttons, cards) into a single shared stylesheet loaded by all pages. Remove page-local overrides. Also audit which pages use showToast from the utility vs inline toast implementations. |
 | Low | BACKLOG-8 | Vendor API sync gaps — `contact_name`/`contact_phone` synced but not displayed (S). `account_number`/`address` not synced (M, needed for BACKLOG-44). Only first contact synced. Square `note` not synced. |
-| Low | BACKLOG-12 | Driver share link validation failure |
 | Low | BACKLOG-43 | Min/Max stock per item per location |
+| Low | BACKLOG-99 | PO inventory push — push received quantities to Square inventory on PO receive |
 | Low | BACKLOG-46 | QuickBooks daily sync |
 | Low | BACKLOG-47 | Multi-channel inventory sync (Shopify, WooCommerce, BigCommerce) |
 | Low | BACKLOG-48 | Clover POS integration |

@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Work Items](./WORK-ITEMS.md) | [Priorities](./PRIORITIES.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
-**Last Updated**: 2026-03-24
+**Last Updated**: 2026-03-25
 
 Known issues that are logged but not yet scheduled. These are not blocking any feature work — they represent latent risks, code smells, or minor correctness issues to address when touching nearby code.
 
@@ -14,12 +14,12 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 |----------|-----------|
 | Code Quality Observations | 2 |
 | Square Online Store | 4 |
-| Logging | 1 |
+| Logging | 0 |
 | Config | 1 |
 | Architecture | 0 |
 | Multi-Tenant Gaps | 5 |
-| Audit Findings (2026-03-22) | 4 |
-| **Total** | **~17** |
+| Audit Findings (2026-03-22) | 1 |
+| **Total** | **~13** |
 
 ---
 
@@ -83,9 +83,7 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 
 ## Logging
 
-| ID | Description |
-|----|-------------|
-| L-2 | 10 locations missing `merchantId` in error logs |
+No open items.
 
 ---
 
@@ -120,11 +118,11 @@ No open items.
 | ID | Description |
 |----|-------------|
 | AUDIT-4.2.1 | ~~LIKE wildcard injection in taxonomy search~~ — **FIXED** (escapeLikePattern utility) |
-| AUDIT-4.5.1 | Server-generated IDs unescaped in HTML attributes |
-| AUDIT-5.2.1 | Token refresh race condition — no mutex for concurrent requests |
-| AUDIT-5.8.1 | Webhook notificationUrl accepts any URL |
+| AUDIT-4.5.1 | ~~Server-generated IDs unescaped in HTML attributes~~ — **FIXED** (2026-03-25) |
+| AUDIT-5.2.1 | ~~Token refresh race condition — no mutex for concurrent requests~~ — **FIXED** (2026-03-25) |
+| AUDIT-5.8.1 | ~~Webhook notificationUrl accepts any URL~~ — **FIXED** (2026-03-25) |
 | AUDIT-3.8 | ~~9 modification routes missing requireWriteAccess~~ — **FIXED** (10 routes in catalog.js) |
-| AUDIT-2.3.1 | Public /subscriptions/status leaks plan name by email |
+| AUDIT-2.3.1 | ~~Public /subscriptions/status leaks plan name by email~~ — **FIXED** (2026-03-25) |
 | AUDIT-2.5.1 | ~~Debug cron jobs hardcoded to merchant_id = 3~~ — **FIXED** (multi-tenant iteration) |
 | AUDIT-6.1 | Driver API routes (`driverApiRoutes` mounted at `/api`) bypass `/api/delivery` feature+permission gates. Authenticated driver management endpoints (e.g. `POST /api/delivery/route/:id/share`) use `requireAuth`+`requireMerchant` directly but skip `requireFeature('delivery')`. Low risk: driver routes are token-based, not session-based. **Pre-franchise review item.** |
 
@@ -134,6 +132,7 @@ No open items.
 
 | Date | Grade | Notes |
 |------|-------|-------|
+| 2026-03-25 | B+ | 4 audit LOWs fixed (AUDIT-4.5.1, 5.2.1, 2.3.1, 5.8.1). L-2 fixed. BACKLOG-12/29/73/97/98 fixed. BACKLOG-101 toast CSS centralized (shared.css). 4,852 tests / 239 suites. |
 | 2026-03-23 | B+ | 3 audit LOWs fixed (AUDIT-4.2.1, 3.8, 2.5.1). BACKLOG-41 phases 3B-2+4 done. 4,825 tests / 237 suites. |
 | 2026-03-22 | B+ | 13-section security audit. Core security A+. 4,500+ tests / 219 suites. |
 | 2026-03-15 | A+ | 4,035 tests / 187 suites / 0 failures. Loyalty: 857+ tests. 119 new tests in session. |
