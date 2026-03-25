@@ -1,18 +1,21 @@
 /**
  * Catalog Health Service
  *
- * Full catalog health monitor that runs 8 check types against the Square Catalog API.
+ * Full catalog health monitor that runs 10 check types against the Square Catalog API.
  * Debug tool scoped to merchant_id = 3 only. Permanent audit trail — rows never pruned.
  *
  * Check types:
- *   1. location_mismatch    — variation/item present_at_all_locations flag mismatch, or
- *                             variation.present_at_location_ids contains IDs absent from parent item
- *   2. orphaned_variation   — variation with no matching parent ITEM
- *   3. deleted_parent       — variation whose parent ITEM is deleted
- *   4. category_orphan      — ITEM referencing non-existent or deleted CATEGORY
- *   5. image_orphan         — ITEM/VARIATION referencing non-existent or deleted IMAGE
- *   6. modifier_orphan      — ITEM referencing non-existent or deleted MODIFIER_LIST
- *   7. pricing_rule_orphan  — PRICING_RULE referencing non-existent objects
+ *   1. location_mismatch       — variation/item present_at_all_locations flag mismatch, or
+ *                                variation.present_at_location_ids contains IDs absent from parent item
+ *   2. orphaned_variation      — variation with no matching parent ITEM
+ *   3. deleted_parent          — variation whose parent ITEM is deleted
+ *   4. category_orphan         — ITEM referencing non-existent or deleted CATEGORY
+ *   5. image_orphan            — ITEM/VARIATION referencing non-existent or deleted IMAGE
+ *   6. modifier_orphan         — ITEM referencing non-existent or deleted MODIFIER_LIST
+ *   7. pricing_rule_orphan     — PRICING_RULE referencing non-existent objects
+ *   8. missing_online_content  — public ITEM missing description_html or images
+ *   9. missing_seo_data        — public ITEM missing SEO title or description
+ *  10. sellable_not_tracked    — sellable ITEM_VARIATION with inventory tracking disabled
  *
  * Removed: missing_tax — redundant with catalog audit "No Tax IDs" card.
  *
@@ -369,6 +372,101 @@ function checkPricingRuleOrphans(pricingRules, items, deletedIds) {
     return issues;
 }
 
+/**
+ * CHECK 8: missing_online_content
+ * ITEM with ecom_visibility=VISIBLE but missing description_html or images.
+ * Live on the online store with no content hurts conversion.
+ */
+function checkMissingOnlineContent(items) {
+    const issues = [];
+
+    for (const [itemId, item] of items) {
+        const data = item.item_data || {};
+        if (data.ecom_visibility !== 'VISIBLE') continue;
+
+        const hasHtml = data.description_html && data.description_html.trim().length > 0;
+        const hasImages = data.image_ids && data.image_ids.length > 0;
+
+        if (!hasHtml || !hasImages) {
+            const missing = [];
+            if (!hasHtml) missing.push('description_html');
+            if (!hasImages) missing.push('images');
+            issues.push({
+                check_type: 'missing_online_content',
+                object_id: itemId,
+                object_type: 'ITEM',
+                parent_id: null,
+                severity: 'warning',
+                notes: `Public item missing ${missing.join(' and ')}. Add HTML description and product images for online store listings.`
+            });
+        }
+    }
+
+    return issues;
+}
+
+/**
+ * CHECK 9: missing_seo_data
+ * ITEM with ecom_visibility=VISIBLE but missing SEO title or description.
+ * AI autofill exists for this — surface items that need it.
+ */
+function checkMissingSeoData(items) {
+    const issues = [];
+
+    for (const [itemId, item] of items) {
+        const data = item.item_data || {};
+        if (data.ecom_visibility !== 'VISIBLE') continue;
+
+        const seo = data.ecom_seo_data || {};
+        const hasTitle = seo.page_title && seo.page_title.trim().length > 0;
+        const hasDesc = seo.page_description && seo.page_description.trim().length > 0;
+
+        if (!hasTitle || !hasDesc) {
+            const missing = [];
+            if (!hasTitle) missing.push('seo_title');
+            if (!hasDesc) missing.push('seo_description');
+            issues.push({
+                check_type: 'missing_seo_data',
+                object_id: itemId,
+                object_type: 'ITEM',
+                parent_id: null,
+                severity: 'warning',
+                notes: `Public item missing ${missing.join(' and ')}. Use AI autofill to generate SEO metadata.`
+            });
+        }
+    }
+
+    return issues;
+}
+
+/**
+ * CHECK 10: sellable_not_tracked
+ * ITEM_VARIATION where sellable=true but track_inventory is not enabled.
+ * Potential shrink risk — sold items with no inventory tracking.
+ */
+function checkSellableNotTracked(items) {
+    const issues = [];
+
+    for (const [itemId, item] of items) {
+        const variations = item.item_data?.variations || [];
+        for (const variation of variations) {
+            const varData = variation.item_variation_data || {};
+            if (varData.sellable === true && varData.track_inventory !== true) {
+                issues.push({
+                    check_type: 'sellable_not_tracked',
+                    object_id: variation.id,
+                    object_type: 'ITEM_VARIATION',
+                    parent_id: itemId,
+                    severity: 'warning',
+                    notes: 'Variation is sellable but inventory not tracked — potential shrink risk. Enable inventory tracking in Square.'
+                });
+            }
+        }
+    }
+
+    return issues;
+}
+
 // ============================================================================
 // Main orchestrator + DB persistence
 // ============================================================================
@@ -395,7 +493,7 @@ async function runFullHealthCheck(merchantId) {
     // Fetch deleted object IDs for orphan checks
     const deletedIds = await fetchDeletedObjectIds(accessToken);
 
-    // Run all 7 structural checks (missing_tax removed — covered by catalog audit)
+    // Run all 10 checks (7 structural + 3 content quality)
     const allIssues = [
         ...checkLocationMismatches(catalog.items),
         ...checkOrphanedVariations(catalog.variations, catalog.items),
@@ -403,7 +501,10 @@ async function runFullHealthCheck(merchantId) {
         ...checkCategoryOrphans(catalog.items, catalog.categories, deletedIds),
         ...checkImageOrphans(catalog.items, catalog.variations, catalog.images, deletedIds),
         ...checkModifierOrphans(catalog.items, catalog.modifiers, deletedIds),
-        ...checkPricingRuleOrphans(catalog.pricingRules, catalog.items, deletedIds)
+        ...checkPricingRuleOrphans(catalog.pricingRules, catalog.items, deletedIds),
+        ...checkMissingOnlineContent(catalog.items),
+        ...checkMissingSeoData(catalog.items),
+        ...checkSellableNotTracked(catalog.items)
     ];
 
     // Load existing open issues from DB
