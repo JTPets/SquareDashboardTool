@@ -14,7 +14,7 @@
 |----|-------------|--------|--------|
 | BACKLOG-61 | GMC v1beta → v1 migration — Google Merchant API v1beta discontinued Feb 28 2026. All product upserts failing with 409. Live store affected — organic Google Shopping visibility broken. **P0.** | Error logs 2026-03-09 | M |
 | BACKLOG-50 | Post-trial conversion — $1 first month. Capture payment method, prove intent. Decide Stripe vs Square for SaaS billing | CLAUDE.md | L |
-| BACKLOG-39 | Vendor bill-back tracking — track promotional discounts funded by vendors. Need `vendor_billbacks` table, reporting view for claim submission | CLAUDE.md | L |
+| BACKLOG-39 | Vendor bill-back tracking + promo engine — three connected pieces: (1) **Promo engine**: custom coupon/bundle creator outside Square's pricing rules (avoids Square's bug where timed sales show "on sale" on website even when dormant). Group items into named promos, set discount ($ or %), set active date range. (2) **Discount application**: apply discounts at order level, not catalog level, keeping Square catalog clean. (3) **Bill-back reporting**: tie promos to vendor agreements, aggregate sales during promo periods per vendor for claim submission. Two bill-back types: *promo bill-backs* (vendor-funded promos with date range, e.g., "Smack March Promo") and *seniors day bill-backs* (vendors like Smack cover the 10% seniors day discount on their items — recurring, tied to specific items/brands per vendor agreement). | CLAUDE.md | L |
 | BACKLOG-80 | Email alerts not visible — system sends from/to same email. Set up Cloudflare Email Routing + transactional sender | WORK-ITEMS | S |
 | BACKLOG-81 | Margin erosion tracking — unified dashboard for margin impact from cost/price changes, loyalty redemptions, and expiry discounts | WORK-ITEMS | L |
 
@@ -26,7 +26,7 @@
 
 | ID | Description | Source | Effort |
 |----|-------------|--------|--------|
-| BACKLOG-38 | Timed discount automation — apply/remove Square discount objects on cron schedule | CLAUDE.md | L |
+| BACKLOG-38 | Timed discount automation — apply/remove discounts on cron schedule. **Note**: likely absorbed into BACKLOG-39 promo engine (which manages timed promos internally to avoid Square's "on sale" website bug) | CLAUDE.md | L |
 | BACKLOG-41 | User access control with roles — manager, clerk, accountant. Required for multi-user SaaS | CLAUDE.md | L |
 | BACKLOG-42 | Barcode scan-to-count for cycle counts | CLAUDE.md | M |
 | BACKLOG-44 | Purchase order generation with branding | CLAUDE.md | M |
