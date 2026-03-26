@@ -1,8 +1,9 @@
 /**
  * Catalog Health Service
  *
- * Full catalog health monitor that runs 10 check types against the Square Catalog API.
- * Debug tool scoped to merchant_id = 3 only. Permanent audit trail — rows never pruned.
+ * Full catalog health monitor that runs 12 check types against the Square Catalog API
+ * and local inventory data. Debug tool scoped to merchant_id = 3 only.
+ * Permanent audit trail — rows never pruned.
  *
  * Check types:
  *   1. location_mismatch       — variation/item present_at_all_locations flag mismatch, or
@@ -16,6 +17,8 @@
  *   8. missing_online_content  — public ITEM missing description_html or images
  *   9. missing_seo_data        — public ITEM missing SEO title or description
  *  10. sellable_not_tracked    — sellable ITEM_VARIATION with inventory tracking disabled
+ *  11. sold_out_with_stock     — variation marked sold_out at a location but has inventory > 0
+ *  12. available_but_empty     — variation NOT sold_out at a location but inventory = 0 (tracked)
  *
  * Removed: missing_tax — redundant with catalog audit "No Tax IDs" card.
  *
@@ -467,6 +470,71 @@ function checkSellableNotTracked(items) {
     return issues;
 }
 
+/**
+ * CHECK 11: sold_out_with_stock
+ * Variation+location marked sold_out in Square but has inventory > 0.
+ * Lost sales — item is hidden from customers despite having stock.
+ */
+async function checkSoldOutWithStock(merchantId) {
+    const result = await db.query(`
+        SELECT vls.variation_id, vls.location_id, ic.quantity,
+               v.item_id
+        FROM variation_location_settings vls
+        JOIN inventory_counts ic
+            ON ic.catalog_object_id = vls.variation_id
+            AND ic.location_id = vls.location_id
+            AND ic.state = 'IN_STOCK'
+            AND ic.merchant_id = vls.merchant_id
+        JOIN variations v ON v.id = vls.variation_id AND v.merchant_id = vls.merchant_id
+        WHERE vls.merchant_id = $1
+            AND vls.sold_out = true
+            AND ic.quantity > 0
+            AND COALESCE(v.is_deleted, false) = false
+    `, [merchantId]);
+
+    return result.rows.map(row => ({
+        check_type: 'sold_out_with_stock',
+        object_id: row.variation_id,
+        object_type: 'ITEM_VARIATION',
+        parent_id: row.item_id,
+        severity: 'error',
+        notes: `Marked sold out at location ${row.location_id} but has ${row.quantity} in stock — lost sales`
+    }));
+}
+
+/**
+ * CHECK 12: available_but_empty
+ * Variation+location NOT marked sold_out but has zero inventory with tracking enabled.
+ * Potential fulfillment issue — customers can order but item can't be fulfilled.
+ */
+async function checkAvailableButEmpty(merchantId) {
+    const result = await db.query(`
+        SELECT vls.variation_id, vls.location_id,
+               v.item_id
+        FROM variation_location_settings vls
+        JOIN variations v ON v.id = vls.variation_id AND v.merchant_id = vls.merchant_id
+        LEFT JOIN inventory_counts ic
+            ON ic.catalog_object_id = vls.variation_id
+            AND ic.location_id = vls.location_id
+            AND ic.state = 'IN_STOCK'
+            AND ic.merchant_id = vls.merchant_id
+        WHERE vls.merchant_id = $1
+            AND (vls.sold_out = false OR vls.sold_out IS NULL)
+            AND v.track_inventory = true
+            AND COALESCE(v.is_deleted, false) = false
+            AND (ic.quantity IS NULL OR ic.quantity = 0)
+    `, [merchantId]);
+
+    return result.rows.map(row => ({
+        check_type: 'available_but_empty',
+        object_id: row.variation_id,
+        object_type: 'ITEM_VARIATION',
+        parent_id: row.item_id,
+        severity: 'warn',
+        notes: `Not marked sold out at location ${row.location_id} but inventory is 0 — potential fulfillment issue`
+    }));
+}
+
 // ============================================================================
 // Main orchestrator + DB persistence
 // ============================================================================
@@ -493,7 +561,12 @@ async function runFullHealthCheck(merchantId) {
     // Fetch deleted object IDs for orphan checks
     const deletedIds = await fetchDeletedObjectIds(accessToken);
 
-    // Run all 10 checks (7 structural + 3 content quality)
+    // Run all 12 checks (7 structural + 3 content quality + 2 sold_out inventory)
+    const [soldOutIssues, availableEmptyIssues] = await Promise.all([
+        checkSoldOutWithStock(merchantId),
+        checkAvailableButEmpty(merchantId)
+    ]);
+
     const allIssues = [
         ...checkLocationMismatches(catalog.items),
         ...checkOrphanedVariations(catalog.variations, catalog.items),
@@ -504,7 +577,9 @@ async function runFullHealthCheck(merchantId) {
         ...checkPricingRuleOrphans(catalog.pricingRules, catalog.items, deletedIds),
         ...checkMissingOnlineContent(catalog.items),
         ...checkMissingSeoData(catalog.items),
-        ...checkSellableNotTracked(catalog.items)
+        ...checkSellableNotTracked(catalog.items),
+        ...soldOutIssues,
+        ...availableEmptyIssues
     ];
 
     // Load existing open issues from DB

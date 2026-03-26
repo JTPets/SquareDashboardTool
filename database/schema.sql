@@ -403,6 +403,7 @@ CREATE TABLE variation_location_settings (
     stock_alert_max INTEGER,
     preferred_stock_level INTEGER,
     shelf_location TEXT,
+    sold_out BOOLEAN DEFAULT FALSE,
     active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -2379,7 +2380,9 @@ CREATE TABLE IF NOT EXISTS catalog_location_health (
             'pricing_rule_orphan',
             'missing_online_content',
             'missing_seo_data',
-            'sellable_not_tracked'
+            'sellable_not_tracked',
+            'sold_out_with_stock',
+            'available_but_empty'
         )),
     object_type TEXT,
     parent_id TEXT,
