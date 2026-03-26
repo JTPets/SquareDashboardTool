@@ -298,7 +298,7 @@ See [docs/WORK-ITEMS.md](docs/WORK-ITEMS.md) for the complete consolidated work 
 | Priority | Item | Description |
 |----------|------|-------------|
 | High | BACKLOG-50 | Post-trial conversion — $1 first month. Decide Stripe vs Square for SaaS billing |
-| High | BACKLOG-39 | Vendor bill-back tracking — `vendor_billbacks` table, reporting for claim submission |
+| High | BACKLOG-39 | Vendor bill-back tracking + promo engine — custom coupon/bundle creator (bypasses Square's timed sale "on sale" bug), vendor-funded promo bill-backs with date ranges, seniors day bill-backs (e.g., Smack covers 10% discount on their items). Three pieces: promo engine, order-level discount application, bill-back reporting per vendor |
 | High | BACKLOG-61 | GMC v1beta → v1 migration — Google Shopping feed broken since Feb 28 2026. **P0** |
 | Medium | BACKLOG-38 | Timed discount automation — cron-scheduled Square pricing rules |
 | Medium | BACKLOG-41 | User access control with roles — manager, clerk, accountant. Prerequisite for franchise |
