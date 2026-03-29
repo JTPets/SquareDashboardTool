@@ -592,7 +592,7 @@ async function getRouteWithOrders(merchantId, routeId) {
  * @returns {Promise<Object>} Generated route with orders
  */
 async function generateRoute(merchantId, userId, options = {}) {
-    const { routeDate = null, orderIds = null, excludeOrderIds = null } = options;
+    const { routeDate = null, orderIds = null, excludeOrderIds = null, startLat = null, startLng = null, endLat = null, endLng = null } = options;
     const date = routeDate || new Date().toISOString().split('T')[0];
 
     // Check for existing active route
@@ -606,6 +606,17 @@ async function generateRoute(merchantId, userId, options = {}) {
     if (!settings || !settings.start_address) {
         throw new Error('Start address not configured. Please update delivery settings.');
     }
+
+    // LOGIC CHANGE: Per-route start/end coordinate overrides.
+    // If valid override pair provided, use them instead of merchant defaults for this route.
+    const resolvedStart = {
+        lat: (startLat != null && startLng != null && isFinite(startLat) && isFinite(startLng)) ? startLat : parseFloat(settings.start_address_lat),
+        lng: (startLat != null && startLng != null && isFinite(startLat) && isFinite(startLng)) ? startLng : parseFloat(settings.start_address_lng)
+    };
+    const resolvedEnd = {
+        lat: (endLat != null && endLng != null && isFinite(endLat) && isFinite(endLng)) ? endLat : (settings.end_address_lat ? parseFloat(settings.end_address_lat) : resolvedStart.lat),
+        lng: (endLat != null && endLng != null && isFinite(endLat) && isFinite(endLng)) ? endLng : (settings.end_address_lng ? parseFloat(settings.end_address_lng) : resolvedStart.lng)
+    };
 
     // Get pending orders that need to be on the route
     let ordersQuery = `
@@ -643,7 +654,13 @@ async function generateRoute(merchantId, userId, options = {}) {
     // Optimize route using OpenRouteService
     let optimizedRoute;
     try {
-        optimizedRoute = await optimizeRoute(settings, pendingOrders);
+        optimizedRoute = await optimizeRoute({
+            ...settings,
+            start_address_lat: resolvedStart.lat,
+            start_address_lng: resolvedStart.lng,
+            end_address_lat: resolvedEnd.lat,
+            end_address_lng: resolvedEnd.lng
+        }, pendingOrders);
     } catch (err) {
         logger.error('Route optimization failed', { merchantId, error: err.message });
         // Fall back to simple ordering by creation time
@@ -687,12 +704,13 @@ async function generateRoute(merchantId, userId, options = {}) {
             );
         }
 
-        // Create new route
+        // Create new route (includes resolved start/end coords for audit trail)
         const routeResult = await client.query(
             `INSERT INTO delivery_routes (
                 merchant_id, route_date, generated_by, total_stops,
-                total_distance_km, estimated_duration_min, waypoint_order
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                total_distance_km, estimated_duration_min, waypoint_order,
+                start_lat, start_lng, end_lat, end_lng
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING *`,
             [
                 merchantId,
@@ -701,7 +719,11 @@ async function generateRoute(merchantId, userId, options = {}) {
                 pendingOrders.length,
                 optimizedRoute.distance,
                 optimizedRoute.duration,
-                optimizedRoute.orderedIds
+                optimizedRoute.orderedIds,
+                resolvedStart.lat,
+                resolvedStart.lng,
+                resolvedEnd.lat,
+                resolvedEnd.lng
             ]
         );
         const route = routeResult.rows[0];

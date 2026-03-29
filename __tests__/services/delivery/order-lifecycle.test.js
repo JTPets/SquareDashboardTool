@@ -316,6 +316,122 @@ describe('Route Generation — Order Assignment', () => {
         const orderQuery = db.query.mock.calls[2][0];
         expect(orderQuery).not.toContain('id != ANY');
     });
+
+    it('uses override coords instead of settings when provided', async () => {
+        const pendingOrder = makeOrder({ status: 'pending' });
+
+        db.query.mockResolvedValueOnce({ rows: [] });              // getActiveRoute
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] }); // getSettings
+        db.query.mockResolvedValueOnce({ rows: [pendingOrder] });  // pending orders
+
+        const mockClient = makeMockClient([
+            { rows: [] },                              // BEGIN
+            { rows: [{ id: ROUTE_ID }] },              // INSERT route
+            { rows: [] },                              // UPDATE order
+            { rows: [] },                              // COMMIT
+        ]);
+        db.getClient.mockResolvedValueOnce(mockClient);
+
+        db.query.mockResolvedValueOnce({ rows: [] }); // logAuditEvent
+        db.query.mockResolvedValueOnce({ rows: [makeOrder({ status: 'active', route_id: ROUTE_ID })] });
+
+        await deliveryService.generateRoute(MERCHANT_ID, USER_ID, {
+            startLat: 44.0, startLng: -80.0, endLat: 44.5, endLng: -80.5
+        });
+
+        // Verify INSERT includes override coords
+        const insertCall = mockClient.query.mock.calls[1];
+        const insertParams = insertCall[1];
+        expect(insertParams[7]).toBe(44.0);   // start_lat
+        expect(insertParams[8]).toBe(-80.0);  // start_lng
+        expect(insertParams[9]).toBe(44.5);   // end_lat
+        expect(insertParams[10]).toBe(-80.5); // end_lng
+    });
+
+    it('falls back to settings coords when no override provided', async () => {
+        const pendingOrder = makeOrder({ status: 'pending' });
+
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [pendingOrder] });
+
+        const mockClient = makeMockClient([
+            { rows: [] },
+            { rows: [{ id: ROUTE_ID }] },
+            { rows: [] },
+            { rows: [] },
+        ]);
+        db.getClient.mockResolvedValueOnce(mockClient);
+
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValueOnce({ rows: [makeOrder({ status: 'active', route_id: ROUTE_ID })] });
+
+        await deliveryService.generateRoute(MERCHANT_ID, USER_ID, {});
+
+        const insertParams = mockClient.query.mock.calls[1][1];
+        expect(insertParams[7]).toBe(43.6520);  // settings start_lat
+        expect(insertParams[8]).toBe(-79.3832); // settings start_lng
+        // end falls back to start since settings end is null
+        expect(insertParams[9]).toBe(43.6520);
+        expect(insertParams[10]).toBe(-79.3832);
+    });
+
+    it('falls back to settings when only partial override (lat without lng)', async () => {
+        const pendingOrder = makeOrder({ status: 'pending' });
+
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [pendingOrder] });
+
+        const mockClient = makeMockClient([
+            { rows: [] },
+            { rows: [{ id: ROUTE_ID }] },
+            { rows: [] },
+            { rows: [] },
+        ]);
+        db.getClient.mockResolvedValueOnce(mockClient);
+
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValueOnce({ rows: [makeOrder({ status: 'active', route_id: ROUTE_ID })] });
+
+        // Only startLat provided, no startLng — should fall back to settings
+        await deliveryService.generateRoute(MERCHANT_ID, USER_ID, {
+            startLat: 44.0
+        });
+
+        const insertParams = mockClient.query.mock.calls[1][1];
+        expect(insertParams[7]).toBe(43.6520);  // settings start_lat (fallback)
+        expect(insertParams[8]).toBe(-79.3832); // settings start_lng (fallback)
+    });
+
+    it('stores override coords in delivery_routes INSERT', async () => {
+        const pendingOrder = makeOrder({ status: 'pending' });
+
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [pendingOrder] });
+
+        const mockClient = makeMockClient([
+            { rows: [] },
+            { rows: [{ id: ROUTE_ID }] },
+            { rows: [] },
+            { rows: [] },
+        ]);
+        db.getClient.mockResolvedValueOnce(mockClient);
+
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValueOnce({ rows: [makeOrder({ status: 'active', route_id: ROUTE_ID })] });
+
+        await deliveryService.generateRoute(MERCHANT_ID, USER_ID, {
+            startLat: 45.0, startLng: -75.0, endLat: 45.5, endLng: -75.5
+        });
+
+        const insertSQL = mockClient.query.mock.calls[1][0];
+        expect(insertSQL).toContain('start_lat');
+        expect(insertSQL).toContain('start_lng');
+        expect(insertSQL).toContain('end_lat');
+        expect(insertSQL).toContain('end_lng');
+    });
 });
 
 // ============================================================================

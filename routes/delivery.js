@@ -573,13 +573,17 @@ router.get('/pod/:id', requireAuth, requireMerchant, validators.getPod, asyncHan
  */
 router.post('/route/generate', deliveryStrictRateLimit, requireAuth, requireMerchant, validators.generateRoute, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const { routeDate, orderIds, excludeOrderIds, force } = req.body;
+    const { routeDate, orderIds, excludeOrderIds, force, startLat, startLng, endLat, endLng } = req.body;
 
     const route = await deliveryApi.generateRoute(merchantId, req.session.user.id, {
         routeDate,
         orderIds,
         excludeOrderIds,
-        force
+        force,
+        startLat: startLat != null ? parseFloat(startLat) : null,
+        startLng: startLng != null ? parseFloat(startLng) : null,
+        endLat: endLat != null ? parseFloat(endLat) : null,
+        endLng: endLng != null ? parseFloat(endLng) : null
     });
 
     sendSuccess(res, { route }, 201);
