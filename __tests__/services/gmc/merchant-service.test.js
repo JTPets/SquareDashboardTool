@@ -325,24 +325,149 @@ describe('GMC Merchant Service', () => {
             expect(calledUrl).not.toContain('v1beta');
         });
 
-        it('buildMerchantApiProduct output shape should be unchanged', () => {
-            // Access the function via the module internals — it's not exported,
-            // so we test it indirectly through upsertProduct. But we can verify
-            // the product format by checking what gets sent to the API.
-            // For a direct shape test, we read the source.
+        it('buildMerchantApiProduct output should use v1 field names', () => {
+            // LOGIC CHANGE: v1beta → v1 schema (BACKLOG-61)
+            // Verify source uses v1 field names: productAttributes (not attributes), no channel
             const realFs = jest.requireActual('fs');
             const source = realFs.readFileSync(
                 require('path').join(__dirname, '../../../services/gmc/merchant-service.js'),
                 'utf8'
             );
 
-            // Verify the product shape keys are still present
+            // v1 fields present
             expect(source).toContain('offerId: product.offerId');
-            expect(source).toContain("channel: channel.toUpperCase()");
-            expect(source).toContain('attributes: {');
+            expect(source).toContain('productAttributes: {');
             expect(source).toContain('title: product.title');
             expect(source).toContain('amountMicros:');
             expect(source).toContain('currencyCode: product.price.currency');
+            expect(source).toContain('gtins: product.gtin');
+
+            // v1beta fields removed
+            expect(source).not.toContain("channel: channel.toUpperCase()");
+            expect(source).not.toMatch(/\battributes: \{/);
+        });
+    });
+
+    describe('buildMerchantApiProduct v1 schema compliance (BACKLOG-61)', () => {
+        it('should produce v1-compliant payload with productAttributes and no channel', async () => {
+            global.fetch = jest.fn().mockResolvedValueOnce({
+                status: 200,
+                ok: true,
+                json: () => Promise.resolve({ name: 'products/123' })
+            });
+
+            await merchantService.upsertProduct({
+                merchantId: 1,
+                gmcMerchantId: '12345',
+                dataSourceId: '67890',
+                product: {
+                    offerId: 'SKU-001',
+                    title: 'Test Product',
+                    description: 'A test product',
+                    link: 'https://example.com/product/1',
+                    imageLink: 'https://example.com/image.jpg',
+                    availability: 'in_stock',
+                    condition: 'new',
+                    price: { value: '19.99', currency: 'CAD' },
+                    gtin: '0123456789012',
+                    brand: 'TestBrand',
+                    feedLabel: 'CA',
+                    contentLanguage: 'en'
+                },
+                channel: 'ONLINE'
+            });
+
+            const sentBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+
+            // v1: no channel field
+            expect(sentBody.channel).toBeUndefined();
+
+            // v1: productAttributes (not attributes)
+            expect(sentBody.attributes).toBeUndefined();
+            expect(sentBody.productAttributes).toBeDefined();
+
+            // v1: top-level required fields
+            expect(sentBody.offerId).toBe('SKU-001');
+            expect(sentBody.feedLabel).toBe('CA');
+            expect(sentBody.contentLanguage).toBe('en');
+
+            // v1: productAttributes contents
+            const attrs = sentBody.productAttributes;
+            expect(attrs.title).toBe('Test Product');
+            expect(attrs.description).toBe('A test product');
+            expect(attrs.link).toBe('https://example.com/product/1');
+            expect(attrs.imageLink).toBe('https://example.com/image.jpg');
+
+            // v1: uppercase enums
+            expect(attrs.availability).toBe('IN_STOCK');
+            expect(attrs.condition).toBe('NEW');
+
+            // v1: price object
+            expect(attrs.price.amountMicros).toBe('19990000');
+            expect(attrs.price.currencyCode).toBe('CAD');
+
+            // v1: gtins is array (not gtin string)
+            expect(attrs.gtins).toEqual(['0123456789012']);
+            expect(attrs.gtin).toBeUndefined();
+
+            expect(attrs.brand).toBe('TestBrand');
+        });
+
+        it('should omit gtins when product has no gtin', async () => {
+            global.fetch = jest.fn().mockResolvedValueOnce({
+                status: 200,
+                ok: true,
+                json: () => Promise.resolve({ name: 'products/123' })
+            });
+
+            await merchantService.upsertProduct({
+                merchantId: 1,
+                gmcMerchantId: '12345',
+                dataSourceId: '67890',
+                product: {
+                    offerId: 'SKU-002',
+                    title: 'No GTIN Product',
+                    description: 'Product without GTIN',
+                    link: 'https://example.com/product/2',
+                    imageLink: 'https://example.com/image2.jpg',
+                    availability: 'out_of_stock',
+                    condition: 'new',
+                    price: { value: '9.99', currency: 'CAD' }
+                },
+                channel: 'ONLINE'
+            });
+
+            const sentBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+            expect(sentBody.productAttributes.gtins).toBeUndefined();
+            expect(sentBody.productAttributes.availability).toBe('OUT_OF_STOCK');
+        });
+
+        it('should omit feedLabel and contentLanguage when not set', async () => {
+            global.fetch = jest.fn().mockResolvedValueOnce({
+                status: 200,
+                ok: true,
+                json: () => Promise.resolve({ name: 'products/123' })
+            });
+
+            await merchantService.upsertProduct({
+                merchantId: 1,
+                gmcMerchantId: '12345',
+                dataSourceId: '67890',
+                product: {
+                    offerId: 'SKU-003',
+                    title: 'Minimal Product',
+                    description: 'Test',
+                    link: 'https://example.com/product/3',
+                    imageLink: 'https://example.com/image3.jpg',
+                    availability: 'in_stock',
+                    price: { value: '5.00', currency: 'USD' }
+                },
+                channel: 'ONLINE'
+            });
+
+            const sentBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+            expect(sentBody.feedLabel).toBeUndefined();
+            expect(sentBody.contentLanguage).toBeUndefined();
         });
     });
 

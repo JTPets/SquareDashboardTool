@@ -393,23 +393,29 @@ async function batchUpsertProducts(options) {
  * @param {string} channel - Channel: 'ONLINE' or 'LOCAL' (default: 'ONLINE')
  */
 function buildMerchantApiProduct(product, gmcMerchantId, channel = 'ONLINE') {
-    // Merchant API productInput format
+    // LOGIC CHANGE: v1beta → v1 schema migration (BACKLOG-61)
+    // - Removed: channel (v1 no longer accepts it; legacyLocal only for local products)
+    // - Renamed: attributes → productAttributes
+    // - Renamed: gtin → gtins (now an array)
+    // - Changed: condition/availability are now uppercase enums (NEW, IN_STOCK)
     // https://developers.google.com/merchant/api/reference/rest/products_v1/accounts.productInputs
+    const availability = product.availability === 'in_stock' ? 'IN_STOCK' : 'OUT_OF_STOCK';
+    const condition = (product.condition || 'new').toUpperCase();
+
     const productInput = {
         offerId: product.offerId,
-        channel: channel.toUpperCase(),
-        attributes: {
+        productAttributes: {
             title: product.title,
             description: product.description,
             link: product.link,
             imageLink: product.imageLink,
-            availability: product.availability === 'in_stock' ? 'in_stock' : 'out_of_stock',
-            condition: product.condition || 'new',
+            availability,
+            condition,
             price: {
                 amountMicros: Math.round(parseFloat(product.price.value) * 1000000).toString(),
                 currencyCode: product.price.currency
             },
-            gtin: product.gtin || undefined,
+            gtins: product.gtin ? [product.gtin] : undefined,
             brand: product.brand || undefined,
             googleProductCategory: product.googleProductCategory || undefined
         }
