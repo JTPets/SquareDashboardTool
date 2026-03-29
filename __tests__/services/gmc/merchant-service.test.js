@@ -667,4 +667,173 @@ describe('GMC Merchant Service', () => {
             expect(result.needsRegistration).toBeUndefined();
         });
     });
+
+    describe('upsertProduct - dataSource URL encoding fix', () => {
+        it('should NOT encodeURIComponent the dataSource query parameter (slashes must be literal)', async () => {
+            global.fetch = jest.fn().mockResolvedValueOnce({
+                status: 200,
+                ok: true,
+                json: () => Promise.resolve({ name: 'products/123' })
+            });
+
+            await merchantService.upsertProduct({
+                merchantId: 1,
+                gmcMerchantId: '670930517',
+                dataSourceId: '10600545371',
+                product: {
+                    offerId: 'SKU-001',
+                    title: 'Test Product',
+                    description: 'A test product',
+                    link: 'https://example.com/product/1',
+                    imageLink: 'https://example.com/image.jpg',
+                    availability: 'in_stock',
+                    condition: 'new',
+                    price: { value: '19.99', currency: 'CAD' }
+                },
+                channel: 'ONLINE'
+            });
+
+            const calledUrl = global.fetch.mock.calls[0][0];
+
+            // The dataSource must contain literal slashes, NOT %2F
+            expect(calledUrl).toContain('?dataSource=accounts/670930517/dataSources/10600545371');
+            expect(calledUrl).not.toContain('%2F');
+        });
+
+        it('should send correct Authorization header with Bearer token', async () => {
+            const testClient = {
+                ...mockOAuth2Instance,
+                getAccessToken: jest.fn().mockResolvedValue({ token: 'my-oauth-token-123' })
+            };
+            mockGetAuthenticatedClient.mockResolvedValue(testClient);
+
+            global.fetch = jest.fn().mockResolvedValueOnce({
+                status: 200,
+                ok: true,
+                json: () => Promise.resolve({ name: 'products/123' })
+            });
+
+            await merchantService.upsertProduct({
+                merchantId: 1,
+                gmcMerchantId: '12345',
+                dataSourceId: '67890',
+                product: {
+                    offerId: 'SKU-001',
+                    title: 'Test',
+                    description: 'Test',
+                    link: 'https://example.com',
+                    imageLink: 'https://example.com/img.jpg',
+                    availability: 'in_stock',
+                    condition: 'new',
+                    price: { value: '9.99', currency: 'CAD' }
+                },
+                channel: 'ONLINE'
+            });
+
+            const fetchOptions = global.fetch.mock.calls[0][1];
+            expect(fetchOptions.headers['Authorization']).toBe('Bearer my-oauth-token-123');
+            expect(fetchOptions.headers['Content-Type']).toBe('application/json');
+            expect(fetchOptions.method).toBe('POST');
+        });
+
+        it('should construct full URL matching Google Merchant API v1 spec', async () => {
+            global.fetch = jest.fn().mockResolvedValueOnce({
+                status: 200,
+                ok: true,
+                json: () => Promise.resolve({ name: 'products/123' })
+            });
+
+            await merchantService.upsertProduct({
+                merchantId: 1,
+                gmcMerchantId: '670930517',
+                dataSourceId: '10600545371',
+                product: {
+                    offerId: 'SKU-001',
+                    title: 'Test',
+                    description: 'Test',
+                    link: 'https://example.com',
+                    imageLink: 'https://example.com/img.jpg',
+                    availability: 'in_stock',
+                    condition: 'new',
+                    price: { value: '9.99', currency: 'CAD' }
+                },
+                channel: 'ONLINE'
+            });
+
+            const calledUrl = global.fetch.mock.calls[0][0];
+            expect(calledUrl).toBe(
+                'https://merchantapi.googleapis.com/products/v1/accounts/670930517/productInputs:insert?dataSource=accounts/670930517/dataSources/10600545371'
+            );
+        });
+    });
+
+    describe('verifyDeveloperRegistration - pre-sync check', () => {
+        /**
+         * Helper: mock deps for syncProductCatalog flow.
+         * syncProductCatalog calls getGmcApiSettings, then verifyDeveloperRegistration,
+         * then getDataSourceInfo, then db.query for products.
+         */
+        function mockSyncDeps(settings = {
+            gmc_merchant_id: '12345',
+            gmc_data_source_id: '67890'
+        }) {
+            // getGmcApiSettings
+            db.query.mockResolvedValueOnce({
+                rows: Object.entries(settings).map(([k, v]) => ({
+                    setting_key: k, setting_value: v
+                }))
+            });
+        }
+
+        it('should fail sync with clear error when developer registration is missing', async () => {
+            // Order: createSyncLog → getGmcApiSettings → verifyDeveloperRegistration → updateSyncLog(fail)
+            // 1. createSyncLog INSERT
+            db.query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
+            // 2. getGmcApiSettings SELECT
+            mockSyncDeps();
+            // 3. updateSyncLog UPDATE (for the failure)
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            // verifyDeveloperRegistration returns 404 (not registered)
+            global.fetch = jest.fn().mockResolvedValueOnce({
+                status: 404,
+                ok: false,
+                json: () => Promise.resolve({ error: { message: 'Not found' } })
+            });
+
+            await expect(merchantService.syncProductCatalog(1))
+                .rejects.toThrow('GCP developer registration required');
+        });
+
+        it('should proceed with sync when developer registration exists', async () => {
+            // Order: createSyncLog → getGmcApiSettings → verifyDeveloperRegistration → getDataSourceInfo → products query → updateSyncLog
+            // 1. createSyncLog INSERT
+            db.query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
+            // 2. getGmcApiSettings SELECT
+            mockSyncDeps();
+
+            // verifyDeveloperRegistration succeeds, then getDataSourceInfo succeeds
+            global.fetch = jest.fn()
+                .mockResolvedValueOnce({
+                    status: 200,
+                    ok: true,
+                    json: () => Promise.resolve({ name: 'accounts/12345/developerRegistration' })
+                })
+                .mockResolvedValueOnce({
+                    status: 200,
+                    ok: true,
+                    json: () => Promise.resolve({ name: 'datasources/67890' })
+                });
+
+            // 3. Products query returns no products
+            db.query.mockResolvedValueOnce({ rows: [] });
+            // 4. updateSyncLog UPDATE
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            const result = await merchantService.syncProductCatalog(1);
+
+            expect(result.success).toBe(true);
+            expect(result.message).toContain('No products');
+        });
+    });
 });
