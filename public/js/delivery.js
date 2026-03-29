@@ -132,7 +132,7 @@ function renderOrderList(containerId, orderList, type) {
   // LOGIC CHANGE (BUG-014): Checkbox rendered inline before order-info, not absolutely positioned
   container.innerHTML = orderList.map(order => `
     <div class="order-card ${!order.geocoded_at ? 'needs-geocode' : ''} ${order.needs_customer_refresh ? 'needs-refresh' : ''} ${type === 'pending' && isExcluded(order.id) ? 'delivery-excluded' : ''}" ${type === 'pending' ? 'style="display:flex;align-items:flex-start;"' : ''}>
-      ${type === 'pending' ? `<label class="delivery-exclude-checkbox"><input type="checkbox" data-action="toggleExcludeOrder" data-action-param="${escapeHtml(order.id)}" ${isExcluded(order.id) ? 'checked' : ''}><span class="delivery-exclude-label">Exclude</span></label>` : ''}
+      ${type === 'pending' ? `<label class="delivery-exclude-checkbox"><input type="checkbox" data-change="toggleExcludeOrder" data-action-param="${escapeHtml(order.id)}" ${isExcluded(order.id) ? 'checked' : ''}><span class="delivery-exclude-label">Exclude</span></label>` : ''}
       <div class="order-info" style="${type === 'pending' ? 'flex:1;min-width:0;' : ''}">
         <h3>${escapeHtml(order.customer_name)}${order.needs_customer_refresh || order.customer_name === 'Unknown Customer' ? ' <span class="badge-pending" title="Customer data pending - will update when order is confirmed">&#8987;</span>' : ''}</h3>
         <div class="order-address">${escapeHtml(order.address)}</div>
@@ -405,7 +405,8 @@ async function deleteOrder(element, event, orderId) {
   }
 }
 
-function toggleExcludeOrder(orderId) {
+function toggleExcludeOrder(element, event, param) {
+  const orderId = param || element.dataset.actionParam;
   if (excludedOrderIds.has(orderId)) {
     excludedOrderIds.delete(orderId);
   } else {
