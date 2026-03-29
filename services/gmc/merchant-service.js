@@ -18,6 +18,7 @@
 const { google } = require('googleapis');
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
+const { getAuthenticatedClient } = require('../../utils/google-auth');
 
 // OAuth2 scopes for Merchant Center
 // The 'content' scope covers both Content API and Merchant API v1 — no re-auth needed.
@@ -33,53 +34,13 @@ function sleep(ms) {
 
 /**
  * Get OAuth2 client for a merchant
- * Reuses the same Google OAuth tokens from google_oauth_tokens table
+ * LOGIC CHANGE: delegate to google-auth.js:getAuthenticatedClient (GMC-BUG-001)
+ * Previously read tokens from DB without decrypting — since SEC-6 added AES-256-GCM
+ * encryption, ciphertext was sent to Google as Bearer token causing 401.
+ * google-auth.js correctly decrypts tokens on load and encrypts on refresh/save.
  */
 async function getAuthClient(merchantId) {
-    // Get stored tokens
-    const tokenResult = await db.query(
-        'SELECT * FROM google_oauth_tokens WHERE merchant_id = $1',
-        [merchantId]
-    );
-
-    if (tokenResult.rows.length === 0) {
-        throw new Error('Google account not connected. Please connect your Google account first.');
-    }
-
-    const tokens = tokenResult.rows[0];
-
-    const oauth2Client = new google.auth.OAuth2(
-        process.env.GOOGLE_CLIENT_ID,
-        process.env.GOOGLE_CLIENT_SECRET,
-        process.env.GOOGLE_REDIRECT_URI
-    );
-
-    oauth2Client.setCredentials({
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        expiry_date: tokens.expiry_date
-    });
-
-    // Handle token refresh (guard against duplicate listeners)
-    if (!oauth2Client.listenerCount('tokens')) {
-        oauth2Client.on('tokens', async (newTokens) => {
-            try {
-                await db.query(`
-                    UPDATE google_oauth_tokens
-                    SET access_token = $1,
-                        expiry_date = $2,
-                        updated_at = NOW()
-                    WHERE merchant_id = $3
-                `, [newTokens.access_token, newTokens.expiry_date, merchantId]);
-                logger.info('Refreshed Google OAuth tokens for merchant', { merchantId });
-            } catch (err) {
-                // LOGIC CHANGE: added merchantId to error log context (L-2)
-                logger.error('Failed to save refreshed tokens', { error: err.message, stack: err.stack, merchantId });
-            }
-        });
-    }
-
-    return oauth2Client;
+    return getAuthenticatedClient(merchantId);
 }
 
 /**

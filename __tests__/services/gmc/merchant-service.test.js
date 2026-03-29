@@ -1,9 +1,10 @@
 /**
  * Tests for GMC merchant-service
- * Covers: merchantApiRequest retry/rate-limit, duplicate token listener guard, batch settings insert
+ * Covers: merchantApiRequest retry/rate-limit, auth delegation to google-auth (GMC-BUG-001),
+ *         duplicate token listener guard, batch settings insert
  */
 
-// Mock googleapis — { virtual: true } allows mocking even if module isn't installed
+// Mock OAuth2 instance returned by getAuthenticatedClient
 const mockOAuth2Instance = {
     setCredentials: jest.fn(),
     on: jest.fn(),
@@ -11,6 +12,7 @@ const mockOAuth2Instance = {
     getAccessToken: jest.fn().mockResolvedValue({ token: 'test-token' })
 };
 
+// Mock googleapis — { virtual: true } allows mocking even if module isn't installed
 jest.mock('googleapis', () => ({
     google: {
         auth: {
@@ -18,6 +20,12 @@ jest.mock('googleapis', () => ({
         }
     }
 }), { virtual: true });
+
+// Mock google-auth.js — getAuthClient now delegates to getAuthenticatedClient (GMC-BUG-001)
+const mockGetAuthenticatedClient = jest.fn().mockResolvedValue(mockOAuth2Instance);
+jest.mock('../../../utils/google-auth', () => ({
+    getAuthenticatedClient: mockGetAuthenticatedClient
+}));
 
 // Mock fs.promises
 jest.mock('fs', () => ({
@@ -41,6 +49,8 @@ describe('GMC Merchant Service', () => {
         mockOAuth2Instance.on.mockReset();
         mockOAuth2Instance.setCredentials.mockReset();
         mockOAuth2Instance.getAccessToken.mockResolvedValue({ token: 'test-token' });
+        // Reset getAuthenticatedClient mock (GMC-BUG-001)
+        mockGetAuthenticatedClient.mockResolvedValue(mockOAuth2Instance);
         // Reset global fetch mock
         global.fetch = jest.fn();
     });
@@ -51,7 +61,7 @@ describe('GMC Merchant Service', () => {
 
     /**
      * Helper: set up db.query mocks for testConnection flow.
-     * testConnection calls: getGmcApiSettings (1 query) → getAuthClient (1 query)
+     * testConnection calls: getGmcApiSettings (1 query) → getAuthClient (delegates to google-auth)
      */
     function mockTestConnectionDeps(settings = { gmc_merchant_id: '12345' }) {
         // First query: getGmcApiSettings
@@ -60,14 +70,7 @@ describe('GMC Merchant Service', () => {
                 setting_key: k, setting_value: v
             }))
         });
-        // Second query: getAuthClient
-        db.query.mockResolvedValueOnce({
-            rows: [{
-                access_token: 'test-token',
-                refresh_token: 'test-refresh',
-                expiry_date: Date.now() + 3600000
-            }]
-        });
+        // getAuthClient now delegates to getAuthenticatedClient (mocked globally)
     }
 
     describe('merchantApiRequest - rate limit handling (I-1)', () => {
@@ -187,9 +190,8 @@ describe('GMC Merchant Service', () => {
         });
     });
 
-    describe('getAuthClient - duplicate listener guard (P-5)', () => {
-        it('should attach token listener only when none exists', async () => {
-            mockOAuth2Instance.listenerCount.mockReturnValue(0);
+    describe('getAuthClient - delegates to google-auth (GMC-BUG-001)', () => {
+        it('should delegate to getAuthenticatedClient for token decryption', async () => {
             mockTestConnectionDeps();
 
             global.fetch = jest.fn().mockResolvedValueOnce({
@@ -200,12 +202,18 @@ describe('GMC Merchant Service', () => {
 
             await merchantService.testConnection(1);
 
-            expect(mockOAuth2Instance.listenerCount).toHaveBeenCalledWith('tokens');
-            expect(mockOAuth2Instance.on).toHaveBeenCalledWith('tokens', expect.any(Function));
+            // Verify getAuthenticatedClient was called with the merchant ID
+            expect(mockGetAuthenticatedClient).toHaveBeenCalledWith(1);
         });
 
-        it('should NOT attach token listener when one already exists', async () => {
-            mockOAuth2Instance.listenerCount.mockReturnValue(1);
+        it('should use decrypted tokens (not ciphertext) via getAuthenticatedClient', async () => {
+            // getAuthenticatedClient returns an oauth2 client with decrypted tokens set
+            // If it were using raw DB tokens, they'd be ciphertext and Google would 401
+            const clientWithDecryptedTokens = {
+                ...mockOAuth2Instance,
+                getAccessToken: jest.fn().mockResolvedValue({ token: 'decrypted-access-token' })
+            };
+            mockGetAuthenticatedClient.mockResolvedValue(clientWithDecryptedTokens);
             mockTestConnectionDeps();
 
             global.fetch = jest.fn().mockResolvedValueOnce({
@@ -216,8 +224,21 @@ describe('GMC Merchant Service', () => {
 
             await merchantService.testConnection(1);
 
-            expect(mockOAuth2Instance.listenerCount).toHaveBeenCalledWith('tokens');
-            expect(mockOAuth2Instance.on).not.toHaveBeenCalled();
+            // Verify the Bearer token used in the API call is the decrypted token
+            const fetchCall = global.fetch.mock.calls[0];
+            expect(fetchCall[1].headers['Authorization']).toBe('Bearer decrypted-access-token');
+        });
+
+        it('should propagate error when getAuthenticatedClient fails', async () => {
+            mockGetAuthenticatedClient.mockRejectedValue(
+                new Error('Not authenticated with Google. Please connect your Google Merchant Center account first.')
+            );
+            mockTestConnectionDeps();
+
+            const result = await merchantService.testConnection(1);
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('Not authenticated with Google');
         });
     });
 
@@ -259,14 +280,7 @@ describe('GMC Merchant Service', () => {
 
         it('upsertProduct should use /products/v1/ path', async () => {
             // Mock getGmcApiSettings is not needed — upsertProduct takes options directly
-            // Mock getAuthClient: db.query for token lookup
-            db.query.mockResolvedValueOnce({
-                rows: [{
-                    access_token: 'test-token',
-                    refresh_token: 'test-refresh',
-                    expiry_date: Date.now() + 3600000
-                }]
-            });
+            // getAuthClient delegates to getAuthenticatedClient (mocked globally)
 
             global.fetch = jest.fn().mockResolvedValueOnce({
                 status: 200,
@@ -297,14 +311,7 @@ describe('GMC Merchant Service', () => {
         });
 
         it('getDataSourceInfo should use /datasources/v1/ path', async () => {
-            // Mock getAuthClient
-            db.query.mockResolvedValueOnce({
-                rows: [{
-                    access_token: 'test-token',
-                    refresh_token: 'test-refresh',
-                    expiry_date: Date.now() + 3600000
-                }]
-            });
+            // getAuthClient delegates to getAuthenticatedClient (mocked globally)
 
             global.fetch = jest.fn().mockResolvedValueOnce({
                 status: 200,
