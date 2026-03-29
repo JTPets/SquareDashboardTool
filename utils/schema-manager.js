@@ -409,6 +409,7 @@ async function ensureSchema() {
                 stock_alert_max INTEGER,
                 preferred_stock_level INTEGER,
                 shelf_location TEXT,
+                sold_out BOOLEAN DEFAULT FALSE,
                 active BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -952,7 +953,12 @@ async function ensureSchema() {
                         'category_orphan',
                         'image_orphan',
                         'modifier_orphan',
-                        'pricing_rule_orphan'
+                        'pricing_rule_orphan',
+                        'missing_online_content',
+                        'missing_seo_data',
+                        'sellable_not_tracked',
+                        'sold_out_with_stock',
+                        'available_but_empty'
                     )),
                 object_type TEXT,
                 parent_id TEXT,
@@ -1080,6 +1086,8 @@ async function ensureSchema() {
         { table: 'variations', column: 'sellable', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS sellable BOOLEAN' },
         { table: 'variations', column: 'stockable', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS stockable BOOLEAN' },
         { table: 'variations', column: 'square_updated_at', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS square_updated_at TIMESTAMPTZ' },
+        // BACKLOG-64: sold_out flag for variation_location_settings
+        { table: 'variation_location_settings', column: 'sold_out', sql: 'ALTER TABLE variation_location_settings ADD COLUMN IF NOT EXISTS sold_out BOOLEAN DEFAULT FALSE' },
     ];
 
     // ==================== VARIATION EXPIRATION TABLE ====================

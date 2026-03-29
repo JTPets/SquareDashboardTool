@@ -23,7 +23,8 @@ const AUDIT_TYPES = [
   { key: 'not_taxable', label: 'Not Taxable', severity: 'warning' },
   { key: 'missing_price', label: 'No Price', severity: 'critical' },
   { key: 'missing_description', label: 'No Description', severity: 'warning' },
-  { key: 'missing_item_image', label: 'No Image', severity: 'warning' },
+  { key: 'missing_item_image', label: 'No Item Image', severity: 'warning' },
+  { key: 'missing_variation_image', label: 'No Var Image', severity: 'info' },
   { key: 'missing_sku', label: 'No SKU', severity: 'critical' },
   { key: 'missing_upc', label: 'No UPC', severity: 'info' },
   { key: 'stock_tracking_off', label: 'Stock Tracking Off', severity: 'critical' },
@@ -36,12 +37,16 @@ const AUDIT_TYPES = [
   { key: 'missing_seo_description', label: 'No SEO Desc', severity: 'info' },
   // Tax
   { key: 'no_tax_ids', label: 'No Tax IDs', severity: 'warning' },
+  // Location
   { key: 'location_mismatch', label: 'Location Mismatch', severity: 'critical' },
   { key: 'not_at_all_locations', label: 'Not at All Locations', severity: 'critical' },
   // Sales Channels
   { key: 'any_channel_off', label: 'Channel Disabled', severity: 'warning' },
   { key: 'pos_disabled', label: 'POS Disabled', severity: 'info' },
-  { key: 'online_disabled', label: 'Online Disabled', severity: 'info' }
+  { key: 'online_disabled', label: 'Online Disabled', severity: 'info' },
+  // Sold Out / Inventory Sync (BACKLOG-64)
+  { key: 'sold_out_with_stock', label: 'Sold Out w/ Stock', severity: 'critical', note: 'Lost sales — marked sold out but has inventory' },
+  { key: 'available_but_empty', label: 'Available, No Stock', severity: 'warning', note: 'Not sold out but inventory is 0' }
 ];
 
 // ============================================================================
@@ -360,10 +365,10 @@ function getIssueCountClass(count) {
 }
 
 function getIssueBadgeClass(issue) {
-  var criticalIssues = ['No Category', 'No Price', 'No SKU', 'Stock Tracking Off', 'Inv Alerts Off', 'OOS, No Min'];
-  var warningIssues = ['Not Taxable', 'No Description', 'No Image', 'No Vendor', 'No Cost', 'No Tax IDs'];
+  var criticalIssues = ['No Category', 'No Price', 'No SKU', 'Stock Tracking Off', 'Inv Alerts Off', 'OOS, No Min', 'Sold Out w/ Stock'];
+  var warningIssues = ['Not Taxable', 'No Description', 'No Item Image', 'No Vendor', 'No Cost', 'No Tax IDs', 'Available, No Stock'];
   var criticalIssues2 = ['Location Mismatch', 'Not at All Locations'];
-  var infoIssues = ['No UPC', 'Not Visible Online', 'No SEO Title', 'No SEO Description'];
+  var infoIssues = ['No UPC', 'Not Visible Online', 'No SEO Title', 'No SEO Description', 'No Var Image'];
 
   if (criticalIssues.includes(issue) || criticalIssues2.includes(issue)) return 'critical';
   if (warningIssues.includes(issue)) return 'warning';
@@ -564,7 +569,12 @@ var CHECK_TYPE_LABELS = {
   category_orphan: 'Category Orphan',
   image_orphan: 'Image Orphan',
   modifier_orphan: 'Modifier Orphan',
-  pricing_rule_orphan: 'Pricing Rule Orphan'
+  pricing_rule_orphan: 'Pricing Rule Orphan',
+  missing_online_content: 'Missing Online Content',
+  missing_seo_data: 'Missing SEO Data',
+  sellable_not_tracked: 'Sellable Not Tracked',
+  sold_out_with_stock: 'Sold Out w/ Stock',
+  available_but_empty: 'Available, No Stock'
 };
 
 // Health check types that have equivalent audit filters — clicking these

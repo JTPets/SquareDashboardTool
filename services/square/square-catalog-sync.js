@@ -974,12 +974,13 @@ async function syncVariation(obj, merchantId) {
                     INSERT INTO variation_location_settings (
                         variation_id, location_id,
                         stock_alert_min, stock_alert_max,
-                        active, merchant_id, updated_at
+                        sold_out, active, merchant_id, updated_at
                     )
-                    VALUES ($1, $2, $3, $4, true, $5, CURRENT_TIMESTAMP)
+                    VALUES ($1, $2, $3, $4, $5, true, $6, CURRENT_TIMESTAMP)
                     ON CONFLICT (variation_id, location_id, merchant_id) DO UPDATE SET
                         stock_alert_min = EXCLUDED.stock_alert_min,
                         stock_alert_max = EXCLUDED.stock_alert_max,
+                        sold_out = EXCLUDED.sold_out,
                         active = EXCLUDED.active,
                         updated_at = CURRENT_TIMESTAMP
                 `, [
@@ -987,6 +988,7 @@ async function syncVariation(obj, merchantId) {
                     override.location_id,
                     override.inventory_alert_threshold ?? null,
                     null,  // stock_alert_max not available in Square API
+                    override.sold_out === true,  // BACKLOG-64: sync sold_out flag
                     merchantId
                 ]);
             } catch (error) {

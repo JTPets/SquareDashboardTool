@@ -211,6 +211,39 @@ async function getCatalogAudit(merchantId, filters = {}) {
     const params = [merchantId, sanitizedLocationId];
     const result = await db.query(query, params);
 
+    // BACKLOG-64: Count sold_out inventory mismatches from variation_location_settings
+    const [soldOutResult, availableEmptyResult] = await Promise.all([
+        db.query(`
+            SELECT COUNT(DISTINCT vls.variation_id) as count
+            FROM variation_location_settings vls
+            JOIN inventory_counts ic
+                ON ic.catalog_object_id = vls.variation_id
+                AND ic.location_id = vls.location_id
+                AND ic.state = 'IN_STOCK'
+                AND ic.merchant_id = vls.merchant_id
+            JOIN variations v ON v.id = vls.variation_id AND v.merchant_id = vls.merchant_id
+            WHERE vls.merchant_id = $1
+                AND vls.sold_out = true
+                AND ic.quantity > 0
+                AND COALESCE(v.is_deleted, false) = false
+        `, [merchantId]),
+        db.query(`
+            SELECT COUNT(DISTINCT vls.variation_id) as count
+            FROM variation_location_settings vls
+            JOIN variations v ON v.id = vls.variation_id AND v.merchant_id = vls.merchant_id
+            LEFT JOIN inventory_counts ic
+                ON ic.catalog_object_id = vls.variation_id
+                AND ic.location_id = vls.location_id
+                AND ic.state = 'IN_STOCK'
+                AND ic.merchant_id = vls.merchant_id
+            WHERE vls.merchant_id = $1
+                AND (vls.sold_out = false OR vls.sold_out IS NULL)
+                AND v.track_inventory = true
+                AND COALESCE(v.is_deleted, false) = false
+                AND (ic.quantity IS NULL OR ic.quantity = 0)
+        `, [merchantId])
+    ]);
+
     // Calculate aggregate statistics
     const stats = {
         total_items: result.rows.length,
@@ -234,7 +267,9 @@ async function getCatalogAudit(merchantId, filters = {}) {
         not_at_all_locations: result.rows.filter(r => r.not_at_all_locations).length,
         any_channel_off: result.rows.filter(r => r.any_channel_off).length,
         pos_disabled: result.rows.filter(r => r.pos_disabled).length,
-        online_disabled: result.rows.filter(r => r.online_disabled).length
+        online_disabled: result.rows.filter(r => r.online_disabled).length,
+        sold_out_with_stock: parseInt(soldOutResult.rows[0]?.count || 0, 10),
+        available_but_empty: parseInt(availableEmptyResult.rows[0]?.count || 0, 10)
     };
 
     // Count items with at least one issue

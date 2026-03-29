@@ -915,10 +915,15 @@ describe('resolution and idempotency', () => {
 
         setupSquareMocks([item]); // No category objects → category_orphan detected
         // Existing open issue for same check_type:object_id
-        db.query.mockResolvedValueOnce({
-            rows: [{ id: 42, check_type: 'category_orphan', variation_id: 'ITEM_1', item_id: 'ITEM_1' }]
+        db.query.mockImplementation((sql) => {
+            if (typeof sql === 'string' && sql.includes("status = 'mismatch'") && sql.includes('resolved_at IS NULL')
+                && !sql.includes('sold_out') && !sql.includes('track_inventory')) {
+                return Promise.resolve({
+                    rows: [{ id: 42, check_type: 'category_orphan', variation_id: 'ITEM_1', item_id: 'ITEM_1' }]
+                });
+            }
+            return Promise.resolve({ rows: [] });
         });
-        db.query.mockResolvedValue({ rows: [] }); // legacy cleanup
 
         const result = await runFullHealthCheck(3);
         expect(result.newIssues).toHaveLength(0);
@@ -936,10 +941,15 @@ describe('resolution and idempotency', () => {
 
         setupSquareMocks([item, cat]); // Category exists → no category_orphan
         // Previously open category_orphan issue
-        db.query.mockResolvedValueOnce({
-            rows: [{ id: 42, check_type: 'category_orphan', variation_id: 'ITEM_1', item_id: 'ITEM_1' }]
+        db.query.mockImplementation((sql) => {
+            if (typeof sql === 'string' && sql.includes("status = 'mismatch'") && sql.includes('resolved_at IS NULL')
+                && !sql.includes('sold_out') && !sql.includes('track_inventory')) {
+                return Promise.resolve({
+                    rows: [{ id: 42, check_type: 'category_orphan', variation_id: 'ITEM_1', item_id: 'ITEM_1' }]
+                });
+            }
+            return Promise.resolve({ rows: [] });
         });
-        db.query.mockResolvedValue({ rows: [] }); // UPDATE resolved_at + legacy cleanup
 
         const result = await runFullHealthCheck(3);
         expect(result.resolved).toEqual(
@@ -1072,7 +1082,9 @@ describe('check_type values match DB constraint', () => {
         'pricing_rule_orphan',
         'missing_online_content',
         'missing_seo_data',
-        'sellable_not_tracked'
+        'sellable_not_tracked',
+        'sold_out_with_stock',
+        'available_but_empty'
     ];
 
     test('all check_type values in service code are in the DB constraint', async () => {
@@ -1109,8 +1121,20 @@ describe('check_type values match DB constraint', () => {
             [item, orphanVar, deletedParentVar, rule],
             [deletedParent, deletedPset]
         );
-        db.query.mockResolvedValueOnce({ rows: [] }); // open issues
-        db.query.mockResolvedValue({ rows: [] }); // INSERTs + legacy cleanup
+        // Mock DB queries: sold_out checks return results, open issues returns empty
+        db.query.mockImplementation((sql) => {
+            if (typeof sql === 'string' && sql.includes('vls.sold_out = true') && sql.includes('ic.quantity > 0')) {
+                return Promise.resolve({
+                    rows: [{ variation_id: 'VAR_SO', location_id: 'LOC_1', quantity: 5, item_id: 'ITEM_SO' }]
+                });
+            }
+            if (typeof sql === 'string' && sql.includes('vls.sold_out = false OR vls.sold_out IS NULL') && sql.includes('v.track_inventory = true')) {
+                return Promise.resolve({
+                    rows: [{ variation_id: 'VAR_AE', location_id: 'LOC_2', item_id: 'ITEM_AE' }]
+                });
+            }
+            return Promise.resolve({ rows: [] });
+        });
 
         const result = await runFullHealthCheck(3);
 
@@ -1121,7 +1145,7 @@ describe('check_type values match DB constraint', () => {
             expect(DB_ALLOWED_CHECK_TYPES).toContain(checkType);
         }
 
-        // Verify we actually triggered all 10 check types
+        // Verify we actually triggered all 12 check types
         expect(emittedTypes.size).toBe(DB_ALLOWED_CHECK_TYPES.length);
     });
 

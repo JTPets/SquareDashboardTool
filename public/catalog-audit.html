@@ -384,7 +384,8 @@
           <option value="not_taxable">Not Taxable</option>
           <option value="missing_price">Missing Price</option>
           <option value="missing_description">Missing Description</option>
-          <option value="missing_item_image">Missing Image</option>
+          <option value="missing_item_image">Missing Item Image</option>
+          <option value="missing_variation_image">Missing Variation Image</option>
           <option value="missing_sku">Missing SKU</option>
           <option value="missing_upc">Missing UPC/Barcode</option>
           <option value="stock_tracking_off">Stock Tracking Off</option>
@@ -408,6 +409,10 @@
           <option value="any_channel_off">Any Channel Disabled</option>
           <option value="pos_disabled">POS Disabled</option>
           <option value="online_disabled">Online Disabled</option>
+        </optgroup>
+        <optgroup label="Sold Out Sync">
+          <option value="sold_out_with_stock">Sold Out w/ Stock</option>
+          <option value="available_but_empty">Available, No Stock</option>
         </optgroup>
       </select>
       <select id="categoryFilter" data-change="filterData">
@@ -541,6 +546,10 @@
               <option value="missing_online_content">Missing Online Content</option>
               <option value="missing_seo_data">Missing SEO Data</option>
               <option value="sellable_not_tracked">Sellable Not Tracked</option>
+            </optgroup>
+            <optgroup label="Sold Out Sync">
+              <option value="sold_out_with_stock">Sold Out w/ Stock</option>
+              <option value="available_but_empty">Available, No Stock</option>
             </optgroup>
           </select>
         </div>
