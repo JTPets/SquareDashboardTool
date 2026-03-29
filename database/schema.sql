@@ -1418,6 +1418,10 @@ CREATE TABLE IF NOT EXISTS delivery_routes (
     ),
     route_geometry TEXT,           -- GeoJSON from routing API (optional)
     waypoint_order TEXT[],         -- ordered array of delivery_order IDs
+    start_lat DOUBLE PRECISION,   -- route start override (NULL = use merchant default)
+    start_lng DOUBLE PRECISION,
+    end_lat DOUBLE PRECISION,     -- route end override (NULL = use merchant default)
+    end_lng DOUBLE PRECISION,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

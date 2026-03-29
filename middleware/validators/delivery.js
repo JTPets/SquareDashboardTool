@@ -252,6 +252,22 @@ const generateRoute = [
         .optional()
         .isBoolean()
         .withMessage('Force must be a boolean'),
+    body('startLat')
+        .optional()
+        .isFloat({ min: -90, max: 90 })
+        .withMessage('Start latitude must be between -90 and 90'),
+    body('startLng')
+        .optional()
+        .isFloat({ min: -180, max: 180 })
+        .withMessage('Start longitude must be between -180 and 180'),
+    body('endLat')
+        .optional()
+        .isFloat({ min: -90, max: 90 })
+        .withMessage('End latitude must be between -90 and 90'),
+    body('endLng')
+        .optional()
+        .isFloat({ min: -180, max: 180 })
+        .withMessage('End longitude must be between -180 and 180'),
     handleValidationErrors
 ];
 

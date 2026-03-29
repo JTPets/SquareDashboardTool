@@ -108,3 +108,88 @@
 .order-card.delivery-excluded .order-info h3 {
   text-decoration: line-through;
 }
+
+/* =============================================================
+   Route options panel (per-route start/end overrides)
+   ============================================================= */
+
+.route-options-panel {
+  margin-bottom: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.route-options-toggle {
+  padding: 8px 12px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  color: #475569;
+}
+
+.route-options-content {
+  padding: 8px 12px 12px;
+}
+
+.route-options-row {
+  margin-bottom: 8px;
+}
+
+.route-options-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #475569;
+  margin-bottom: 4px;
+}
+
+.route-options-input-group {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.route-options-input {
+  flex: 1;
+  min-width: 120px;
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.route-options-input-sm {
+  flex: 0 1 100px;
+  min-width: 80px;
+}
+
+.route-options-coords {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.route-options-advanced {
+  margin-top: 8px;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.route-options-advanced summary {
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+.route-endpoints {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}

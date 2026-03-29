@@ -389,6 +389,7 @@
       <div class="route-banner-content">
         <div class="route-info">
           <h2>Active Route - <span id="routeDate">Today</span></h2>
+          <div id="routeEndpoints" class="route-endpoints" style="display: none;"></div>
           <div class="route-progress">
             <span id="routeProgressText">0/0 stops completed</span>
             <div class="progress-bar">
@@ -448,6 +449,51 @@
           </label>
           <span id="excludeSummary" class="delivery-exclude-summary"></span>
         </div>
+        <details id="routeOptionsPanel" class="route-options-panel">
+          <summary class="route-options-toggle">Route Options</summary>
+          <div class="route-options-content">
+            <div class="route-options-row">
+              <label class="route-options-label">Start from</label>
+              <div class="route-options-input-group">
+                <input type="text" id="startAddressInput" class="route-options-input" placeholder="Use merchant default">
+                <button class="btn btn-secondary btn-sm" data-action="geocodeStartAddress">Geocode</button>
+                <button class="btn btn-secondary btn-sm" data-action="useCurrentLocation" title="Use browser location">GPS</button>
+              </div>
+              <input type="hidden" id="startLatInput">
+              <input type="hidden" id="startLngInput">
+              <span id="startCoordsDisplay" class="route-options-coords"></span>
+            </div>
+            <div class="route-options-row">
+              <label class="route-options-label">End at</label>
+              <div class="route-options-input-group">
+                <input type="text" id="endAddressInput" class="route-options-input" placeholder="Use merchant default">
+                <button class="btn btn-secondary btn-sm" data-action="geocodeEndAddress">Geocode</button>
+              </div>
+              <input type="hidden" id="endLatInput">
+              <input type="hidden" id="endLngInput">
+              <span id="endCoordsDisplay" class="route-options-coords"></span>
+            </div>
+            <details class="route-options-advanced">
+              <summary>Advanced (manual lat/lng)</summary>
+              <div class="route-options-row">
+                <label class="route-options-label">Start lat/lng</label>
+                <div class="route-options-input-group">
+                  <input type="number" id="startLatManual" class="route-options-input route-options-input-sm" step="any" min="-90" max="90" placeholder="Lat">
+                  <input type="number" id="startLngManual" class="route-options-input route-options-input-sm" step="any" min="-180" max="180" placeholder="Lng">
+                  <button class="btn btn-secondary btn-sm" data-action="applyManualStart">Apply</button>
+                </div>
+              </div>
+              <div class="route-options-row">
+                <label class="route-options-label">End lat/lng</label>
+                <div class="route-options-input-group">
+                  <input type="number" id="endLatManual" class="route-options-input route-options-input-sm" step="any" min="-90" max="90" placeholder="Lat">
+                  <input type="number" id="endLngManual" class="route-options-input route-options-input-sm" step="any" min="-180" max="180" placeholder="Lng">
+                  <button class="btn btn-secondary btn-sm" data-action="applyManualEnd">Apply</button>
+                </div>
+              </div>
+            </details>
+          </div>
+        </details>
         <div class="order-list" id="pendingOrders">
           <div class="empty-state">
             <h3>No pending orders</h3>
