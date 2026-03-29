@@ -18,24 +18,32 @@
 
         if (data.success && data.feedUrl) {
           feedUrl = data.feedUrl;
-          document.getElementById('feed-url-input').value = feedUrl;
+          const feedInput = document.getElementById('feed-url-input');
+          if (feedInput) feedInput.value = feedUrl;
         } else {
-          document.getElementById('feed-url-input').value = 'Error loading feed URL';
-          document.getElementById('feed-url-input').style.color = '#dc2626';
+          const feedInput = document.getElementById('feed-url-input');
+          if (feedInput) {
+            feedInput.value = 'Error loading feed URL';
+            feedInput.style.color = '#dc2626';
+          }
         }
       } catch (error) {
         console.error('Error loading feed URL:', error);
-        document.getElementById('feed-url-input').value = 'Error: ' + error.message;
-        document.getElementById('feed-url-input').style.color = '#dc2626';
+        const feedInput = document.getElementById('feed-url-input');
+        if (feedInput) {
+          feedInput.value = 'Error: ' + error.message;
+          feedInput.style.color = '#dc2626';
+        }
       }
     }
 
     // Copy feed URL to clipboard
-    async function copyFeedUrl() {
+    async function copyFeedUrl(element, event) {
       const input = document.getElementById('feed-url-input');
+      if (!input) return;
       try {
         await navigator.clipboard.writeText(input.value);
-        const btn = event.target;
+        const btn = element || event?.target;
         const originalText = btn.textContent;
         btn.textContent = 'Copied!';
         btn.style.background = '#16a34a';
@@ -1010,13 +1018,7 @@
       }
     }
 
-    // Add input listeners for URL preview
-    document.addEventListener('DOMContentLoaded', () => {
-      const baseUrlInput = document.getElementById('website-base-url');
-      const patternInput = document.getElementById('product-url-pattern');
-      if (baseUrlInput) baseUrlInput.addEventListener('input', updateUrlPreview);
-      if (patternInput) patternInput.addEventListener('input', updateUrlPreview);
-    });
+    // URL preview input listeners are set up in the main DOMContentLoaded handler below
 
     // Update connection badge based on settings
     function updateConnectionBadge() {
@@ -1037,11 +1039,12 @@
     }
 
     // Copy local inventory feed URL
-    async function copyLocalFeedUrl() {
+    async function copyLocalFeedUrl(element, event) {
       const input = document.getElementById('local-inventory-feed-url');
+      if (!input) return;
       try {
         await navigator.clipboard.writeText(input.value);
-        const btn = event.target;
+        const btn = element || event?.target;
         btn.textContent = 'Copied!';
         btn.style.background = '#16a34a';
         setTimeout(() => {
@@ -1091,7 +1094,8 @@
       try {
         const gmcMerchantId = document.getElementById('gmc-merchant-id').value.trim();
         const dataSourceId = document.getElementById('gmc-data-source-id').value.trim();
-        const localDataSourceId = document.getElementById('gmc-local-data-source-id').value.trim();
+        const localDataSourceEl = document.getElementById('gmc-local-data-source-id');
+        const localDataSourceId = localDataSourceEl ? localDataSourceEl.value.trim() : '';
         // Feed label and content language are now OPTIONAL
         // Leave empty to sync without them (for data sources with unset feed label)
         const feedLabelRaw = document.getElementById('gmc-feed-label').value.trim();
@@ -1529,6 +1533,12 @@
       loadFeedSettings();
       loadSyncStatus();
       loadLocalInventoryFeedUrl();
+
+      // Add input listeners for URL preview
+      const baseUrlInput = document.getElementById('website-base-url');
+      const patternInput = document.getElementById('product-url-pattern');
+      if (baseUrlInput) baseUrlInput.addEventListener('input', updateUrlPreview);
+      if (patternInput) patternInput.addEventListener('input', updateUrlPreview);
     });
 
     // Expose functions to global scope for event delegation
