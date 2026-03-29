@@ -41,3 +41,70 @@
 .toast.error    { background: #ef4444; }
 .toast.warning  { background: #f59e0b; }
 .toast.info     { background: #3b82f6; }
+
+/* =============================================================
+   Delivery order exclusion controls
+   ============================================================= */
+
+.delivery-exclude-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.875rem;
+}
+
+.delivery-exclude-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.delivery-exclude-summary {
+  color: #64748b;
+}
+
+.delivery-exclude-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  z-index: 1;
+}
+
+.delivery-exclude-checkbox input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.delivery-exclude-checkbox:hover {
+  color: #475569;
+}
+
+.delivery-exclude-label {
+  user-select: none;
+}
+
+.order-card {
+  position: relative;
+}
+
+.order-card.delivery-excluded {
+  opacity: 0.5;
+}
+
+.order-card.delivery-excluded .order-info h3 {
+  text-decoration: line-through;
+}

@@ -7,6 +7,7 @@
 let orders = { pending: [], active: [], completed: [] };
 let activeRoute = null;
 let pollInterval = null;
+let excludedOrderIds = new Set();
 const POLL_INTERVAL_MS = 60000;
 
 function startPolling() {
@@ -126,8 +127,11 @@ function renderOrderList(containerId, orderList, type) {
     return;
   }
 
+  const isExcluded = (id) => excludedOrderIds.has(id);
+
   container.innerHTML = orderList.map(order => `
-    <div class="order-card ${!order.geocoded_at ? 'needs-geocode' : ''} ${order.needs_customer_refresh ? 'needs-refresh' : ''}">
+    <div class="order-card ${!order.geocoded_at ? 'needs-geocode' : ''} ${order.needs_customer_refresh ? 'needs-refresh' : ''} ${type === 'pending' && isExcluded(order.id) ? 'delivery-excluded' : ''}">
+      ${type === 'pending' ? `<label class="delivery-exclude-checkbox"><input type="checkbox" data-action="toggleExcludeOrder" data-action-param="${escapeHtml(order.id)}" ${isExcluded(order.id) ? 'checked' : ''}><span class="delivery-exclude-label">Exclude</span></label>` : ''}
       <div class="order-info">
         <h3>${escapeHtml(order.customer_name)}${order.needs_customer_refresh || order.customer_name === 'Unknown Customer' ? ' <span class="badge-pending" title="Customer data pending - will update when order is confirmed">&#8987;</span>' : ''}</h3>
         <div class="order-address">${escapeHtml(order.address)}</div>
@@ -146,6 +150,10 @@ function renderOrderList(containerId, orderList, type) {
       </div>
     </div>
   `).join('');
+
+  if (type === 'pending') {
+    updateExcludeControls();
+  }
 }
 
 function getOrderActions(order, type) {
@@ -383,16 +391,75 @@ async function deleteOrder(element, event, orderId) {
   }
 }
 
+function toggleExcludeOrder(orderId) {
+  if (excludedOrderIds.has(orderId)) {
+    excludedOrderIds.delete(orderId);
+  } else {
+    excludedOrderIds.add(orderId);
+  }
+  // Re-render to update visual state
+  renderOrderList('pendingOrders', orders.pending, 'pending');
+}
+
+function toggleAllExclude() {
+  const geocodedPending = orders.pending.filter(o => o.geocoded_at);
+  const allExcluded = geocodedPending.length > 0 && geocodedPending.every(o => excludedOrderIds.has(o.id));
+
+  if (allExcluded) {
+    geocodedPending.forEach(o => excludedOrderIds.delete(o.id));
+  } else {
+    geocodedPending.forEach(o => excludedOrderIds.add(o.id));
+  }
+  renderOrderList('pendingOrders', orders.pending, 'pending');
+}
+
+function updateExcludeControls() {
+  const controlsEl = document.getElementById('excludeControls');
+  const summaryEl = document.getElementById('excludeSummary');
+  const toggleEl = document.getElementById('toggleAllExclude');
+  const geocodedPending = orders.pending.filter(o => o.geocoded_at);
+
+  if (geocodedPending.length === 0) {
+    controlsEl.style.display = 'none';
+    return;
+  }
+
+  controlsEl.style.display = 'flex';
+  const excluded = geocodedPending.filter(o => excludedOrderIds.has(o.id)).length;
+  const included = geocodedPending.length - excluded;
+
+  if (excluded > 0) {
+    summaryEl.textContent = `Route: ${included} of ${geocodedPending.length} orders (${excluded} excluded)`;
+  } else {
+    summaryEl.textContent = `Route: all ${geocodedPending.length} orders`;
+  }
+
+  // Clean up stale excluded IDs (orders that were deleted or changed status)
+  const currentIds = new Set(orders.pending.map(o => o.id));
+  for (const id of excludedOrderIds) {
+    if (!currentIds.has(id)) excludedOrderIds.delete(id);
+  }
+
+  if (toggleEl) {
+    toggleEl.checked = geocodedPending.length > 0 && geocodedPending.every(o => excludedOrderIds.has(o.id));
+  }
+}
+
 async function generateRoute() {
   const btn = document.getElementById('generateRouteBtn');
   btn.disabled = true;
   btn.textContent = 'Generating...';
 
   try {
+    const body = {};
+    if (excludedOrderIds.size > 0) {
+      body.excludeOrderIds = Array.from(excludedOrderIds);
+    }
+
     const response = await fetch('/api/delivery/route/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
+      body: JSON.stringify(body)
     });
 
     if (!response.ok) {
@@ -402,6 +469,7 @@ async function generateRoute() {
 
     const data = await response.json();
     showAlert(`Route generated with ${data.route.orders?.length || data.route.total_stops} stops!`, 'success');
+    excludedOrderIds.clear();
     loadOrders();
   } catch (error) {
     showAlert('Failed to generate route: ' + error.message, 'error');
@@ -509,3 +577,5 @@ window.editOrder = editOrder;
 window.deleteOrder = deleteOrder;
 window.submitAddOrder = submitAddOrder;
 window.submitEditOrder = submitEditOrder;
+window.toggleExcludeOrder = toggleExcludeOrder;
+window.toggleAllExclude = toggleAllExclude;

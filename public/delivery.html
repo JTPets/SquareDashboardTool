@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Delivery Scheduler - Square Dashboard Addon</title>
+  <link rel="stylesheet" href="/css/shared.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -435,10 +436,17 @@
 
       <!-- Pending Tab -->
       <div class="tab-content active" id="tab-pending">
-        <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+        <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
           <button class="btn btn-primary" id="generateRouteBtn" data-action="generateRoute">Generate Today's Route</button>
           <button class="btn btn-secondary" id="geocodeBtn" data-action="geocodePending">Geocode Pending Addresses</button>
           <button class="btn btn-secondary" id="syncBtn" data-action="syncFromSquare">Sync from Square</button>
+        </div>
+        <div id="excludeControls" class="delivery-exclude-controls" style="display: none;">
+          <label class="delivery-exclude-toggle">
+            <input type="checkbox" id="toggleAllExclude" data-action="toggleAllExclude">
+            <span>Exclude All</span>
+          </label>
+          <span id="excludeSummary" class="delivery-exclude-summary"></span>
         </div>
         <div class="order-list" id="pendingOrders">
           <div class="empty-state">
