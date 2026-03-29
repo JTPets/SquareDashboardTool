@@ -1,0 +1,919 @@
+/**
+ * Order Lifecycle Tests for services/delivery/delivery-service.js
+ *
+ * Tests status transitions documented in docs/DELIVERY-AUDIT.md Section 2
+ * and bug behaviors from Section 5 (Bug Registry).
+ *
+ * All tests pass against CURRENT code — they snapshot existing behavior,
+ * including documented bugs.
+ */
+
+const db = require('../../../utils/database');
+const logger = require('../../../utils/logger');
+
+// Mock token encryption
+jest.mock('../../../utils/token-encryption', () => ({
+    encryptToken: jest.fn(val => `encrypted:${val}`),
+    decryptToken: jest.fn(val => val.replace('encrypted:', '')),
+    isEncryptedToken: jest.fn(val => val?.startsWith('encrypted:'))
+}));
+
+// Mock customer details service
+jest.mock('../../../services/loyalty-admin/customer-details-service', () => ({
+    getCustomerDetails: jest.fn().mockResolvedValue(null)
+}));
+
+// Mock fs.promises
+jest.mock('fs', () => ({
+    promises: {
+        mkdir: jest.fn().mockResolvedValue(),
+        writeFile: jest.fn().mockResolvedValue(),
+        unlink: jest.fn().mockResolvedValue()
+    }
+}));
+
+// Mock global fetch
+global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500 });
+
+const deliveryService = require('../../../services/delivery/delivery-service');
+
+const MERCHANT_ID = 1;
+const USER_ID = 10;
+const ORDER_ID = '11111111-1111-1111-1111-111111111111';
+const ORDER_ID_2 = '22222222-2222-2222-2222-222222222222';
+const ORDER_ID_3 = '33333333-3333-3333-3333-333333333333';
+const ROUTE_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const ROUTE_ID_2 = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+
+function makeOrder(overrides = {}) {
+    return {
+        id: ORDER_ID,
+        merchant_id: MERCHANT_ID,
+        customer_name: 'Test Customer',
+        address: '123 Main St',
+        status: 'pending',
+        route_id: null,
+        route_position: null,
+        route_date: null,
+        geocoded_at: new Date().toISOString(),
+        address_lat: '43.65',
+        address_lng: '-79.38',
+        square_order_id: null,
+        square_customer_id: null,
+        phone: null,
+        pod_id: null,
+        pod_photo_path: null,
+        ...overrides
+    };
+}
+
+function makeSettings(overrides = {}) {
+    return {
+        merchant_id: MERCHANT_ID,
+        start_address: '100 Queen St W, Toronto',
+        start_address_lat: '43.6520',
+        start_address_lng: '-79.3832',
+        end_address: null,
+        end_address_lat: null,
+        end_address_lng: null,
+        auto_ingest_ready_orders: true,
+        openrouteservice_api_key: null,
+        ors_api_key_encrypted: null,
+        pod_retention_days: 180,
+        ...overrides
+    };
+}
+
+function makeMockClient(queryResults = []) {
+    let callIndex = 0;
+    return {
+        query: jest.fn().mockImplementation(() => {
+            if (callIndex < queryResults.length) {
+                return Promise.resolve(queryResults[callIndex++]);
+            }
+            return Promise.resolve({ rows: [], rowCount: 0 });
+        }),
+        release: jest.fn()
+    };
+}
+
+beforeEach(() => {
+    jest.resetAllMocks();
+    delete process.env.OPENROUTESERVICE_API_KEY;
+    db.query.mockResolvedValue({ rows: [], rowCount: 0 });
+    db.getClient.mockResolvedValue({
+        query: jest.fn().mockResolvedValue({ rows: [] }),
+        release: jest.fn()
+    });
+    global.fetch.mockResolvedValue({ ok: false, status: 500 });
+});
+
+// ============================================================================
+// 1. ORDER CREATION — Initial Status
+// ============================================================================
+
+describe('Order Creation — Initial Status', () => {
+    it('creates manual order with status = pending', async () => {
+        const created = makeOrder({ _inserted: true });
+        db.query.mockResolvedValueOnce({ rows: [created] });
+
+        const order = await deliveryService.createOrder(MERCHANT_ID, {
+            customerName: 'Test Customer',
+            address: '123 Main St'
+        });
+
+        expect(order.status).toBe('pending');
+        const sql = db.query.mock.calls[0][0];
+        expect(sql).not.toContain('ON CONFLICT');
+    });
+
+    it('creates Square-linked order with ON CONFLICT upsert', async () => {
+        const created = makeOrder({
+            square_order_id: 'SQ_ORDER_1',
+            _inserted: true
+        });
+        db.query.mockResolvedValueOnce({ rows: [created] });
+
+        const order = await deliveryService.createOrder(MERCHANT_ID, {
+            squareOrderId: 'SQ_ORDER_1',
+            customerName: 'Test',
+            address: '456 Elm St'
+        });
+
+        const sql = db.query.mock.calls[0][0];
+        expect(sql).toContain('ON CONFLICT (square_order_id, merchant_id)');
+    });
+
+    it('returns existing order on upsert conflict (xmax != 0)', async () => {
+        const existing = makeOrder({
+            square_order_id: 'SQ_ORDER_1',
+            customer_name: 'Original Name',
+            _inserted: false
+        });
+        db.query.mockResolvedValueOnce({ rows: [existing] });
+
+        const order = await deliveryService.createOrder(MERCHANT_ID, {
+            squareOrderId: 'SQ_ORDER_1',
+            customerName: 'New Name',
+            address: '456 Elm St'
+        });
+
+        expect(order.customer_name).toBe('Original Name');
+    });
+
+    it('sets geocoded_at when coordinates provided', async () => {
+        const created = makeOrder({ _inserted: true });
+        db.query.mockResolvedValueOnce({ rows: [created] });
+
+        await deliveryService.createOrder(MERCHANT_ID, {
+            customerName: 'Test',
+            address: '123 Main St',
+            addressLat: 43.65,
+            addressLng: -79.38
+        });
+
+        const params = db.query.mock.calls[0][1];
+        // geocodedAt is param index 11 (0-based)
+        expect(params[11]).toBeInstanceOf(Date);
+    });
+
+    it('sets geocoded_at to null when no coordinates', async () => {
+        const created = makeOrder({ _inserted: true });
+        db.query.mockResolvedValueOnce({ rows: [created] });
+
+        await deliveryService.createOrder(MERCHANT_ID, {
+            customerName: 'Test',
+            address: '123 Main St'
+        });
+
+        const params = db.query.mock.calls[0][1];
+        expect(params[11]).toBeNull();
+    });
+});
+
+// ============================================================================
+// 2. ORDER ASSIGNMENT TO ROUTE (pending → active)
+// ============================================================================
+
+describe('Route Generation — Order Assignment', () => {
+    it('assigns pending orders to route with status = active', async () => {
+        const pendingOrder = makeOrder({
+            id: ORDER_ID,
+            status: 'pending',
+            address_lat: '43.65',
+            address_lng: '-79.38'
+        });
+
+        // getActiveRoute → none
+        db.query.mockResolvedValueOnce({ rows: [] });
+        // getSettings
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        // pending orders query
+        db.query.mockResolvedValueOnce({ rows: [pendingOrder] });
+
+        const mockClient = makeMockClient([
+            { rows: [] },                              // BEGIN
+            { rows: [{ id: ROUTE_ID }] },              // INSERT route
+            { rows: [] },                              // UPDATE order status
+            { rows: [] },                              // COMMIT
+        ]);
+        db.getClient.mockResolvedValueOnce(mockClient);
+
+        // logAuditEvent
+        db.query.mockResolvedValueOnce({ rows: [] });
+        // getOrders for return
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'active', route_id: ROUTE_ID })]
+        });
+
+        const route = await deliveryService.generateRoute(MERCHANT_ID, USER_ID, {});
+
+        // Verify UPDATE set status = 'active'
+        const updateCall = mockClient.query.mock.calls[2];
+        expect(updateCall[0]).toContain("status = 'active'");
+        expect(updateCall[0]).toContain('route_id = $1');
+    });
+
+    it('only selects pending + geocoded orders', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });              // getActiveRoute
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] }); // getSettings
+        db.query.mockResolvedValueOnce({ rows: [] });              // no orders
+
+        await expect(
+            deliveryService.generateRoute(MERCHANT_ID, USER_ID, {})
+        ).rejects.toThrow('No geocoded pending orders');
+
+        const orderQuery = db.query.mock.calls[2][0];
+        expect(orderQuery).toContain("status = 'pending'");
+        expect(orderQuery).toContain('geocoded_at IS NOT NULL');
+    });
+
+    it('filters by orderIds when provided', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        await expect(
+            deliveryService.generateRoute(MERCHANT_ID, USER_ID, {
+                orderIds: [ORDER_ID, ORDER_ID_2]
+            })
+        ).rejects.toThrow('No geocoded pending orders');
+
+        const orderQuery = db.query.mock.calls[2][0];
+        expect(orderQuery).toContain('id = ANY($2)');
+        expect(db.query.mock.calls[2][1]).toEqual([MERCHANT_ID, [ORDER_ID, ORDER_ID_2]]);
+    });
+});
+
+// ============================================================================
+// 3. ROUTE PLANNING QUERY — Status Inclusion/Exclusion
+// ============================================================================
+
+describe('Route Planning Query — Status Filtering', () => {
+    it('includes pending orders', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        try {
+            await deliveryService.generateRoute(MERCHANT_ID, USER_ID, {});
+        } catch (e) { /* expected — no orders */ }
+
+        const sql = db.query.mock.calls[2][0];
+        expect(sql).toContain("status = 'pending'");
+    });
+
+    it('excludes active orders (already on a route)', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        try {
+            await deliveryService.generateRoute(MERCHANT_ID, USER_ID, {});
+        } catch (e) { /* expected */ }
+
+        const sql = db.query.mock.calls[2][0];
+        // Only pending is selected — active, skipped, delivered, completed are all excluded
+        expect(sql).toContain("status = 'pending'");
+        expect(sql).not.toContain("status IN");
+    });
+
+    it('excludes non-geocoded orders', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        try {
+            await deliveryService.generateRoute(MERCHANT_ID, USER_ID, {});
+        } catch (e) { /* expected */ }
+
+        const sql = db.query.mock.calls[2][0];
+        expect(sql).toContain('geocoded_at IS NOT NULL');
+    });
+});
+
+// ============================================================================
+// 4. finishRoute() — Behavior by Order Status
+// ============================================================================
+
+describe('finishRoute() — Status-Specific Behavior', () => {
+    function setupFinishRoute(statsRow) {
+        const mockClient = makeMockClient([
+            { rows: [] },                                         // BEGIN
+            { rows: [{ id: ROUTE_ID, status: 'active' }] },      // Get route
+            { rows: [statsRow] },                                 // Stats
+            { rows: [] },                                         // Roll back orders
+            { rows: [] },                                         // Mark finished
+            { rows: [] },                                         // COMMIT
+        ]);
+        db.getClient.mockResolvedValueOnce(mockClient);
+        db.query.mockResolvedValueOnce({ rows: [] }); // logAuditEvent
+        return mockClient;
+    }
+
+    it('rolls skipped orders back to pending', async () => {
+        const mockClient = setupFinishRoute({
+            completed: '0', skipped: '3', delivered: '0', still_active: '0'
+        });
+
+        const result = await deliveryService.finishRoute(MERCHANT_ID, ROUTE_ID, USER_ID);
+
+        expect(result.skipped).toBe(3);
+        expect(result.rolledBack).toBe(3);
+
+        const rollbackSql = mockClient.query.mock.calls[3][0];
+        expect(rollbackSql).toContain("status = 'pending'");
+        expect(rollbackSql).toContain("status IN ('skipped', 'active')");
+    });
+
+    it('rolls active orders back to pending', async () => {
+        const mockClient = setupFinishRoute({
+            completed: '0', skipped: '0', delivered: '0', still_active: '2'
+        });
+
+        const result = await deliveryService.finishRoute(MERCHANT_ID, ROUTE_ID, USER_ID);
+
+        expect(result.rolledBack).toBe(2);
+
+        const rollbackSql = mockClient.query.mock.calls[3][0];
+        expect(rollbackSql).toContain("'active'");
+    });
+
+    it('does not touch completed orders', async () => {
+        const mockClient = setupFinishRoute({
+            completed: '5', skipped: '0', delivered: '0', still_active: '0'
+        });
+
+        const result = await deliveryService.finishRoute(MERCHANT_ID, ROUTE_ID, USER_ID);
+
+        expect(result.completed).toBe(5);
+        expect(result.rolledBack).toBe(0);
+
+        const rollbackSql = mockClient.query.mock.calls[3][0];
+        expect(rollbackSql).not.toContain("'completed'");
+    });
+
+    // BUG: DELIVERY-BUG-002 — finishRoute() ignores delivered orders.
+    // They stay in 'delivered' status with stale route_id pointing to finished route.
+    // Documents current broken behavior.
+    it('does NOT roll back delivered orders (BUG-002)', async () => {
+        const mockClient = setupFinishRoute({
+            completed: '2', skipped: '1', delivered: '3', still_active: '0'
+        });
+
+        const result = await deliveryService.finishRoute(MERCHANT_ID, ROUTE_ID, USER_ID);
+
+        // delivered count is reported but NOT included in rolledBack
+        expect(result.delivered).toBe(3);
+        expect(result.rolledBack).toBe(1); // only skipped
+
+        // The WHERE clause does NOT include 'delivered'
+        const rollbackSql = mockClient.query.mock.calls[3][0];
+        expect(rollbackSql).toContain("status IN ('skipped', 'active')");
+        expect(rollbackSql).not.toContain("'delivered'");
+    });
+
+    it('clears route_id, route_position, route_date on rollback', async () => {
+        const mockClient = setupFinishRoute({
+            completed: '0', skipped: '2', delivered: '0', still_active: '1'
+        });
+
+        await deliveryService.finishRoute(MERCHANT_ID, ROUTE_ID, USER_ID);
+
+        const rollbackSql = mockClient.query.mock.calls[3][0];
+        expect(rollbackSql).toContain('route_id = NULL');
+        expect(rollbackSql).toContain('route_position = NULL');
+        expect(rollbackSql).toContain('route_date = NULL');
+    });
+
+    it('marks route status as finished', async () => {
+        const mockClient = setupFinishRoute({
+            completed: '1', skipped: '0', delivered: '0', still_active: '0'
+        });
+
+        await deliveryService.finishRoute(MERCHANT_ID, ROUTE_ID, USER_ID);
+
+        const finishSql = mockClient.query.mock.calls[4][0];
+        expect(finishSql).toContain("status = 'finished'");
+        expect(finishSql).toContain('finished_at = NOW()');
+    });
+
+    it('logs audit event with correct stats', async () => {
+        setupFinishRoute({
+            completed: '4', skipped: '2', delivered: '1', still_active: '1'
+        });
+
+        await deliveryService.finishRoute(MERCHANT_ID, ROUTE_ID, USER_ID);
+
+        expect(db.query).toHaveBeenCalledWith(
+            expect.stringContaining('delivery_audit_log'),
+            expect.arrayContaining([MERCHANT_ID, USER_ID, 'route_finished'])
+        );
+    });
+
+    it('uses transaction (BEGIN/COMMIT)', async () => {
+        const mockClient = setupFinishRoute({
+            completed: '1', skipped: '0', delivered: '0', still_active: '0'
+        });
+
+        await deliveryService.finishRoute(MERCHANT_ID, ROUTE_ID, USER_ID);
+
+        expect(mockClient.query.mock.calls[0][0]).toBe('BEGIN');
+        expect(mockClient.query.mock.calls[5][0]).toBe('COMMIT');
+    });
+
+    it('rolls back transaction on error', async () => {
+        const mockClient = {
+            query: jest.fn()
+                .mockResolvedValueOnce({ rows: [] })       // BEGIN
+                .mockRejectedValueOnce(new Error('DB fail')), // route query fails
+            release: jest.fn()
+        };
+        db.getClient.mockResolvedValueOnce(mockClient);
+
+        await expect(
+            deliveryService.finishRoute(MERCHANT_ID, ROUTE_ID, USER_ID)
+        ).rejects.toThrow('DB fail');
+
+        expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');
+        expect(mockClient.release).toHaveBeenCalled();
+    });
+});
+
+// ============================================================================
+// 5. FORCE-REGENERATE — Orders on Cancelled Route
+// ============================================================================
+
+describe('Force-Regenerate Route — Cancelled Route Orders', () => {
+    // BUG: DELIVERY-BUG-001 — generateRoute(force=true) cancels old route
+    // but does NOT roll back orders on it. Active/skipped/delivered orders
+    // become orphaned with stale route_id.
+    // Documents current broken behavior.
+    it('cancels existing route but does NOT reset its orders (BUG-001)', async () => {
+        const existingRoute = { id: ROUTE_ID, status: 'active', order_count: 3 };
+        const pendingOrder = makeOrder({ id: ORDER_ID_3 });
+
+        // getActiveRoute returns existing
+        db.query.mockResolvedValueOnce({ rows: [existingRoute] });
+        // getSettings
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        // pending orders for new route
+        db.query.mockResolvedValueOnce({ rows: [pendingOrder] });
+
+        const mockClient = makeMockClient([
+            { rows: [] },                                         // BEGIN
+            { rows: [] },                                         // Cancel old route
+            { rows: [{ id: ROUTE_ID_2 }] },                      // INSERT new route
+            { rows: [] },                                         // UPDATE order active
+            { rows: [] },                                         // COMMIT
+        ]);
+        db.getClient.mockResolvedValueOnce(mockClient);
+
+        // logAuditEvent
+        db.query.mockResolvedValueOnce({ rows: [] });
+        // getOrders for return
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'active', route_id: ROUTE_ID_2 })]
+        });
+
+        await deliveryService.generateRoute(MERCHANT_ID, USER_ID, { force: true });
+
+        // Verify old route was cancelled
+        const cancelSql = mockClient.query.mock.calls[1][0];
+        expect(cancelSql).toContain("status = 'cancelled'");
+        expect(mockClient.query.mock.calls[1][1]).toEqual([ROUTE_ID]);
+
+        // Verify NO query resets orders on the old route
+        // The only UPDATE on orders is setting the NEW route's orders to active
+        const allClientCalls = mockClient.query.mock.calls.map(c => c[0]);
+        const orderUpdates = allClientCalls.filter(sql =>
+            typeof sql === 'string' && sql.includes('delivery_orders') && sql.includes('UPDATE')
+        );
+
+        // Only one UPDATE on delivery_orders: the assignment to new route
+        expect(orderUpdates).toHaveLength(1);
+        expect(orderUpdates[0]).toContain("status = 'active'");
+        // No rollback of old route's orders
+        expect(orderUpdates[0]).not.toContain("status = 'pending'");
+    });
+
+    it('does not include old route orders in new route (they remain orphaned)', async () => {
+        const existingRoute = { id: ROUTE_ID, status: 'active' };
+        // Only a different pending order gets picked up
+        const newPendingOrder = makeOrder({ id: ORDER_ID_3 });
+
+        db.query.mockResolvedValueOnce({ rows: [existingRoute] });
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [newPendingOrder] });
+
+        const mockClient = makeMockClient([
+            { rows: [] },
+            { rows: [] },
+            { rows: [{ id: ROUTE_ID_2 }] },
+            { rows: [] },
+            { rows: [] },
+        ]);
+        db.getClient.mockResolvedValueOnce(mockClient);
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValueOnce({ rows: [newPendingOrder] });
+
+        await deliveryService.generateRoute(MERCHANT_ID, USER_ID, { force: true });
+
+        // The order selection query only picks pending orders
+        const orderSelectSql = db.query.mock.calls[2][0];
+        expect(orderSelectSql).toContain("status = 'pending'");
+    });
+
+    it('allows force=true when active route exists', async () => {
+        const existingRoute = { id: ROUTE_ID, status: 'active' };
+        const pendingOrder = makeOrder();
+
+        db.query.mockResolvedValueOnce({ rows: [existingRoute] });
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [pendingOrder] });
+
+        const mockClient = makeMockClient([
+            { rows: [] },
+            { rows: [] },
+            { rows: [{ id: ROUTE_ID_2 }] },
+            { rows: [] },
+            { rows: [] },
+        ]);
+        db.getClient.mockResolvedValueOnce(mockClient);
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValueOnce({ rows: [pendingOrder] });
+
+        // Should NOT throw
+        await expect(
+            deliveryService.generateRoute(MERCHANT_ID, USER_ID, { force: true })
+        ).resolves.toBeDefined();
+    });
+
+    it('throws without force when active route exists', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{ id: ROUTE_ID, status: 'active' }]
+        });
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+
+        await expect(
+            deliveryService.generateRoute(MERCHANT_ID, USER_ID, {})
+        ).rejects.toThrow('An active route already exists');
+    });
+});
+
+// ============================================================================
+// 6. skipOrder — Status Guard Behavior
+// ============================================================================
+
+describe('skipOrder — Status Guard', () => {
+    it('sets order status to skipped', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [makeOrder({ status: 'skipped' })] })
+            .mockResolvedValueOnce({ rows: [] }); // audit
+
+        const order = await deliveryService.skipOrder(MERCHANT_ID, ORDER_ID, USER_ID);
+        expect(order.status).toBe('skipped');
+    });
+
+    // BUG: DELIVERY-BUG-006 — skipOrder() has no status guard.
+    // Any status can be skipped, and audit log hardcodes previousStatus: 'active'.
+    // Documents current broken behavior.
+    it('allows skipping a pending order — no status guard (BUG-006)', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [makeOrder({ status: 'skipped' })] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        // Does NOT throw despite order being pending (not on a route)
+        const order = await deliveryService.skipOrder(MERCHANT_ID, ORDER_ID, USER_ID);
+        expect(order.status).toBe('skipped');
+    });
+
+    // BUG: DELIVERY-BUG-013 — Audit log always records previousStatus: 'active'
+    // regardless of actual status.
+    it('hardcodes previousStatus as active in audit log (BUG-013)', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [makeOrder({ status: 'skipped' })] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        await deliveryService.skipOrder(MERCHANT_ID, ORDER_ID, USER_ID);
+
+        const auditCall = db.query.mock.calls[1];
+        const details = JSON.parse(auditCall[1][5]);
+        expect(details.previousStatus).toBe('active');
+    });
+});
+
+// ============================================================================
+// 7. completeOrder — Status Guard Behavior
+// ============================================================================
+
+describe('completeOrder — Status Guard', () => {
+    it('sets order status to completed', async () => {
+        db.query
+            .mockResolvedValueOnce({
+                rows: [makeOrder({ status: 'completed', square_order_id: 'SQ1' })]
+            })
+            .mockResolvedValueOnce({ rows: [] }); // audit
+
+        const order = await deliveryService.completeOrder(MERCHANT_ID, ORDER_ID, USER_ID);
+        expect(order.status).toBe('completed');
+    });
+
+    // BUG: DELIVERY-BUG-005 — completeOrder has no status guard.
+    // A pending order (not on any route) can be completed.
+    // Documents current broken behavior.
+    it('allows completing a pending order — no status guard (BUG-005)', async () => {
+        db.query
+            .mockResolvedValueOnce({
+                rows: [makeOrder({ status: 'completed' })]
+            })
+            .mockResolvedValueOnce({ rows: [] });
+
+        // Does NOT throw despite order not being on a route
+        const order = await deliveryService.completeOrder(MERCHANT_ID, ORDER_ID, USER_ID);
+        expect(order.status).toBe('completed');
+    });
+
+    it('logs audit with squareOrderId and hasPod', async () => {
+        db.query
+            .mockResolvedValueOnce({
+                rows: [makeOrder({
+                    status: 'completed',
+                    square_order_id: 'SQ_123',
+                    pod_id: 'pod-uuid'
+                })]
+            })
+            .mockResolvedValueOnce({ rows: [] });
+
+        await deliveryService.completeOrder(MERCHANT_ID, ORDER_ID, USER_ID);
+
+        const auditCall = db.query.mock.calls[1];
+        const details = JSON.parse(auditCall[1][5]);
+        expect(details.squareOrderId).toBe('SQ_123');
+        expect(details.hasPod).toBe(true);
+    });
+});
+
+// ============================================================================
+// 8. savePodPhoto — Status Transition
+// ============================================================================
+
+describe('savePodPhoto — Status Transition', () => {
+    const JPEG_HEADER = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+    it('sets order status to delivered after saving POD', async () => {
+        // getOrderById
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'active' })]
+        });
+        // getSettings
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        // INSERT pod
+        db.query.mockResolvedValueOnce({
+            rows: [{ id: 'pod-1', captured_at: new Date() }]
+        });
+        // updateOrder (status → delivered)
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'delivered' })]
+        });
+
+        await deliveryService.savePodPhoto(MERCHANT_ID, ORDER_ID, JPEG_HEADER, {});
+
+        // The updateOrder call should set status to delivered
+        const updateCall = db.query.mock.calls[3];
+        expect(updateCall[0]).toContain('delivery_orders');
+        const updateParams = updateCall[1];
+        expect(updateParams).toContain('delivered');
+    });
+
+    // BUG: DELIVERY-BUG-004 — savePodPhoto unconditionally sets status to 'delivered'
+    // regardless of current status. A completed order can regress to delivered.
+    // Documents current broken behavior.
+    it('overwrites completed status with delivered — no guard (BUG-004)', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'completed' })]
+        });
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({
+            rows: [{ id: 'pod-1', captured_at: new Date() }]
+        });
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'delivered' })]
+        });
+
+        // Does NOT throw — overwrites completed with delivered
+        const pod = await deliveryService.savePodPhoto(MERCHANT_ID, ORDER_ID, JPEG_HEADER, {});
+        expect(pod).toBeDefined();
+
+        // updateOrder was called with status = delivered
+        const updateSql = db.query.mock.calls[3][0];
+        expect(updateSql).toContain('delivery_orders');
+    });
+});
+
+// ============================================================================
+// 9. handleSquareOrderUpdate — Cancellation Status Filtering
+// ============================================================================
+
+describe('handleSquareOrderUpdate — Cancellation Behavior', () => {
+    it('deletes pending order on CANCELED', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [makeOrder({ status: 'pending' })] })
+            .mockResolvedValueOnce({ rows: [{ id: ORDER_ID }] });
+
+        await deliveryService.handleSquareOrderUpdate(MERCHANT_ID, 'SQ_1', 'CANCELED');
+
+        const deleteSql = db.query.mock.calls[1][0];
+        expect(deleteSql).toContain('DELETE FROM delivery_orders');
+    });
+
+    it('deletes active order on CANCELED', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [makeOrder({ status: 'active' })] })
+            .mockResolvedValueOnce({ rows: [{ id: ORDER_ID }] });
+
+        await deliveryService.handleSquareOrderUpdate(MERCHANT_ID, 'SQ_1', 'CANCELED');
+
+        expect(db.query).toHaveBeenCalledTimes(2);
+        const deleteSql = db.query.mock.calls[1][0];
+        expect(deleteSql).toContain('DELETE');
+    });
+
+    // BUG: DELIVERY-BUG-003 — handleSquareOrderUpdate(CANCELED) only deletes
+    // pending/active orders. Skipped and delivered orders for cancelled Square
+    // orders remain as zombie records.
+    // Documents current broken behavior.
+    it('does NOT delete skipped order on CANCELED (BUG-003)', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'skipped' })]
+        });
+
+        await deliveryService.handleSquareOrderUpdate(MERCHANT_ID, 'SQ_1', 'CANCELED');
+
+        // Only one query — the lookup. No delete.
+        expect(db.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT delete delivered order on CANCELED (BUG-003)', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'delivered' })]
+        });
+
+        await deliveryService.handleSquareOrderUpdate(MERCHANT_ID, 'SQ_1', 'CANCELED');
+
+        expect(db.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not delete completed order on CANCELED', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'completed' })]
+        });
+
+        await deliveryService.handleSquareOrderUpdate(MERCHANT_ID, 'SQ_1', 'CANCELED');
+
+        expect(db.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('marks non-completed order as completed on COMPLETED', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [makeOrder({ status: 'active' })] })
+            .mockResolvedValueOnce({ rows: [makeOrder({ status: 'completed' })] });
+
+        await deliveryService.handleSquareOrderUpdate(MERCHANT_ID, 'SQ_1', 'COMPLETED');
+
+        const updateSql = db.query.mock.calls[1][0];
+        expect(updateSql).toContain('delivery_orders');
+    });
+
+    it('does not re-update already completed order', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'completed' })]
+        });
+
+        await deliveryService.handleSquareOrderUpdate(MERCHANT_ID, 'SQ_1', 'COMPLETED');
+
+        expect(db.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('does nothing for unknown square order', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        await deliveryService.handleSquareOrderUpdate(MERCHANT_ID, 'SQ_UNKNOWN', 'COMPLETED');
+
+        expect(db.query).toHaveBeenCalledTimes(1);
+    });
+});
+
+// ============================================================================
+// 10. deleteOrder — Guard Conditions
+// ============================================================================
+
+describe('deleteOrder — Guard Conditions', () => {
+    it('deletes manual pending order', async () => {
+        db.query.mockResolvedValueOnce({ rows: [{ id: ORDER_ID }] });
+
+        const deleted = await deliveryService.deleteOrder(MERCHANT_ID, ORDER_ID);
+
+        expect(deleted).toBe(true);
+        const sql = db.query.mock.calls[0][0];
+        expect(sql).toContain('square_order_id IS NULL');
+        expect(sql).toContain("status NOT IN ('completed', 'delivered')");
+    });
+
+    it('prevents deletion of Square-linked orders (via SQL guard)', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] }); // no match
+
+        const deleted = await deliveryService.deleteOrder(MERCHANT_ID, ORDER_ID);
+
+        expect(deleted).toBe(false);
+    });
+
+    it('prevents deletion of completed orders (via SQL guard)', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        const deleted = await deliveryService.deleteOrder(MERCHANT_ID, ORDER_ID);
+
+        expect(deleted).toBe(false);
+    });
+
+    it('uses merchant_id in WHERE clause', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        await deliveryService.deleteOrder(MERCHANT_ID, ORDER_ID);
+
+        const params = db.query.mock.calls[0][1];
+        expect(params).toEqual([ORDER_ID, MERCHANT_ID]);
+    });
+});
+
+// ============================================================================
+// 11. markDelivered
+// ============================================================================
+
+describe('markDelivered', () => {
+    it('sets status to delivered via updateOrder', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'delivered' })]
+        });
+
+        const order = await deliveryService.markDelivered(MERCHANT_ID, ORDER_ID);
+
+        expect(order.status).toBe('delivered');
+        const updateSql = db.query.mock.calls[0][0];
+        expect(updateSql).toContain('delivery_orders');
+    });
+});
+
+// ============================================================================
+// 12. Full Lifecycle Sequence
+// ============================================================================
+
+describe('Full Lifecycle — pending → active → delivered → completed', () => {
+    it('transitions through the full happy path', async () => {
+        // Step 1: Create order → pending
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'pending', _inserted: true })]
+        });
+        const created = await deliveryService.createOrder(MERCHANT_ID, {
+            customerName: 'Lifecycle Test',
+            address: '100 Main St'
+        });
+        expect(created.status).toBe('pending');
+
+        // Step 2: markDelivered → delivered (simulating POD)
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'delivered' })]
+        });
+        const delivered = await deliveryService.markDelivered(MERCHANT_ID, ORDER_ID);
+        expect(delivered.status).toBe('delivered');
+
+        // Step 3: completeOrder → completed
+        db.query
+            .mockResolvedValueOnce({
+                rows: [makeOrder({ status: 'completed', square_order_id: 'SQ1' })]
+            })
+            .mockResolvedValueOnce({ rows: [] }); // audit
+        const completed = await deliveryService.completeOrder(MERCHANT_ID, ORDER_ID, USER_ID);
+        expect(completed.status).toBe('completed');
+    });
+});
