@@ -1,10 +1,9 @@
 /**
  * Google Merchant Center API Service (Multi-Tenant)
  *
- * Handles direct API calls to push products and local inventory to GMC.
+ * Handles direct API calls to push products to GMC.
  * Provides:
  * - Product catalog sync to GMC
- * - Local inventory sync per store location
  * - OAuth2 token management and refresh
  * - Sync logging and history
  * - Connection testing
@@ -15,15 +14,9 @@
  * This service was extracted from utils/merchant-center-api.js as part of P1-3.
  */
 
-const { google } = require('googleapis');
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { getAuthenticatedClient } = require('../../utils/google-auth');
-
-// OAuth2 scopes for Merchant Center
-// The 'content' scope covers both Content API and Merchant API v1 — no re-auth needed.
-// Google confirmed backward compatibility: https://developers.google.com/merchant/api/guides/auth
-const SCOPES = ['https://www.googleapis.com/auth/content'];
 
 // LOGIC CHANGE: use centralized retry config from constants (C-1)
 const { RETRY: { MAX_ATTEMPTS: MAX_RETRIES, BASE_DELAY_MS: RETRY_DELAY_MS } } = require('../../config/constants');
@@ -268,10 +261,11 @@ async function merchantApiRequest(auth, method, path, body = null) {
  * Get data source info from GMC to check its configuration
  */
 async function getDataSourceInfo(merchantId, gmcMerchantId, dataSourceId) {
+    // LOGIC CHANGE: moved path declaration before try so catch block can reference it
+    let path;
     try {
         const auth = await getAuthClient(merchantId);
-        // LOGIC CHANGE: v1beta → v1 (BACKLOG-61 — Google deprecated v1beta Feb 28 2026)
-        const path = `/datasources/v1/accounts/${gmcMerchantId}/dataSources/${dataSourceId}`;
+        path = `/datasources/v1/accounts/${gmcMerchantId}/dataSources/${dataSourceId}`;
         const response = await merchantApiRequest(auth, 'GET', path);
         logger.info('GMC Data Source info', {
             dataSourceId,
@@ -279,14 +273,12 @@ async function getDataSourceInfo(merchantId, gmcMerchantId, dataSourceId) {
         });
         return response;
     } catch (error) {
-        // TODO: remove after v1 migration confirmed working
         logger.error('Failed to get data source info', {
             error: error.message,
             stack: error.stack,
-            url: `https://merchantapi.googleapis.com${path}`,
+            url: path ? `https://merchantapi.googleapis.com${path}` : 'N/A',
             httpStatus: error.status || 'N/A',
-            responseBody: error.details ? JSON.stringify(error.details).substring(0, 500) : 'N/A',
-            hint: 'GMC v1 API call failed — may need scope re-auth or schema update'
+            responseBody: error.details ? JSON.stringify(error.details).substring(0, 500) : 'N/A'
         });
         return null;
     }
@@ -305,11 +297,12 @@ async function upsertProduct(options) {
 
     const auth = await getAuthClient(merchantId);
 
+    // LOGIC CHANGE: moved apiPath declaration before try so catch block can reference it
+    let apiPath;
     try {
-        // LOGIC CHANGE: v1beta → v1 (BACKLOG-61 — Google deprecated v1beta Feb 28 2026)
         // dataSource must be passed as query parameter, not in body
         const dataSourceName = `accounts/${gmcMerchantId}/dataSources/${dataSourceId}`;
-        const apiPath = `/products/v1/accounts/${gmcMerchantId}/productInputs:insert?dataSource=${encodeURIComponent(dataSourceName)}`;
+        apiPath = `/products/v1/accounts/${gmcMerchantId}/productInputs:insert?dataSource=${encodeURIComponent(dataSourceName)}`;
 
         // Convert to Merchant API format (without dataSource in body)
         const productInput = buildMerchantApiProduct(product, gmcMerchantId, channel);
@@ -318,7 +311,6 @@ async function upsertProduct(options) {
 
         return { success: true, data: response };
     } catch (error) {
-        // TODO: remove after v1 migration confirmed working
         logger.error('Failed to upsert product in GMC', {
             error: error.message,
             merchantId,
@@ -326,10 +318,9 @@ async function upsertProduct(options) {
             channel,
             feedLabel: product.feedLabel || '(not set)',
             contentLanguage: product.contentLanguage || '(not set)',
-            url: `https://merchantapi.googleapis.com${apiPath}`,
+            url: apiPath ? `https://merchantapi.googleapis.com${apiPath}` : 'N/A',
             httpStatus: error.status || 'N/A',
-            responseBody: error.details ? JSON.stringify(error.details).substring(0, 500) : 'N/A',
-            hint: 'GMC v1 API call failed — may need scope re-auth or schema update'
+            responseBody: error.details ? JSON.stringify(error.details).substring(0, 500) : 'N/A'
         });
         throw error;
     }
@@ -651,349 +642,6 @@ async function syncProductCatalog(merchantId) {
     }
 }
 
-// ==================== LOCAL INVENTORY SYNC ====================
-
-// LOGIC CHANGE: removed write-only debug files and shared module state (MT-4, MT-13)
-
-/**
- * Update local inventory for a single product at a specific store
- * Uses the new Merchant Inventories API
- */
-async function updateLocalInventory(options) {
-    const { merchantId, gmcMerchantId, storeCode, productId, quantity, availability, feedLabel, contentLanguage } = options;
-
-    const auth = await getAuthClient(merchantId);
-
-    const inventoryAvailability = availability || (quantity > 0 ? 'in_stock' : 'out_of_stock');
-
-    // LOGIC CHANGE: v1beta → v1 (BACKLOG-61 — Google deprecated v1beta Feb 28 2026)
-    // POST /inventories/v1/accounts/{account}/products/{product}/localInventories:insert
-    // Product name format for LOCAL inventory: local~contentLanguage~feedLabel~offerId
-    // (Note: online products use "online~" prefix, local inventory uses "local~" prefix)
-    const lang = contentLanguage || 'en';
-    const feed = feedLabel || 'CA';
-    const productName = `local~${lang}~${feed}~${productId}`;
-    const apiPath = `/inventories/v1/accounts/${gmcMerchantId}/products/${encodeURIComponent(productName)}/localInventories:insert`;
-
-    const localInventory = {
-        storeCode: storeCode,
-        availability: inventoryAvailability.toUpperCase().replace('_', '_'),
-        quantity: quantity.toString()
-    };
-
-    try {
-        const response = await merchantApiRequest(auth, 'POST', apiPath, localInventory);
-
-        return { success: true, data: response };
-    } catch (error) {
-        // TODO: remove after v1 migration confirmed working
-        logger.error('Local inventory update failed', {
-            error: error.message,
-            merchantId,
-            productId,
-            productName,
-            storeCode,
-            url: `https://merchantapi.googleapis.com${apiPath}`,
-            httpStatus: error.status || 'N/A',
-            responseBody: error.details ? JSON.stringify(error.details).substring(0, 500) : 'N/A',
-            feedLabel: feed,
-            contentLanguage: lang,
-            hint: 'GMC v1 API call failed — may need scope re-auth or schema update'
-        });
-        throw error;
-    }
-}
-
-/**
- * Batch update local inventory for multiple products
- * Processes in parallel with concurrency limit
- */
-async function batchUpdateLocalInventory(options) {
-    const { merchantId, gmcMerchantId, storeCode, items, feedLabel, contentLanguage } = options;
-
-    // Log what we're about to do for debugging
-    logger.info('Starting batch local inventory update', {
-        merchantId,
-        gmcMerchantId,
-        storeCode,
-        feedLabel: feedLabel || '(not set)',
-        contentLanguage: contentLanguage || '(not set)',
-        itemCount: items.length,
-        sampleProductIds: items.slice(0, 3).map(i => i.productId)
-    });
-
-    const results = {
-        success: true,
-        total: items.length,
-        succeeded: 0,
-        failed: 0,
-        errors: []
-    };
-
-    // Process in parallel with concurrency limit
-    const CONCURRENCY = 10;
-    for (let i = 0; i < items.length; i += CONCURRENCY) {
-        const batch = items.slice(i, i + CONCURRENCY);
-        const promises = batch.map(async (item, idx) => {
-            try {
-                await updateLocalInventory({
-                    merchantId,
-                    gmcMerchantId,
-                    storeCode,
-                    productId: item.productId,
-                    quantity: item.quantity,
-                    feedLabel,
-                    contentLanguage
-                });
-                return { success: true, index: i + idx };
-            } catch (error) {
-                return {
-                    success: false,
-                    index: i + idx,
-                    error: error.message,
-                    productId: item.productId
-                };
-            }
-        });
-
-        const batchResults = await Promise.all(promises);
-        for (const result of batchResults) {
-            if (result.success) {
-                results.succeeded++;
-            } else {
-                results.failed++;
-                results.errors.push({
-                    productId: result.productId,
-                    error: result.error
-                });
-            }
-        }
-    }
-
-    // Log results with sample errors for debugging
-    logger.info('Batch local inventory update completed', {
-        merchantId,
-        gmcMerchantId,
-        storeCode,
-        total: results.total,
-        succeeded: results.succeeded,
-        failed: results.failed,
-        sampleErrors: results.errors.slice(0, 5) // Log first 5 errors for debugging
-    });
-
-    // If all failed, log a warning with more details
-    if (results.failed > 0 && results.succeeded === 0) {
-        logger.warn('All local inventory updates failed!', {
-            storeCode,
-            feedLabel: feedLabel || '(not set)',
-            contentLanguage: contentLanguage || '(not set)',
-            firstError: results.errors[0]
-        });
-    }
-
-    return results;
-}
-
-/**
- * Sync all local inventory for a specific location to GMC
- */
-async function syncLocationInventory(options) {
-    const { merchantId, locationId } = options;
-
-    // Get GMC settings
-    const settings = await getGmcApiSettings(merchantId);
-    const gmcMerchantId = settings.gmc_merchant_id;
-
-    if (!gmcMerchantId) {
-        throw new Error('Google Merchant Center ID not configured. Go to Settings to add your Merchant Center ID.');
-    }
-
-    // Get location settings (store code)
-    const locationResult = await db.query(`
-        SELECT
-            l.id,
-            l.name as location_name,
-            COALESCE(gls.google_store_code, l.id) as store_code
-        FROM locations l
-        LEFT JOIN gmc_location_settings gls ON l.id = gls.location_id AND gls.merchant_id = $1
-        WHERE l.id = $2 AND l.merchant_id = $1
-    `, [merchantId, locationId]);
-
-    if (locationResult.rows.length === 0) {
-        throw new Error(`Location ${locationId} not found`);
-    }
-
-    const location = locationResult.rows[0];
-
-    // Get inventory data for this location
-    const inventoryResult = await db.query(`
-        SELECT
-            v.id as variation_id,
-            COALESCE(v.sku, v.upc, v.id) as product_id,
-            COALESCE(
-                (SELECT SUM(ic.quantity)
-                 FROM inventory_counts ic
-                 WHERE ic.catalog_object_id = v.id
-                   AND ic.state = 'IN_STOCK'
-                   AND ic.merchant_id = $1
-                   AND ic.location_id = $2
-                ), 0
-            )::integer as quantity
-        FROM variations v
-        JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
-        WHERE v.is_deleted = FALSE
-          AND i.is_deleted = FALSE
-          AND i.available_online = TRUE
-          AND v.merchant_id = $1
-          AND v.sku IS NOT NULL
-    `, [merchantId, locationId]);
-
-    if (inventoryResult.rows.length === 0) {
-        return {
-            success: true,
-            location: location.location_name,
-            storeCode: location.store_code,
-            message: 'No products with SKUs found to sync',
-            synced: 0
-        };
-    }
-
-    // Prepare items for batch update
-    const items = inventoryResult.rows.map(row => ({
-        productId: row.product_id,
-        quantity: row.quantity
-    }));
-
-    // Batch update - pass feedLabel and contentLanguage from settings
-    const result = await batchUpdateLocalInventory({
-        merchantId,
-        gmcMerchantId,
-        storeCode: location.store_code,
-        items,
-        feedLabel: settings.feed_label,
-        contentLanguage: settings.content_language
-    });
-
-    return {
-        success: result.failed === 0,
-        location: location.location_name,
-        storeCode: location.store_code,
-        total: items.length,
-        synced: result.succeeded,
-        failed: result.failed,
-        errors: result.errors.slice(0, 10)
-    };
-}
-
-/**
- * Sync all locations' inventory to GMC
- */
-async function syncAllLocationsInventory(merchantId) {
-    // Create sync log entry
-    const logId = await createSyncLog({
-        merchantId,
-        syncType: 'local_inventory_all'
-    });
-
-    try {
-        // Get all enabled locations
-        const locationsResult = await db.query(`
-            SELECT
-                l.id,
-                l.name,
-                COALESCE(gls.google_store_code, l.id) as store_code,
-                COALESCE(gls.enabled, true) as enabled
-            FROM locations l
-            LEFT JOIN gmc_location_settings gls ON l.id = gls.location_id AND gls.merchant_id = $1
-            WHERE l.merchant_id = $1 AND l.active = true
-            ORDER BY l.name
-        `, [merchantId]);
-
-        const results = {
-            success: true,
-            locations: [],
-            totalSynced: 0,
-            totalFailed: 0
-        };
-
-        for (const location of locationsResult.rows) {
-            if (!location.enabled) {
-                results.locations.push({
-                    locationId: location.id,
-                    locationName: location.name,
-                    skipped: true,
-                    reason: 'Location disabled for GMC'
-                });
-                continue;
-            }
-
-            try {
-                const syncResult = await syncLocationInventory({
-                    merchantId,
-                    locationId: location.id
-                });
-
-                results.locations.push({
-                    locationId: location.id,
-                    locationName: location.name,
-                    storeCode: location.store_code,
-                    ...syncResult
-                });
-
-                results.totalSynced += syncResult.synced || 0;
-                results.totalFailed += syncResult.failed || 0;
-            } catch (error) {
-                results.locations.push({
-                    locationId: location.id,
-                    locationName: location.name,
-                    error: error.message
-                });
-                results.success = false;
-            }
-        }
-
-        // Log sync completion - FIX: status should reflect actual results, not just exceptions
-        const actualStatus = results.totalFailed === 0 ? 'success' :
-                            (results.totalSynced > 0 ? 'partial' : 'failed');
-
-        // Log summary for debugging
-        logger.info('Local inventory sync completed', {
-            merchantId,
-            totalSynced: results.totalSynced,
-            totalFailed: results.totalFailed,
-            status: actualStatus,
-            locations: results.locations.map(l => ({
-                name: l.locationName,
-                storeCode: l.storeCode,
-                synced: l.synced,
-                failed: l.failed,
-                error: l.error
-            }))
-        });
-
-        await updateSyncLog(logId, {
-            status: actualStatus,
-            total: results.totalSynced + results.totalFailed,
-            succeeded: results.totalSynced,
-            failed: results.totalFailed,
-            errors: results.locations.filter(l => l.error).map(l => ({ location: l.locationName, error: l.error }))
-        });
-
-        return results;
-
-    } catch (error) {
-        // Log sync failure
-        await updateSyncLog(logId, {
-            status: 'failed',
-            total: 0,
-            succeeded: 0,
-            failed: 0,
-            errors: [{ error: error.message }]
-        });
-        throw error;
-    }
-}
-
 /**
  * Test GMC API connection using new Merchant API
  */
@@ -1025,15 +673,13 @@ async function testConnection(merchantId) {
             accountId: gmcMerchantId
         };
     } catch (error) {
-        // TODO: remove after v1 migration confirmed working
         logger.error('GMC API connection test failed', {
             error: error.message,
             stack: error.stack,
             merchantId,
             url: apiPath ? `https://merchantapi.googleapis.com${apiPath}` : 'N/A',
             httpStatus: error.status || 'N/A',
-            responseBody: error.details ? JSON.stringify(error.details).substring(0, 500) : 'N/A',
-            hint: 'GMC v1 API call failed — may need scope re-auth or schema update'
+            responseBody: error.details ? JSON.stringify(error.details).substring(0, 500) : 'N/A'
         });
         return {
             success: false,

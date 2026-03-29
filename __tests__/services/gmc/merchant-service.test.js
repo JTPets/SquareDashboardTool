@@ -255,10 +255,9 @@ describe('GMC Merchant Service', () => {
             const v1betaPathMatches = source.match(/\/v1beta\/accounts\//g);
             expect(v1betaPathMatches).toBeNull();
 
-            // Should have v1 paths for all 4 endpoint types
+            // Should have v1 paths for all endpoint types
             expect(source).toContain('/datasources/v1/accounts/');
             expect(source).toContain('/products/v1/accounts/');
-            expect(source).toContain('/inventories/v1/accounts/');
             expect(source).toContain('/accounts/v1/accounts/');
         });
 
@@ -344,6 +343,82 @@ describe('GMC Merchant Service', () => {
             expect(source).toContain('title: product.title');
             expect(source).toContain('amountMicros:');
             expect(source).toContain('currencyCode: product.price.currency');
+        });
+    });
+
+    describe('error path catch blocks - no ReferenceError', () => {
+        it('getDataSourceInfo error path should not throw ReferenceError for path', async () => {
+            // Simulate 403 API failure — path is assigned inside try, catch must still access it
+            global.fetch = jest.fn().mockResolvedValue({
+                status: 403,
+                ok: false,
+                json: () => Promise.resolve({ error: { message: 'Forbidden' } })
+            });
+
+            // Should return null (error handled), not throw ReferenceError
+            const result = await merchantService.getDataSourceInfo(1, '12345', '67890');
+
+            expect(result).toBeNull();
+            expect(logger.error).toHaveBeenCalledWith(
+                'Failed to get data source info',
+                expect.objectContaining({
+                    error: 'Forbidden',
+                    url: expect.stringContaining('/datasources/v1/accounts/12345/dataSources/67890')
+                })
+            );
+        });
+
+        it('getDataSourceInfo error before path assignment should log N/A url', async () => {
+            // Auth failure happens before path is assigned
+            mockGetAuthenticatedClient.mockRejectedValueOnce(new Error('Not authenticated'));
+
+            const result = await merchantService.getDataSourceInfo(1, '12345', '67890');
+
+            expect(result).toBeNull();
+            expect(logger.error).toHaveBeenCalledWith(
+                'Failed to get data source info',
+                expect.objectContaining({
+                    error: 'Not authenticated',
+                    url: 'N/A'
+                })
+            );
+        });
+
+        it('upsertProduct error path should not throw ReferenceError for apiPath', async () => {
+            // Simulate 403 API failure — apiPath is assigned inside try, catch must still access it
+            global.fetch = jest.fn().mockResolvedValue({
+                status: 403,
+                ok: false,
+                json: () => Promise.resolve({ error: { message: 'Forbidden' } })
+            });
+
+            const product = {
+                offerId: 'SKU-001',
+                title: 'Test',
+                description: 'Test',
+                link: 'https://example.com',
+                imageLink: 'https://example.com/img.jpg',
+                availability: 'in_stock',
+                condition: 'new',
+                price: { value: '9.99', currency: 'CAD' }
+            };
+
+            // Should throw the original error, not a ReferenceError
+            await expect(merchantService.upsertProduct({
+                merchantId: 1,
+                gmcMerchantId: '12345',
+                dataSourceId: '67890',
+                product,
+                channel: 'ONLINE'
+            })).rejects.toThrow('Forbidden');
+
+            expect(logger.error).toHaveBeenCalledWith(
+                'Failed to upsert product in GMC',
+                expect.objectContaining({
+                    error: 'Forbidden',
+                    url: expect.stringContaining('/products/v1/accounts/12345/productInputs:insert')
+                })
+            );
         });
     });
 
