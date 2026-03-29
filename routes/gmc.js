@@ -989,4 +989,21 @@ router.get('/api/sync-history', requireAuth, requireMerchant, validators.getSync
     sendSuccess(res, { history });
 }));
 
+/**
+ * POST /api/gmc/api/register-developer
+ * Register GCP project with Google Merchant Center
+ */
+router.post('/api/register-developer', requireAuth, requireMerchant, requireWriteAccess, validators.registerDeveloper, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const { email } = req.body;
+
+    const result = await gmcApi.registerDeveloper(merchantId, email);
+
+    if (!result.success) {
+        return sendError(res, result.error, 400, 'REGISTRATION_FAILED');
+    }
+
+    sendSuccess(res, result);
+}));
+
 module.exports = router;

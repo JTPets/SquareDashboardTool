@@ -461,4 +461,85 @@ describe('GMC Merchant Service', () => {
             );
         });
     });
+
+    describe('registerDeveloper', () => {
+        it('should register GCP project successfully', async () => {
+            mockTestConnectionDeps();
+
+            global.fetch = jest.fn().mockResolvedValueOnce({
+                status: 200,
+                ok: true,
+                json: () => Promise.resolve({ gcpProjectId: 'my-project-123' })
+            });
+
+            const result = await merchantService.registerDeveloper(1, 'dev@example.com');
+
+            expect(result.success).toBe(true);
+            expect(result.gcpIds).toEqual({ gcpProjectId: 'my-project-123' });
+            expect(global.fetch).toHaveBeenCalledWith(
+                expect.stringContaining('/developerRegistration:registerGcp'),
+                expect.objectContaining({
+                    method: 'POST',
+                    body: JSON.stringify({ developerEmail: 'dev@example.com' })
+                })
+            );
+        });
+
+        it('should return error when Merchant Center ID not configured', async () => {
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            const result = await merchantService.registerDeveloper(1, 'dev@example.com');
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('Merchant Center ID not configured');
+            expect(global.fetch).not.toHaveBeenCalled();
+        });
+
+        it('should return error on API failure', async () => {
+            mockTestConnectionDeps();
+
+            global.fetch = jest.fn().mockResolvedValueOnce({
+                status: 403,
+                ok: false,
+                json: () => Promise.resolve({ error: { message: 'Permission denied' } })
+            });
+
+            const result = await merchantService.registerDeveloper(1, 'dev@example.com');
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('Permission denied');
+        });
+    });
+
+    describe('testConnection - needsRegistration flag', () => {
+        it('should set needsRegistration when error contains not registered', async () => {
+            mockTestConnectionDeps();
+
+            global.fetch = jest.fn().mockResolvedValueOnce({
+                status: 403,
+                ok: false,
+                json: () => Promise.resolve({ error: { message: 'GCP project not registered with Merchant Center' } })
+            });
+
+            const result = await merchantService.testConnection(1);
+
+            expect(result.success).toBe(false);
+            expect(result.needsRegistration).toBe(true);
+        });
+
+        it('should not set needsRegistration for other errors', async () => {
+            mockTestConnectionDeps();
+
+            global.fetch = jest.fn().mockResolvedValueOnce({
+                status: 401,
+                ok: false,
+                json: () => Promise.resolve({ error: { message: 'Invalid credentials' } })
+            });
+
+            const result = await merchantService.testConnection(1);
+
+            expect(result.success).toBe(false);
+            expect(result.needsRegistration).toBeUndefined();
+        });
+    });
 });

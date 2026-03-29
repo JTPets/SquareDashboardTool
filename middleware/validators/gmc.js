@@ -277,6 +277,20 @@ const getSyncHistory = [
     handleValidationErrors
 ];
 
+/**
+ * POST /api/gmc/api/register-developer
+ * Register GCP project with Merchant Center
+ */
+const registerDeveloper = [
+    body('email')
+        .trim()
+        .notEmpty()
+        .withMessage('email is required')
+        .isEmail()
+        .withMessage('email must be a valid email address'),
+    handleValidationErrors
+];
+
 module.exports = {
     getFeed,
     updateSettings,
@@ -294,5 +308,6 @@ module.exports = {
     updateLocationSettings,
     getLocalInventoryFeed,
     updateApiSettings,
-    getSyncHistory
+    getSyncHistory,
+    registerDeveloper
 };

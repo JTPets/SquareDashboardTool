@@ -27,6 +27,7 @@ jest.mock('../../services/gmc/merchant-service', () => ({
     syncProductCatalog: jest.fn(),
     getLastSyncStatus: jest.fn(),
     getSyncHistory: jest.fn(),
+    registerDeveloper: jest.fn(),
 }));
 jest.mock('../../services/square', () => ({
     updateCustomAttributeValues: jest.fn(),
@@ -53,6 +54,7 @@ jest.mock('../../middleware/validators/gmc', () => ({
     getLocalInventoryFeed: [(req, res, next) => next()],
     updateApiSettings: [(req, res, next) => next()],
     getSyncHistory: [(req, res, next) => next()],
+    registerDeveloper: [(req, res, next) => next()],
 }));
 
 const request = require('supertest');
@@ -362,6 +364,41 @@ describe('POST /api/gmc/brands/bulk-assign', () => {
         const brandQuery = db.query.mock.calls[0];
         expect(brandQuery[0]).toContain('merchant_id');
         expect(brandQuery[1]).toEqual([[1], 10]); // 10 is the merchantContext.id from buildApp
+// ---------- POST /api/register-developer ----------
+describe('POST /api/gmc/api/register-developer', () => {
+    it('registers developer successfully', async () => {
+        merchantService.registerDeveloper.mockResolvedValue({ success: true, gcpIds: { projectId: 'my-project' } });
+        const res = await request(app)
+            .post('/api/gmc/api/register-developer')
+            .send({ email: 'dev@example.com' });
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.gcpIds).toBeDefined();
+        expect(merchantService.registerDeveloper).toHaveBeenCalledWith(10, 'dev@example.com');
+    });
+
+    it('returns 400 on registration failure', async () => {
+        merchantService.registerDeveloper.mockResolvedValue({ success: false, error: 'GCP project not registered' });
+        const res = await request(app)
+            .post('/api/gmc/api/register-developer')
+            .send({ email: 'dev@example.com' });
+        expect(res.status).toBe(400);
+        expect(res.body.success).toBe(false);
+        expect(res.body.error).toContain('not registered');
+    });
+});
+
+// ---------- POST /api/test-connection needsRegistration ----------
+describe('POST /api/gmc/api/test-connection - needsRegistration', () => {
+    it('includes needsRegistration when error contains not registered', async () => {
+        merchantService.testConnection.mockResolvedValue({
+            success: false,
+            error: 'GCP project not registered with Merchant Center',
+            needsRegistration: true
+        });
+        const res = await request(app).post('/api/gmc/api/test-connection');
+        expect(res.status).toBe(200);
+        expect(res.body.needsRegistration).toBe(true);
     });
 });
 
