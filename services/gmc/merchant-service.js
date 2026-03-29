@@ -681,10 +681,50 @@ async function testConnection(merchantId) {
             httpStatus: error.status || 'N/A',
             responseBody: error.details ? JSON.stringify(error.details).substring(0, 500) : 'N/A'
         });
-        return {
+        const result = {
             success: false,
             error: error.message
         };
+
+        if (/not registered/i.test(error.message)) {
+            result.needsRegistration = true;
+        }
+
+        return result;
+    }
+}
+
+/**
+ * Register GCP project with Google Merchant Center
+ * Required after OAuth connect so the merchant's GCP project can access the Merchant API.
+ *
+ * @param {number} merchantId - Internal merchant ID (for auth lookup)
+ * @param {string} developerEmail - Developer contact email for registration
+ * @returns {Promise<Object>} { success, gcpIds } or { success, error }
+ */
+async function registerDeveloper(merchantId, developerEmail) {
+    try {
+        const settings = await getGmcApiSettings(merchantId);
+        const gmcMerchantId = settings.gmc_merchant_id;
+
+        if (!gmcMerchantId) {
+            return { success: false, error: 'Merchant Center ID not configured' };
+        }
+
+        const auth = await getAuthClient(merchantId);
+        const path = `/accounts/v1/accounts/${gmcMerchantId}/developerRegistration:registerGcp`;
+        const response = await merchantApiRequest(auth, 'POST', path, { developerEmail });
+
+        logger.info('GCP developer registration successful', { merchantId, gmcMerchantId });
+
+        return { success: true, gcpIds: response };
+    } catch (error) {
+        logger.error('GCP developer registration failed', {
+            merchantId,
+            error: error.message,
+            httpStatus: error.status || 'N/A'
+        });
+        return { success: false, error: error.message };
     }
 }
 
@@ -702,7 +742,8 @@ module.exports = {
     batchUpsertProducts,
     syncProductCatalog,
     // Utilities
-    testConnection
+    testConnection,
+    registerDeveloper
     // Note: Local inventory sync removed - use TSV feed instead
     // (/api/gmc/local-inventory-feed.tsv?token=xxx)
 };
