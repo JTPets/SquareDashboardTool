@@ -15,7 +15,8 @@ const logger = require('./logger');
 const { encryptToken, decryptToken, isEncryptedToken } = require('./token-encryption');
 
 // OAuth2 client configuration
-// Scope: content - Access to Google Merchant Center Content API
+// Scope: content — covers both legacy Content API and Merchant API v1.
+// Google maintains backward compatibility; no scope change needed for v1beta → v1 migration.
 const SCOPES = [
     'https://www.googleapis.com/auth/content'
 ];
