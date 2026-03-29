@@ -345,6 +345,26 @@ describe('POST /api/gmc/api/sync-products', () => {
     });
 });
 
+// ---------- POST /brands/bulk-assign tenant isolation (SEC-GMC-3) ----------
+describe('POST /api/gmc/brands/bulk-assign', () => {
+    it('filters brand lookup by merchant_id', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [{ id: 1, name: 'Acana' }] }) // brand lookup
+            .mockResolvedValueOnce({ rows: [] }); // insert item_brands
+        squareService.batchUpdateCustomAttributeValues.mockResolvedValue({ updated: 1, errors: [] });
+
+        const res = await request(app)
+            .post('/api/gmc/brands/bulk-assign')
+            .send({ assignments: [{ item_id: 'item-1', brand_id: 1 }] });
+
+        expect(res.status).toBe(200);
+        // Verify the brand SELECT includes merchant_id filter
+        const brandQuery = db.query.mock.calls[0];
+        expect(brandQuery[0]).toContain('merchant_id');
+        expect(brandQuery[1]).toEqual([[1], 10]); // 10 is the merchantContext.id from buildApp
+    });
+});
+
 // ---------- Auth guard ----------
 describe('auth guard', () => {
     it('returns 401 without session user', async () => {

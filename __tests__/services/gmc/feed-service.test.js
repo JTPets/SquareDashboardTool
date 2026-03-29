@@ -221,22 +221,26 @@ describe('GMC Feed Service', () => {
 
     // ==================== importBrands ====================
     describe('importBrands', () => {
-        test('imports valid brand names', async () => {
+        test('imports valid brand names with merchant_id', async () => {
             db.query.mockResolvedValue({});
-            const count = await feedService.importBrands(['ACANA', 'Orijen', 'Fromm']);
+            const count = await feedService.importBrands(['ACANA', 'Orijen', 'Fromm'], 10);
             expect(count).toBe(3);
             expect(db.query).toHaveBeenCalledTimes(3);
+            expect(db.query).toHaveBeenCalledWith(
+                expect.stringContaining('merchant_id'),
+                ['ACANA', 10]
+            );
         });
 
         test('skips null and empty brand names', async () => {
             db.query.mockResolvedValue({});
-            const count = await feedService.importBrands([null, '', 'ACANA', undefined]);
+            const count = await feedService.importBrands([null, '', 'ACANA', undefined], 10);
             expect(count).toBe(1);
         });
 
         test('skips non-string values', async () => {
             db.query.mockResolvedValue({});
-            const count = await feedService.importBrands([123, 'ACANA']);
+            const count = await feedService.importBrands([123, 'ACANA'], 10);
             expect(count).toBe(1);
         });
 
@@ -245,7 +249,7 @@ describe('GMC Feed Service', () => {
                 .mockRejectedValueOnce(new Error('duplicate'))
                 .mockResolvedValueOnce({});
 
-            const count = await feedService.importBrands(['DupBrand', 'GoodBrand']);
+            const count = await feedService.importBrands(['DupBrand', 'GoodBrand'], 10);
             expect(count).toBe(1);
         });
     });
