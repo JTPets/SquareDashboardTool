@@ -531,6 +531,174 @@ Geocoding    Order CRUD ◄──────── Square Integration
                   │
                Audit (independent)
 ```
-## 7. CSS Findings — TODO
+## 7. CSS Findings
+
+All five delivery HTML pages have inline `<style>` blocks, violating the CLAUDE.md rule: _"No new `<style>` blocks in HTML pages. All shared styles go in `public/css/shared.css`."_
+
+### 7a. Inline Style Inventory
+
+| File | `<style>` Lines | Line Count | `shared.css` Linked | Notes |
+|------|----------------|-----------|---------------------|-------|
+| `delivery.html` | 7–371 | 365 | **No** | Largest after route pages |
+| `delivery-route.html` | 7–552 | 546 | Yes (line 553) | Largest style block of all delivery pages |
+| `delivery-history.html` | 7–308 | 302 | **No** | — |
+| `delivery-settings.html` | 7–183 | 177 | **No** | Smallest |
+| `driver.html` | 7–554 | 548 | Yes (line 555) | Nearly identical to delivery-route.html styles |
+| **Total** | — | **1,938** | 2 of 5 | — |
+
+### 7b. Utility Script Chain Audit
+
+CLAUDE.md required order: `escape.js` → `toast.js` → `format-currency.js` → `date-format.js` → page script.
+Rule: _"Only include utilities the page's JS actually uses."_
+
+| File | escape.js | toast.js | format-currency.js | date-format.js | Correct? | Issue |
+|------|-----------|----------|--------------------|---------------|----------|-------|
+| `delivery.html` | Yes (L578) | **No** | No | **No** | **Partial** | JS uses `escapeHtml` only — escape.js sufficient. No toast/date calls. OK. |
+| `delivery-route.html` | Yes (L691) | Yes (L694) | No | Yes (L692) | **Yes** | JS uses `escapeHtml`, `showToast`, `formatDateTime`. All needed scripts present. |
+| `delivery-history.html` | Yes (L380) | **No** | No | Yes (L381) | **Partial** | JS uses `formatDateTime` and `escapeHtml`. No toast calls — OK to omit. |
+| `delivery-settings.html` | Yes (L308) | **No** | No | **No** | **Yes** | JS uses `escapeHtml` only. No toast/date/currency calls. OK. |
+| `driver.html` | Yes (L636) | Yes (L638) | No | Yes (L640) | **Yes** | JS uses `escapeHtml`, `escapeAttr`, `showToast`, `formatDate`. All present. |
+
+**No missing utility scripts detected.** Each page includes only what its JS actually calls. No `format-currency.js` needed (no currency formatting in delivery pages). Script order is correct where multiple utilities are included.
+
+### 7c. Shared CSS Component Candidates
+
+CSS classes duplicated across 3+ delivery pages that should be extracted to `shared.css`:
+
+| Component | Classes | Found In | Approx Lines per File |
+|-----------|---------|----------|----------------------|
+| **Layout** | `.container`, `.header`, `.header h1` | All 5 pages | 15–25 |
+| **Buttons** | `.btn`, `.btn-primary`, `.btn-secondary`, `.btn-success`, `.btn-warning`, `.btn-danger` | All 5 pages | 30–50 |
+| **Status badges** | `.status-active`, `.status-completed`, `.status-skipped`, `.status-delivered`, `.status-pending` | delivery.html, delivery-route.html, delivery-history.html, driver.html | 15–20 |
+| **Modals** | `.modal-overlay`, `.modal`, `.modal-header`, `.modal-body`, `.modal-footer` | delivery.html, delivery-route.html, delivery-history.html, driver.html | 25–35 |
+| **Stop cards** | `.stop-card`, `.stop-header`, `.stop-number`, `.stop-customer`, `.stop-address`, `.stop-phone`, `.stop-notes` | delivery-route.html, driver.html | 50–70 |
+| **Progress bar** | `.progress-bar`, `.progress-fill` | delivery.html, delivery-route.html, driver.html | 10–15 |
+| **Empty state** | `.empty-state` | delivery.html, delivery-route.html, delivery-history.html, driver.html | 8–12 |
+| **Forms** | `.form-group`, `.form-label`, `.form-input` | delivery.html, delivery-settings.html | 15–20 |
+| **Alerts** | `.alert`, `.alert-success`, `.alert-error` | delivery.html, delivery-settings.html, delivery-history.html | 8–12 |
+
+**Estimated deduplication**: Extracting these shared components to `shared.css` would eliminate ~600–800 lines of duplicated CSS across the five files. Each file would retain only truly page-specific styles (estimated 50–150 lines each).
+
+### 7d. delivery-route.html vs driver.html Overlap
+
+These two pages share ~90% of their CSS (stop cards, status badges, progress bars, modals, POD styling). The main differences:
+- `driver.html` has finish-route form styles
+- `delivery-route.html` has customer stats badge styles and share modal styles
+
+A shared `delivery-shared.css` for delivery-specific components (stop cards, status badges, progress) would collapse ~500 lines of duplication between just these two files.
 ## 8. Test Coverage — TODO
-## 9. Fix Plan — TODO
+## 9. Proposed Fix Plan
+
+### Phase 1: Stuck-Order Fix (DELIVERY-BUG-001, BUG-002, BUG-003)
+
+**Goal**: Eliminate all stuck-order scenarios identified in Section 2h.
+
+| Item | Detail |
+|------|--------|
+| **Files modified** | `services/delivery/delivery-service.js` |
+| **Changes** | 1. `generateRoute()` (L656-660): Add `UPDATE delivery_orders SET status='pending', route_id=NULL, route_position=NULL, route_date=NULL WHERE route_id=$1 AND status IN ('active','skipped','delivered')` before cancelling old route. 2. `finishRoute()` (L754-758): Add separate UPDATE to set `delivered` → `completed` before rolling back `skipped`/`active`. 3. `handleSquareOrderUpdate()` (L1592-1604): Expand cancellation status check to include `skipped` and `delivered`. |
+| **Risk** | **Medium** — touches core state machine. Must verify no order is silently lost. |
+| **Effort** | Small — ~20 lines changed across 3 functions. |
+| **Dependencies** | None — can be done first. |
+| **Tests required** | Unit tests for each scenario: force-regenerate with active/skipped/delivered orders on old route; finishRoute with delivered orders; cancel webhook with skipped/delivered orders. Integration test: full lifecycle through force-regenerate. |
+
+### Phase 2: Manual Order Selection for Routes
+
+**Goal**: Allow merchants to exclude specific orders from route generation.
+
+| Item | Detail |
+|------|--------|
+| **Files modified** | `services/delivery/delivery-service.js` (`generateRoute`), `middleware/validators/delivery.js`, `public/js/delivery.js`, `public/delivery.html` |
+| **Changes** | 1. Add `excludeIds` parameter to `generateRoute()` options → `AND id != ANY($N)`. 2. Add validator for `excludeIds` (array of UUIDs). 3. Frontend: add checkboxes to order list, pass excluded order IDs to generate route API call. |
+| **Risk** | **Low** — additive feature, no existing behavior changes. |
+| **Effort** | Medium — backend ~15 lines, frontend ~40 lines (UI for checkboxes + wire-up). |
+| **Dependencies** | Phase 1 (stuck-order fix) should land first so excluded orders don't get stuck. |
+| **Tests required** | Unit test: generateRoute with excludeIds excludes correct orders. Integration test: generate route with 5 pending orders, exclude 2, verify 3 on route. |
+
+### Phase 3: Per-Route Start/End Override
+
+**Goal**: Allow overriding start/end points per route generation (currently per-merchant only).
+
+| Item | Detail |
+|------|--------|
+| **Files modified** | `services/delivery/delivery-service.js` (`generateRoute`, `optimizeRoute`), `middleware/validators/delivery.js`, `routes/delivery.js` (generate route endpoint), `public/js/delivery.js`, `public/delivery.html` |
+| **Changes** | 1. Accept optional `startLat/Lng`, `endLat/Lng` in `generateRoute()` options. 2. Pass overrides to `optimizeRoute()`, falling back to settings if not provided. 3. Store overrides in `delivery_routes` table (may need columns: `start_lat`, `start_lng`, `end_lat`, `end_lng`). 4. Frontend: optional address override fields in generate-route modal. |
+| **Risk** | **Low** — additive, settings remain the default. |
+| **Effort** | Medium — backend ~30 lines, frontend ~50 lines, possible schema change (4 nullable columns on delivery_routes). |
+| **Dependencies** | None, but logically follows Phase 2. |
+| **Tests required** | Unit: generate route with override coords uses them instead of settings. Unit: generate route without override uses settings as before. |
+
+### Phase 4: delivery-service.js Monolith Split
+
+**Goal**: Split `delivery-service.js` (2,031 lines) into ~10 modules per the Section 6 breakdown map.
+
+| Item | Detail |
+|------|--------|
+| **Files modified** | `services/delivery/delivery-service.js` (split into new files), `services/delivery/index.js` (update barrel exports) |
+| **New files** | `delivery-settings.js`, `delivery-audit.js` (already exists as `delivery-stats.js` — rename or new), `delivery-utils.js`, `delivery-gtin.js`, `delivery-geocoding.js`, `delivery-pod.js`, `delivery-orders.js`, `delivery-routes.js`, `delivery-tokens.js`, `delivery-square.js` |
+| **Changes** | Extract modules per Section 6 extraction order. Update `index.js` to re-export from all modules. All existing callers import from `services/delivery` (barrel) so no external import paths change. |
+| **Risk** | **Medium** — large refactor but purely structural (no logic changes). Circular dependency risk between Order CRUD ↔ Audit (both call each other). Must resolve by passing audit function as parameter or lazy require. |
+| **Effort** | Large — ~2,031 lines reorganized into 10 files. Mechanical but tedious. |
+| **Dependencies** | Phases 1–3 should land first to avoid merge conflicts during the split. |
+| **Tests required** | Existing test suite must pass with zero changes (all public API unchanged). Add a barrel-export test verifying every function is still accessible from `require('services/delivery')`. |
+
+### Phase 5: CSS Cleanup → shared.css
+
+**Goal**: Eliminate inline `<style>` blocks from all 5 delivery HTML pages per CLAUDE.md rules.
+
+| Item | Detail |
+|------|--------|
+| **Files modified** | `public/css/shared.css`, `public/delivery.html`, `public/delivery-route.html`, `public/delivery-history.html`, `public/delivery-settings.html`, `public/driver.html` |
+| **New files** | `public/css/delivery-shared.css` (optional — for delivery-specific components like stop cards, status badges) |
+| **Changes** | 1. Extract shared components (buttons, modals, status badges, layout, alerts, forms, progress bars, empty states) from inline styles into `shared.css`. 2. Extract delivery-specific shared components (stop cards, POD styles) into `delivery-shared.css`. 3. Move truly page-specific styles to page-specific CSS files or keep minimal inline blocks with justification comments. 4. Add `<link rel="stylesheet" href="/css/shared.css">` to the 3 pages missing it. |
+| **Risk** | **Low** — visual-only changes. Risk of CSS specificity bugs or missing styles. |
+| **Effort** | Large — ~1,938 lines of CSS to audit, deduplicate, and reorganize. |
+| **Dependencies** | Independent of Phases 1–4. Can be done in parallel. |
+| **Tests required** | Visual regression testing on all 5 pages. Verify: buttons, modals, status badges, stop cards, forms, alerts all render correctly. The existing `utility-script-tags.test.js` test should pass (no script changes needed). |
+
+### Phase 6: Remaining Bug Registry Items
+
+**Goal**: Address all remaining bugs from Section 5 not covered by Phases 1–5.
+
+| Bug | Fix Summary | Files | Risk | Effort |
+|-----|-------------|-------|------|--------|
+| **BUG-004** (POD sets any status to delivered) | Add status guard in `savePodPhoto()`: only transition if `active`, skip status change if `completed` | `delivery-service.js` (or `delivery-pod.js` after Phase 4) | Low | Small (5 lines) |
+| **BUG-005** (complete accepts any status) | Add status whitelist in `POST /orders/:id/complete` handler | `routes/delivery.js` | Low | Small (5 lines) |
+| **BUG-006** (skip accepts any status) | Add status guard in `skipOrder()`, fix hardcoded `previousStatus` | `delivery-service.js` | Low | Small (5 lines) |
+| **BUG-007** (audit log missing IP/user-agent) | Add optional `req` param to `logAuditEvent()`, pass from route handlers | `delivery-service.js`, `routes/delivery.js`, `routes/driver-api.js` | Low | Medium (touch many call sites) |
+| **BUG-008** (POD cleanup never runs) | Create `jobs/pod-cleanup-job.js`, register in cron scheduler | New file + `jobs/cron-scheduler.js` | Low | Small |
+| **BUG-009** (backfill missing validator) | Add empty validator array | `middleware/validators/delivery.js` | Very Low | Trivial |
+| **BUG-010/011** (driver-api response format) | Replace `res.json()` with `sendSuccess`/`sendError` | `routes/driver-api.js` | Low | Small (15 lines) |
+| **BUG-012** (PII in debug log) | Replace `phone: order.phone` with `hasPhone: !!order.phone` | `delivery-stats.js` | Very Low | Trivial |
+| **BUG-013** (hardcoded previousStatus in audit) | Fetch order before update, pass real status | `delivery-service.js` | Very Low | Small (3 lines) |
+| **SEC-1** (geocode UPDATE missing merchant_id) | Add `AND merchant_id = $4` to UPDATE WHERE clause | `delivery-service.js` | Very Low | Trivial |
+
+| Item | Detail |
+|------|--------|
+| **Dependencies** | BUG-004/005/006/013 and SEC-1 should land before or with Phase 4 (monolith split) to avoid duplicate work. BUG-007 depends on Phase 4 (audit module extraction). BUG-010/011 are independent. |
+| **Tests required** | Each bug fix needs a unit test proving the fix. BUG-008 needs integration test verifying cron invokes cleanup. |
+
+### Phase Summary
+
+| Phase | Priority | Effort | Risk | Dependencies |
+|-------|----------|--------|------|-------------|
+| **1. Stuck-order fix** | **Critical** | Small | Medium | None |
+| **2. Manual order selection** | Medium | Medium | Low | Phase 1 |
+| **3. Per-route start/end** | Medium | Medium | Low | None (logically after Phase 2) |
+| **4. Monolith split** | Medium | Large | Medium | Phases 1–3 |
+| **5. CSS cleanup** | Low | Large | Low | Independent |
+| **6. Remaining bugs** | Mixed (see table) | Medium total | Low | Partial Phase 4 dependency |
+
+### Recommended Execution Order
+
+```
+Phase 1 (critical)
+  └──► Phase 2
+         └──► Phase 3
+                └──► Phase 6 (BUG-004/005/006/013, SEC-1)
+                       └──► Phase 4 (monolith split)
+                              └──► Phase 6 (BUG-007, BUG-008)
+
+Phase 5 (parallel, independent)
+Phase 6 (BUG-009/010/011/012 — independent, anytime)
+```
