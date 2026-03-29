@@ -240,6 +240,14 @@ const generateRoute = [
         .optional()
         .custom(isValidUUID)
         .withMessage('Each order ID must be a valid UUID'),
+    body('excludeOrderIds')
+        .optional()
+        .isArray({ max: 100 })
+        .withMessage('Exclude order IDs must be an array (max 100)'),
+    body('excludeOrderIds.*')
+        .optional()
+        .custom(isValidUUID)
+        .withMessage('Each exclude order ID must be a valid UUID'),
     body('force')
         .optional()
         .isBoolean()

@@ -263,6 +263,59 @@ describe('Route Generation — Order Assignment', () => {
         expect(orderQuery).toContain('id = ANY($2)');
         expect(db.query.mock.calls[2][1]).toEqual([MERCHANT_ID, [ORDER_ID, ORDER_ID_2]]);
     });
+
+    it('excludes orders when excludeOrderIds provided', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        await expect(
+            deliveryService.generateRoute(MERCHANT_ID, USER_ID, {
+                excludeOrderIds: [ORDER_ID]
+            })
+        ).rejects.toThrow('No geocoded pending orders');
+
+        const orderQuery = db.query.mock.calls[2][0];
+        expect(orderQuery).toContain('id != ANY($2)');
+        expect(db.query.mock.calls[2][1]).toEqual([MERCHANT_ID, [ORDER_ID]]);
+    });
+
+    it('supports both orderIds and excludeOrderIds together', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        await expect(
+            deliveryService.generateRoute(MERCHANT_ID, USER_ID, {
+                orderIds: [ORDER_ID, ORDER_ID_2, ORDER_ID_3],
+                excludeOrderIds: [ORDER_ID_3]
+            })
+        ).rejects.toThrow('No geocoded pending orders');
+
+        const orderQuery = db.query.mock.calls[2][0];
+        expect(orderQuery).toContain('id = ANY($2)');
+        expect(orderQuery).toContain('id != ANY($3)');
+        expect(db.query.mock.calls[2][1]).toEqual([
+            MERCHANT_ID,
+            [ORDER_ID, ORDER_ID_2, ORDER_ID_3],
+            [ORDER_ID_3]
+        ]);
+    });
+
+    it('ignores empty excludeOrderIds array', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        await expect(
+            deliveryService.generateRoute(MERCHANT_ID, USER_ID, {
+                excludeOrderIds: []
+            })
+        ).rejects.toThrow('No geocoded pending orders');
+
+        const orderQuery = db.query.mock.calls[2][0];
+        expect(orderQuery).not.toContain('id != ANY');
+    });
 });
 
 // ============================================================================

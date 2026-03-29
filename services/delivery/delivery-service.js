@@ -592,7 +592,7 @@ async function getRouteWithOrders(merchantId, routeId) {
  * @returns {Promise<Object>} Generated route with orders
  */
 async function generateRoute(merchantId, userId, options = {}) {
-    const { routeDate = null, orderIds = null } = options;
+    const { routeDate = null, orderIds = null, excludeOrderIds = null } = options;
     const date = routeDate || new Date().toISOString().split('T')[0];
 
     // Check for existing active route
@@ -616,8 +616,15 @@ async function generateRoute(merchantId, userId, options = {}) {
     const params = [merchantId];
 
     if (orderIds && orderIds.length > 0) {
-        ordersQuery += ` AND id = ANY($2)`;
         params.push(orderIds);
+        ordersQuery += ` AND id = ANY($${params.length})`;
+    }
+
+    // LOGIC CHANGE: Support excluding specific orders from route generation.
+    // Allows merchants to hold back orders (e.g., scheduled for tomorrow, needs special transport).
+    if (excludeOrderIds && excludeOrderIds.length > 0) {
+        params.push(excludeOrderIds);
+        ordersQuery += ` AND id != ANY($${params.length})`;
     }
 
     const ordersResult = await db.query(ordersQuery, params);
