@@ -440,8 +440,8 @@ router.post('/brands/bulk-assign', requireAuth, requireMerchant, requireWriteAcc
     // Get brand names for Square sync
     const brandIds = [...new Set(assignments.map(a => a.brand_id))];
     const brandsResult = await db.query(
-        `SELECT id, name FROM brands WHERE id = ANY($1)`,
-        [brandIds]
+        `SELECT id, name FROM brands WHERE id = ANY($1) AND merchant_id = $2`,
+        [brandIds, merchantId]
     );
     const brandNamesMap = new Map(brandsResult.rows.map(b => [b.id, b.name]));
 

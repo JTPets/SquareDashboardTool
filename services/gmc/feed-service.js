@@ -316,16 +316,17 @@ async function saveTsvFile(content, filename = 'gmc-feed.tsv', { merchantId } = 
 /**
  * Import brands from array
  * @param {Array<string>} brandNames - Array of brand names
+ * @param {number} merchantId - Merchant ID for tenant isolation
  * @returns {Promise<number>} Number of brands imported
  */
-async function importBrands(brandNames) {
+async function importBrands(brandNames, merchantId) {
     let imported = 0;
     for (const name of brandNames) {
         if (!name || typeof name !== 'string') continue;
         try {
             await db.query(
-                'INSERT INTO brands (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
-                [name.trim()]
+                'INSERT INTO brands (name, merchant_id) VALUES ($1, $2) ON CONFLICT (name, merchant_id) DO NOTHING',
+                [name.trim(), merchantId]
             );
             imported++;
         } catch (err) {
