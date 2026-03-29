@@ -1,16 +1,76 @@
 /**
  * Shared Delivery CSS Components
  *
- * Extracted from delivery-route.html (source of truth).
+ * Extracted from delivery page inline styles.
  * Used by: delivery.html, delivery-route.html, delivery-history.html, delivery-settings.html
  *
  * Components:
+ * - Base reset and body
+ * - Header
+ * - Buttons (.btn and variants)
  * - Status badges (.status-active, .status-completed, .status-skipped, .status-delivered, .status-pending)
  * - Stop cards (.stop-card, .stop-header, .stop-number, .stop-customer, .stop-address)
+ * - Stats bar (.stats-bar, .stat, .stat-value, .stat-label)
  * - Progress bar (.progress-bar, .progress-fill)
  * - Empty state (.empty-state)
  * - Modal styles (.modal-overlay, .modal, .modal-header, .modal-close, .modal-body, .modal-footer)
+ * - Forms (.form-group, .form-label, .form-input)
+ * - Alerts (.alert and variants)
+ * - Content area (.content)
+ * - Loading (.loading)
  */
+
+/* ==================== Base Reset ==================== */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  background-color: #f5f5f5;
+  line-height: 1.4;
+}
+
+/* ==================== Header ==================== */
+
+.header {
+  background: #1f2937;
+  color: white;
+  padding: 20px;
+}
+.header h1 { font-size: 24px; font-weight: 600; }
+.header-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.btn-secondary.header-btn { background: rgba(255,255,255,0.2); }
+.btn-secondary.header-btn:hover { background: rgba(255,255,255,0.3); }
+
+/* ==================== Buttons ==================== */
+
+.btn {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 14px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.2s;
+}
+.btn-primary { background: #2563eb; color: white; }
+.btn-primary:hover { background: #1d4ed8; }
+.btn-success { background: #10b981; color: white; }
+.btn-success:hover { background: #059669; }
+.btn-secondary { background: #6b7280; color: white; }
+.btn-secondary:hover { background: #4b5563; }
+.btn-warning { background: #f59e0b; color: white; }
+.btn-warning:hover { background: #d97706; }
+.btn-danger { background: #ef4444; color: white; }
+.btn-danger:hover { background: #dc2626; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ==================== Status Badges ==================== */
 
@@ -106,6 +166,31 @@
   font-size: 20px;
 }
 
+/* ==================== Stats Bar ==================== */
+
+.stats-bar {
+  display: flex;
+  gap: 20px;
+  padding: 15px 20px;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+  flex-wrap: wrap;
+}
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stat-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: #111827;
+}
+.stat-label {
+  font-size: 13px;
+  color: #6b7280;
+}
+
 /* ==================== Progress Bar ==================== */
 
 .progress-bar {
@@ -120,6 +205,10 @@
   border-radius: 4px;
   transition: width 0.3s;
 }
+
+/* ==================== Content ==================== */
+
+.content { padding: 20px; }
 
 /* ==================== Empty State ==================== */
 
@@ -195,3 +284,62 @@
   gap: 10px;
 }
 .modal-footer .btn { flex: 1; }
+
+/* ==================== Forms ==================== */
+
+.form-group {
+  margin-bottom: 15px;
+}
+.form-label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: #374151;
+}
+.form-input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 14px;
+}
+.form-input:focus {
+  outline: none;
+  border-color: #2563eb;
+}
+
+/* ==================== Alerts ==================== */
+
+.alert {
+  padding: 12px 15px;
+  border-radius: 6px;
+  margin-bottom: 15px;
+  font-size: 14px;
+}
+.alert.error { background: #fee2e2; color: #991b1b; }
+.alert.success { background: #d1fae5; color: #065f46; }
+.alert.warning { background: #fef3c7; color: #92400e; }
+.alert.info { background: #dbeafe; color: #1d4ed8; }
+
+/* ==================== Loading ==================== */
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: #6b7280;
+}
+
+/* ==================== Order Shared ==================== */
+
+.order-address {
+  font-size: 14px;
+  color: #374151;
+  margin-bottom: 6px;
+}
+.order-meta {
+  display: flex;
+  gap: 15px;
+  font-size: 13px;
+  color: #6b7280;
+  flex-wrap: wrap;
+}
