@@ -69,6 +69,7 @@ jest.mock('../../middleware/validators/delivery', () => ({
     updateSettings: (req, res, next) => next(),
     getAudit: (req, res, next) => next(),
     syncOrders: (req, res, next) => next(),
+    backfillCustomers: (req, res, next) => next(),
 }));
 
 jest.mock('multer', () => {
