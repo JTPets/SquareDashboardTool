@@ -325,6 +325,8 @@ describe('deleteOrder', () => {
 describe('order state transitions', () => {
     it('skipOrder sets status to skipped and logs audit', async () => {
         db.query
+            // getOrderById (status guard — must be active)
+            .mockResolvedValueOnce({ rows: [{ id: UUID, status: 'active', merchant_id: MERCHANT_ID }] })
             // updateOrder
             .mockResolvedValueOnce({ rows: [{ id: UUID, status: 'skipped' }] })
             // logAuditEvent
@@ -345,8 +347,12 @@ describe('order state transitions', () => {
 
     it('completeOrder sets status and synced_at', async () => {
         db.query
+            // getOrderById (status guard — must be active/delivered/skipped)
+            .mockResolvedValueOnce({ rows: [{ id: UUID, status: 'active', merchant_id: MERCHANT_ID }] })
+            // updateOrder
             .mockResolvedValueOnce({ rows: [{ id: UUID, status: 'completed', square_order_id: 'SQ1' }] })
-            .mockResolvedValueOnce({ rows: [] }); // audit
+            // logAuditEvent
+            .mockResolvedValueOnce({ rows: [] });
 
         const order = await deliveryService.completeOrder(MERCHANT_ID, UUID, 1);
 
@@ -569,9 +575,9 @@ describe('savePodPhoto', () => {
     });
 
     it('saves JPEG photo and creates POD record', async () => {
-        // getOrderById
+        // getOrderById (must be active for status transition)
         db.query.mockResolvedValueOnce({
-            rows: [{ id: UUID, merchant_id: MERCHANT_ID }]
+            rows: [{ id: UUID, merchant_id: MERCHANT_ID, status: 'active' }]
         });
         // getSettings
         db.query.mockResolvedValueOnce({
@@ -581,7 +587,7 @@ describe('savePodPhoto', () => {
         db.query.mockResolvedValueOnce({
             rows: [{ id: 'pod-uuid', photo_path: `${MERCHANT_ID}/${UUID}/file.jpg` }]
         });
-        // updateOrder (mark delivered)
+        // updateOrder (mark delivered — only for active orders)
         db.query.mockResolvedValueOnce({
             rows: [{ id: UUID, status: 'delivered' }]
         });
@@ -598,7 +604,7 @@ describe('savePodPhoto', () => {
 
     it('saves PNG photo with correct extension', async () => {
         db.query
-            .mockResolvedValueOnce({ rows: [{ id: UUID, merchant_id: MERCHANT_ID }] })
+            .mockResolvedValueOnce({ rows: [{ id: UUID, merchant_id: MERCHANT_ID, status: 'active' }] })
             .mockResolvedValueOnce({ rows: [{ pod_retention_days: 180 }] })
             .mockResolvedValueOnce({ rows: [{ id: 'pod-uuid' }] })
             .mockResolvedValueOnce({ rows: [{ id: UUID }] });
@@ -1235,7 +1241,7 @@ describe('logAuditEvent', () => {
 
         expect(db.query).toHaveBeenCalledWith(
             expect.stringContaining('delivery_audit_log'),
-            [MERCHANT_ID, 1, 'order_created', UUID, null, '{}']
+            [MERCHANT_ID, 1, 'order_created', UUID, null, '{}', null, null]
         );
     });
 

@@ -53,6 +53,7 @@ const { runScheduledTrialExpiryNotifications } = require('./trial-expiry-job');
 const { runScheduledLoyaltySyncRetry } = require('./loyalty-sync-retry-job');
 const { runScheduledHealthCheck } = require('./catalog-health-job');
 const { runScheduledHeartbeat } = require('./email-heartbeat-job');
+const { runScheduledPodCleanup } = require('./pod-cleanup-job');
 const syncQueue = require('../services/sync-queue');
 
 // Store cron task references for graceful shutdown
@@ -181,6 +182,14 @@ function initializeCronJobs() {
         timezone: 'America/Toronto'
     }));
     logger.info('Catalog health cron job scheduled', { schedule: catalogHealthSchedule, timezone: 'America/Toronto' });
+
+    // 17. POD cleanup — delete expired proof-of-delivery photos
+    // LOGIC CHANGE (BUG-008): cleanupExpiredPods() existed but was never scheduled
+    const podCleanupSchedule = process.env.DELIVERY_POD_CLEANUP_CRON || '30 3 * * *';
+    cronTasks.push(cron.schedule(podCleanupSchedule, runScheduledPodCleanup, {
+        timezone: 'America/Toronto'
+    }));
+    logger.info('POD cleanup cron job scheduled', { schedule: podCleanupSchedule, timezone: 'America/Toronto' });
 
     // 16. Email heartbeat — daily "system alive" email
     // LOGIC CHANGE: moved from 8 AM to 6 AM (BACKLOG-79 — catch AM issues before store opens)

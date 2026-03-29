@@ -137,7 +137,7 @@ router.post('/orders', deliveryRateLimit, requireAuth, requireMerchant, validato
     await deliveryApi.logAuditEvent(merchantId, req.session.user.id, 'order_created', order.id, null, {
         manual: true,
         customerName
-    });
+    }, req.ip, req.get('user-agent'));
 
     sendSuccess(res, { order }, 201);
 }));
@@ -210,7 +210,7 @@ router.delete('/orders/:id', deliveryRateLimit, requireAuth, requireMerchant, va
         return sendError(res, 'Cannot delete this order. Only manual orders not yet delivered can be deleted.', 400);
     }
 
-    await deliveryApi.logAuditEvent(merchantId, req.session.user.id, 'order_deleted', req.params.id);
+    await deliveryApi.logAuditEvent(merchantId, req.session.user.id, 'order_deleted', req.params.id, null, {}, req.ip, req.get('user-agent'));
 
     sendSuccess(res, {});
 }));
@@ -537,7 +537,7 @@ router.post('/orders/:id/pod', deliveryRateLimit, requireAuth, requireMerchant, 
     await deliveryApi.logAuditEvent(merchantId, req.session.user.id, 'pod_uploaded', req.params.id, null, {
         podId: pod.id,
         hasGps: !!(req.body.latitude && req.body.longitude)
-    });
+    }, req.ip, req.get('user-agent'));
 
     sendSuccess(res, { pod }, 201);
 }));
@@ -759,7 +759,7 @@ router.put('/settings', deliveryRateLimit, requireAuth, requireMerchant, validat
     await deliveryApi.logAuditEvent(merchantId, req.session.user.id, 'settings_updated', null, null, {
         startAddress: !!startAddress,
         endAddress: !!endAddress
-    });
+    }, req.ip, req.get('user-agent'));
 
     sendSuccess(res, { settings });
 }));
@@ -929,7 +929,7 @@ router.post('/sync', deliveryStrictRateLimit, requireAuth, requireMerchant, vali
  * Backfill customer data for orders with "Unknown Customer"
  * Looks up customer details from Square API using square_customer_id
  */
-router.post('/backfill-customers', deliveryStrictRateLimit, requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+router.post('/backfill-customers', deliveryStrictRateLimit, requireAuth, requireMerchant, validators.backfillCustomers, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
 
     logger.info('Starting customer backfill for delivery orders', { merchantId });

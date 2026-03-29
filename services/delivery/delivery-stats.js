@@ -161,10 +161,11 @@ async function resolveCustomerId(squareClient, order, merchantId) {
     }
 
     try {
+        // LOGIC CHANGE (BUG-012): Removed PII (phone number) from debug log
         logger.debug('Customer stats: No customer ID, searching by phone', {
             merchantId,
             orderId: order.id,
-            phone: order.phone
+            hasPhone: !!order.phone
         });
         const searchResult = await squareClient.customers.search({
             query: {

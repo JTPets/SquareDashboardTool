@@ -71,17 +71,17 @@
   color: #64748b;
 }
 
+/* LOGIC CHANGE (BUG-014): Moved exclude checkbox from absolute top-right to inline
+   in the card header to prevent overlap with the Edit button */
 .delivery-exclude-checkbox {
   display: flex;
   align-items: center;
   gap: 4px;
-  position: absolute;
-  top: 8px;
-  right: 8px;
+  flex-shrink: 0;
   cursor: pointer;
   font-size: 0.75rem;
   color: #94a3b8;
-  z-index: 1;
+  margin-right: 8px;
 }
 
 .delivery-exclude-checkbox input[type="checkbox"] {

@@ -103,9 +103,13 @@ async function savePodPhoto(merchantId, orderId, photoBuffer, metadata = {}) {
         ]
     );
 
-    // Update order status to delivered
-    const { updateOrder } = _getDeliveryOrders();
-    await updateOrder(merchantId, orderId, { status: 'delivered' });
+    // LOGIC CHANGE (BUG-004): Only transition to 'delivered' if order is 'active'.
+    // For 'completed' orders, save the POD but skip status change to prevent regression.
+    // For 'pending' or 'skipped', also skip — order isn't on an active route stop.
+    if (order.status === 'active') {
+        const { updateOrder } = _getDeliveryOrders();
+        await updateOrder(merchantId, orderId, { status: 'delivered' });
+    }
 
     logger.info('Saved POD photo', { merchantId, orderId, podId: result.rows[0].id });
 

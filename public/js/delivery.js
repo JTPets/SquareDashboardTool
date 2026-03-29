@@ -129,10 +129,11 @@ function renderOrderList(containerId, orderList, type) {
 
   const isExcluded = (id) => excludedOrderIds.has(id);
 
+  // LOGIC CHANGE (BUG-014): Checkbox rendered inline before order-info, not absolutely positioned
   container.innerHTML = orderList.map(order => `
-    <div class="order-card ${!order.geocoded_at ? 'needs-geocode' : ''} ${order.needs_customer_refresh ? 'needs-refresh' : ''} ${type === 'pending' && isExcluded(order.id) ? 'delivery-excluded' : ''}">
+    <div class="order-card ${!order.geocoded_at ? 'needs-geocode' : ''} ${order.needs_customer_refresh ? 'needs-refresh' : ''} ${type === 'pending' && isExcluded(order.id) ? 'delivery-excluded' : ''}" ${type === 'pending' ? 'style="display:flex;align-items:flex-start;"' : ''}>
       ${type === 'pending' ? `<label class="delivery-exclude-checkbox"><input type="checkbox" data-action="toggleExcludeOrder" data-action-param="${escapeHtml(order.id)}" ${isExcluded(order.id) ? 'checked' : ''}><span class="delivery-exclude-label">Exclude</span></label>` : ''}
-      <div class="order-info">
+      <div class="order-info" style="${type === 'pending' ? 'flex:1;min-width:0;' : ''}">
         <h3>${escapeHtml(order.customer_name)}${order.needs_customer_refresh || order.customer_name === 'Unknown Customer' ? ' <span class="badge-pending" title="Customer data pending - will update when order is confirmed">&#8987;</span>' : ''}</h3>
         <div class="order-address">${escapeHtml(order.address)}</div>
         <div class="order-meta">
@@ -441,10 +442,19 @@ function updateExcludeControls() {
   const excluded = geocodedPending.filter(o => excludedOrderIds.has(o.id)).length;
   const included = geocodedPending.length - excluded;
 
-  if (excluded > 0) {
-    summaryEl.textContent = `Route: ${included} of ${geocodedPending.length} orders (${excluded} excluded)`;
+  // LOGIC CHANGE (BUG-015): Clearer exclude count text
+  if (included === 0) {
+    summaryEl.textContent = `0 of ${geocodedPending.length} orders included (all excluded)`;
+  } else if (excluded > 0) {
+    summaryEl.textContent = `${included} of ${geocodedPending.length} orders included (${excluded} excluded)`;
   } else {
-    summaryEl.textContent = `Route: all ${geocodedPending.length} orders`;
+    summaryEl.textContent = `${geocodedPending.length} of ${geocodedPending.length} orders included`;
+  }
+
+  // LOGIC CHANGE (BUG-015): Disable Generate Route when all orders excluded
+  const generateBtn = document.getElementById('generateRouteBtn');
+  if (generateBtn) {
+    generateBtn.disabled = included === 0;
   }
 
   // Clean up stale excluded IDs (orders that were deleted or changed status)

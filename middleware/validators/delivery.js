@@ -386,6 +386,14 @@ const syncOrders = [
     handleValidationErrors
 ];
 
+/**
+ * Backfill customers - no params to validate, pattern consistency only
+ * LOGIC CHANGE (BUG-009): Added missing validator for backfill-customers endpoint
+ */
+const backfillCustomers = [
+    handleValidationErrors
+];
+
 module.exports = {
     listOrders,
     createOrder,
@@ -405,5 +413,6 @@ module.exports = {
     geocode,
     updateSettings,
     getAudit,
-    syncOrders
+    syncOrders,
+    backfillCustomers
 };

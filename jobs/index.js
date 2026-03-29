@@ -18,6 +18,7 @@ const trialExpiryJob = require('./trial-expiry-job');
 const loyaltySyncRetryJob = require('./loyalty-sync-retry-job');
 const catalogHealthJob = require('./catalog-health-job');
 const emailHeartbeatJob = require('./email-heartbeat-job');
+const podCleanupJob = require('./pod-cleanup-job');
 const cronScheduler = require('./cron-scheduler');
 
 module.exports = {
@@ -77,6 +78,10 @@ module.exports = {
     // Email heartbeat job (BACKLOG-80)
     runScheduledHeartbeat: emailHeartbeatJob.runScheduledHeartbeat,
     isHeartbeatEnabled: emailHeartbeatJob.isHeartbeatEnabled,
+
+    // POD cleanup job (BUG-008)
+    runPodCleanup: podCleanupJob.runPodCleanup,
+    runScheduledPodCleanup: podCleanupJob.runScheduledPodCleanup,
 
     // Cron scheduler
     initializeCronJobs: cronScheduler.initializeCronJobs,

@@ -771,37 +771,46 @@ describe('Force-Regenerate Route — Cancelled Route Orders', () => {
 
 describe('skipOrder — Status Guard', () => {
     it('sets order status to skipped', async () => {
-        db.query
-            .mockResolvedValueOnce({ rows: [makeOrder({ status: 'skipped' })] })
-            .mockResolvedValueOnce({ rows: [] }); // audit
+        // getOrderById returns active order
+        db.query.mockResolvedValueOnce({ rows: [makeOrder({ status: 'active' })] });
+        // updateOrder
+        db.query.mockResolvedValueOnce({ rows: [makeOrder({ status: 'skipped' })] });
+        // logAuditEvent
+        db.query.mockResolvedValueOnce({ rows: [] });
 
         const order = await deliveryService.skipOrder(MERCHANT_ID, ORDER_ID, USER_ID);
         expect(order.status).toBe('skipped');
     });
 
-    // BUG: DELIVERY-BUG-006 — skipOrder() has no status guard.
-    // Any status can be skipped, and audit log hardcodes previousStatus: 'active'.
-    // Documents current broken behavior.
-    it('allows skipping a pending order — no status guard (BUG-006)', async () => {
-        db.query
-            .mockResolvedValueOnce({ rows: [makeOrder({ status: 'skipped' })] })
-            .mockResolvedValueOnce({ rows: [] });
+    // Fixed: DELIVERY-BUG-006 — skipOrder() now rejects non-active orders.
+    it('rejects skipping a pending order (BUG-006 fixed)', async () => {
+        db.query.mockResolvedValueOnce({ rows: [makeOrder({ status: 'pending' })] });
 
-        // Does NOT throw despite order being pending (not on a route)
-        const order = await deliveryService.skipOrder(MERCHANT_ID, ORDER_ID, USER_ID);
-        expect(order.status).toBe('skipped');
+        await expect(
+            deliveryService.skipOrder(MERCHANT_ID, ORDER_ID, USER_ID)
+        ).rejects.toThrow("Cannot skip order in 'pending' status");
     });
 
-    // BUG: DELIVERY-BUG-013 — Audit log always records previousStatus: 'active'
-    // regardless of actual status.
-    it('hardcodes previousStatus as active in audit log (BUG-013)', async () => {
-        db.query
-            .mockResolvedValueOnce({ rows: [makeOrder({ status: 'skipped' })] })
-            .mockResolvedValueOnce({ rows: [] });
+    it('rejects skipping a completed order (BUG-006 fixed)', async () => {
+        db.query.mockResolvedValueOnce({ rows: [makeOrder({ status: 'completed' })] });
+
+        await expect(
+            deliveryService.skipOrder(MERCHANT_ID, ORDER_ID, USER_ID)
+        ).rejects.toThrow("Cannot skip order in 'completed' status");
+    });
+
+    // Fixed: DELIVERY-BUG-013 — Audit log now records actual previous status.
+    it('records actual previous status in audit log (BUG-013 fixed)', async () => {
+        // getOrderById returns active order
+        db.query.mockResolvedValueOnce({ rows: [makeOrder({ status: 'active' })] });
+        // updateOrder
+        db.query.mockResolvedValueOnce({ rows: [makeOrder({ status: 'skipped' })] });
+        // logAuditEvent
+        db.query.mockResolvedValueOnce({ rows: [] });
 
         await deliveryService.skipOrder(MERCHANT_ID, ORDER_ID, USER_ID);
 
-        const auditCall = db.query.mock.calls[1];
+        const auditCall = db.query.mock.calls[2];
         const details = JSON.parse(auditCall[1][5]);
         expect(details.previousStatus).toBe('active');
     });
@@ -813,45 +822,75 @@ describe('skipOrder — Status Guard', () => {
 
 describe('completeOrder — Status Guard', () => {
     it('sets order status to completed', async () => {
-        db.query
-            .mockResolvedValueOnce({
-                rows: [makeOrder({ status: 'completed', square_order_id: 'SQ1' })]
-            })
-            .mockResolvedValueOnce({ rows: [] }); // audit
+        // getOrderById returns active order (allowed status)
+        db.query.mockResolvedValueOnce({ rows: [makeOrder({ status: 'active' })] });
+        // updateOrder
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'completed', square_order_id: 'SQ1' })]
+        });
+        // logAuditEvent
+        db.query.mockResolvedValueOnce({ rows: [] });
 
         const order = await deliveryService.completeOrder(MERCHANT_ID, ORDER_ID, USER_ID);
         expect(order.status).toBe('completed');
     });
 
-    // BUG: DELIVERY-BUG-005 — completeOrder has no status guard.
-    // A pending order (not on any route) can be completed.
-    // Documents current broken behavior.
-    it('allows completing a pending order — no status guard (BUG-005)', async () => {
-        db.query
-            .mockResolvedValueOnce({
-                rows: [makeOrder({ status: 'completed' })]
-            })
-            .mockResolvedValueOnce({ rows: [] });
+    // Fixed: DELIVERY-BUG-005 — completeOrder now rejects pending and already-completed orders.
+    it('rejects completing a pending order (BUG-005 fixed)', async () => {
+        db.query.mockResolvedValueOnce({ rows: [makeOrder({ status: 'pending' })] });
 
-        // Does NOT throw despite order not being on a route
-        const order = await deliveryService.completeOrder(MERCHANT_ID, ORDER_ID, USER_ID);
-        expect(order.status).toBe('completed');
+        await expect(
+            deliveryService.completeOrder(MERCHANT_ID, ORDER_ID, USER_ID)
+        ).rejects.toThrow("Cannot complete order in 'pending' status");
+    });
+
+    it('rejects completing an already-completed order (BUG-005 fixed)', async () => {
+        db.query.mockResolvedValueOnce({ rows: [makeOrder({ status: 'completed' })] });
+
+        await expect(
+            deliveryService.completeOrder(MERCHANT_ID, ORDER_ID, USER_ID)
+        ).rejects.toThrow("Cannot complete order in 'completed' status");
+    });
+
+    it('accepts completing active, delivered, and skipped orders (BUG-005 fixed)', async () => {
+        for (const status of ['active', 'delivered', 'skipped']) {
+            jest.resetAllMocks();
+            db.query.mockResolvedValue({ rows: [], rowCount: 0 });
+            // getOrderById
+            db.query.mockResolvedValueOnce({ rows: [makeOrder({ status })] });
+            // updateOrder
+            db.query.mockResolvedValueOnce({ rows: [makeOrder({ status: 'completed', square_order_id: 'SQ1' })] });
+            // logAuditEvent
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            const order = await deliveryService.completeOrder(MERCHANT_ID, ORDER_ID, USER_ID);
+            expect(order.status).toBe('completed');
+        }
     });
 
     it('logs audit with squareOrderId and hasPod', async () => {
-        db.query
-            .mockResolvedValueOnce({
-                rows: [makeOrder({
-                    status: 'completed',
-                    square_order_id: 'SQ_123',
-                    pod_id: 'pod-uuid'
-                })]
-            })
-            .mockResolvedValueOnce({ rows: [] });
+        // getOrderById returns delivered order (allowed status)
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({
+                status: 'delivered',
+                square_order_id: 'SQ_123',
+                pod_id: 'pod-uuid'
+            })]
+        });
+        // updateOrder
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({
+                status: 'completed',
+                square_order_id: 'SQ_123',
+                pod_id: 'pod-uuid'
+            })]
+        });
+        // logAuditEvent
+        db.query.mockResolvedValueOnce({ rows: [] });
 
         await deliveryService.completeOrder(MERCHANT_ID, ORDER_ID, USER_ID);
 
-        const auditCall = db.query.mock.calls[1];
+        const auditCall = db.query.mock.calls[2];
         const details = JSON.parse(auditCall[1][5]);
         expect(details.squareOrderId).toBe('SQ_123');
         expect(details.hasPod).toBe(true);
@@ -890,12 +929,27 @@ describe('savePodPhoto — Status Transition', () => {
         expect(updateParams).toContain('delivered');
     });
 
-    // BUG: DELIVERY-BUG-004 — savePodPhoto unconditionally sets status to 'delivered'
-    // regardless of current status. A completed order can regress to delivered.
-    // Documents current broken behavior.
-    it('overwrites completed status with delivered — no guard (BUG-004)', async () => {
+    // Fixed: DELIVERY-BUG-004 — savePodPhoto now only sets status to 'delivered'
+    // if current status is 'active'. Completed orders save the POD but skip status change.
+    it('saves POD on completed order without changing status (BUG-004 fixed)', async () => {
         db.query.mockResolvedValueOnce({
             rows: [makeOrder({ status: 'completed' })]
+        });
+        db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({
+            rows: [{ id: 'pod-1', captured_at: new Date() }]
+        });
+
+        const pod = await deliveryService.savePodPhoto(MERCHANT_ID, ORDER_ID, JPEG_HEADER, {});
+        expect(pod).toBeDefined();
+
+        // updateOrder should NOT be called — only 3 db.query calls (getOrder, getSettings, insertPod)
+        expect(db.query).toHaveBeenCalledTimes(3);
+    });
+
+    it('sets status to delivered for active order (BUG-004 preserved behavior)', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'active' })]
         });
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
         db.query.mockResolvedValueOnce({
@@ -905,13 +959,12 @@ describe('savePodPhoto — Status Transition', () => {
             rows: [makeOrder({ status: 'delivered' })]
         });
 
-        // Does NOT throw — overwrites completed with delivered
-        const pod = await deliveryService.savePodPhoto(MERCHANT_ID, ORDER_ID, JPEG_HEADER, {});
-        expect(pod).toBeDefined();
+        await deliveryService.savePodPhoto(MERCHANT_ID, ORDER_ID, JPEG_HEADER, {});
 
-        // updateOrder was called with status = delivered
-        const updateSql = db.query.mock.calls[3][0];
-        expect(updateSql).toContain('delivery_orders');
+        // 4 calls: getOrder, getSettings, insertPod, updateOrder
+        expect(db.query).toHaveBeenCalledTimes(4);
+        const updateParams = db.query.mock.calls[3][1];
+        expect(updateParams).toContain('delivered');
     });
 });
 
@@ -1092,13 +1145,37 @@ describe('Full Lifecycle — pending → active → delivered → completed', ()
         const delivered = await deliveryService.markDelivered(MERCHANT_ID, ORDER_ID);
         expect(delivered.status).toBe('delivered');
 
-        // Step 3: completeOrder → completed
-        db.query
-            .mockResolvedValueOnce({
-                rows: [makeOrder({ status: 'completed', square_order_id: 'SQ1' })]
-            })
-            .mockResolvedValueOnce({ rows: [] }); // audit
+        // Step 3: completeOrder → completed (requires getOrderById first for status guard)
+        // getOrderById returns delivered order
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'delivered' })]
+        });
+        // updateOrder
+        db.query.mockResolvedValueOnce({
+            rows: [makeOrder({ status: 'completed', square_order_id: 'SQ1' })]
+        });
+        // logAuditEvent
+        db.query.mockResolvedValueOnce({ rows: [] });
         const completed = await deliveryService.completeOrder(MERCHANT_ID, ORDER_ID, USER_ID);
         expect(completed.status).toBe('completed');
+    });
+});
+
+// ============================================================================
+// 13. SEC-1: geocodePendingOrders UPDATE includes merchant_id
+// ============================================================================
+
+describe('geocodePendingOrders — merchant_id guard (SEC-1)', () => {
+    it('UPDATE includes merchant_id in WHERE clause', () => {
+        // Verify the SQL in the source code contains the merchant_id guard.
+        // This is a static check — the UPDATE in geocodePendingOrders must
+        // include AND merchant_id = $4 for defense in depth.
+        const fs = jest.requireActual('fs');
+        const src = fs.readFileSync(
+            require.resolve('../../../services/delivery/delivery-geocoding.js'), 'utf8'
+        );
+        // SEC-1 fix: UPDATE must filter by merchant_id
+        expect(src).toContain('AND merchant_id = $4');
+        expect(src).toContain('[coords.lat, coords.lng, order.id, merchantId]');
     });
 });

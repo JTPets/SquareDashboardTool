@@ -33,6 +33,8 @@ const asyncHandler = require('../middleware/async-handler');
 const { configureDeliveryRateLimit, configureDeliveryStrictRateLimit } = require('../middleware/security');
 const { validateUploadedImage } = require('../utils/file-validation');
 const validators = require('../middleware/validators/driver-api');
+// LOGIC CHANGE (BUG-010/011): Use response helpers instead of raw res.json()
+const { sendSuccess, sendError } = require('../utils/response-helper');
 
 // Rate limiters for public driver endpoints (keyed by IP since no session)
 const deliveryRateLimit = configureDeliveryRateLimit();
@@ -74,7 +76,7 @@ router.post('/delivery/route/:id/share', deliveryRateLimit, requireAuth, require
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     const shareUrl = `${baseUrl}/driver.html?token=${token.token}`;
 
-    res.json({
+    sendSuccess(res, {
         token,
         shareUrl,
         expiresAt: token.expires_at
@@ -94,9 +96,9 @@ router.get('/delivery/route/:id/token', requireAuth, requireMerchant, validators
     if (token) {
         const baseUrl = `${req.protocol}://${req.get('host')}`;
         const shareUrl = `${baseUrl}/driver.html?token=${token.token}`;
-        res.json({ token, shareUrl });
+        sendSuccess(res, { token, shareUrl });
     } else {
-        res.json({ token: null });
+        sendSuccess(res, { token: null });
     }
 }));
 
@@ -113,7 +115,7 @@ router.delete('/delivery/route/:id/token', deliveryRateLimit, requireAuth, requi
         await deliveryApi.revokeRouteToken(merchantId, token.id);
     }
 
-    res.json({ success: true });
+    sendSuccess(res, {});
 }));
 
 // ==================== PUBLIC ENDPOINTS (Driver-facing, token-based) ====================
@@ -126,15 +128,15 @@ router.get('/driver/:token', deliveryRateLimit, validators.getDriverRoute, async
     const result = await deliveryApi.getRouteOrdersByToken(req.params.token);
 
     if (!result) {
-        return res.status(404).json({ error: 'Invalid token' });
+        return sendError(res, 'Invalid token', 404);
     }
 
     if (!result.valid) {
-        return res.status(403).json({ error: result.reason || 'Token is no longer valid' });
+        return sendError(res, result.reason || 'Token is no longer valid', 403);
     }
 
     // Return only necessary data (hide internal IDs where possible)
-    res.json({
+    sendSuccess(res, {
         route: {
             date: result.route_date,
             totalStops: result.total_stops,
@@ -164,7 +166,7 @@ router.get('/driver/:token', deliveryRateLimit, validators.getDriverRoute, async
  */
 router.post('/driver/:token/orders/:orderId/complete', deliveryRateLimit, validators.completeOrder, asyncHandler(async (req, res) => {
     const order = await deliveryApi.completeOrderByToken(req.params.token, req.params.orderId);
-    res.json({ success: true, order: { id: order.id, status: order.status } });
+    sendSuccess(res, { order: { id: order.id, status: order.status } });
 }));
 
 /**
@@ -173,7 +175,7 @@ router.post('/driver/:token/orders/:orderId/complete', deliveryRateLimit, valida
  */
 router.post('/driver/:token/orders/:orderId/skip', deliveryRateLimit, validators.skipOrder, asyncHandler(async (req, res) => {
     const order = await deliveryApi.skipOrderByToken(req.params.token, req.params.orderId);
-    res.json({ success: true, order: { id: order.id, status: order.status } });
+    sendSuccess(res, { order: { id: order.id, status: order.status } });
 }));
 
 /**
@@ -182,7 +184,7 @@ router.post('/driver/:token/orders/:orderId/skip', deliveryRateLimit, validators
  */
 router.post('/driver/:token/orders/:orderId/pod', deliveryStrictRateLimit, podUpload.single('photo'), validateUploadedImage('photo'), validators.uploadPod, asyncHandler(async (req, res) => {
     if (!req.file) {
-        return res.status(400).json({ error: 'No photo uploaded' });
+        return sendError(res, 'No photo uploaded', 400);
     }
 
     const metadata = {
@@ -194,8 +196,7 @@ router.post('/driver/:token/orders/:orderId/pod', deliveryStrictRateLimit, podUp
 
     const pod = await deliveryApi.savePodByToken(req.params.token, req.params.orderId, req.file.buffer, metadata);
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         pod: { id: pod.id, capturedAt: pod.captured_at }
     });
 }));
@@ -212,8 +213,7 @@ router.post('/driver/:token/finish', deliveryRateLimit, validators.finishRoute, 
         driverNotes
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         result,
         message: 'Route completed. Thank you for your deliveries!'
     });

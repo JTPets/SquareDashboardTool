@@ -17,13 +17,15 @@ const logger = require('../../utils/logger');
  * @param {string} routeId - Optional route ID
  * @param {Object} details - Additional details
  */
-async function logAuditEvent(merchantId, userId, action, orderId = null, routeId = null, details = {}) {
+async function logAuditEvent(merchantId, userId, action, orderId = null, routeId = null, details = {}, ipAddress = null, userAgent = null) {
+    // LOGIC CHANGE (BUG-007): Added optional ipAddress and userAgent parameters.
+    // Columns existed in schema but were never populated.
     try {
         await db.query(
             `INSERT INTO delivery_audit_log (
-                merchant_id, user_id, action, delivery_order_id, route_id, details
-            ) VALUES ($1, $2, $3, $4, $5, $6)`,
-            [merchantId, userId, action, orderId, routeId, JSON.stringify(details)]
+                merchant_id, user_id, action, delivery_order_id, route_id, details, ip_address, user_agent
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [merchantId, userId, action, orderId, routeId, JSON.stringify(details), ipAddress, userAgent]
         );
     } catch (err) {
         logger.error('Failed to log audit event', { merchantId, action, error: err.message });
