@@ -1,20 +1,22 @@
 /**
  * Delivery Service Layer
  *
- * Public API for delivery-related services. This module provides:
- * - Delivery order management (CRUD operations)
- * - Route generation and optimization
- * - Geocoding functionality
- * - Proof of Delivery (POD) photo handling
- * - Delivery settings management
- *
- * This service was extracted from utils/delivery-api.js as part of P1-3.
+ * Public API for delivery-related services. Re-exports from all modules.
  *
  * Usage:
  *   const { getOrders, createOrder, generateRoute } = require('./services/delivery');
- *
- *   const orders = await getOrders(merchantId, { status: 'pending' });
- *   const route = await generateRoute(merchantId, orderIds, startPoint);
  */
 
-module.exports = require('./delivery-service');
+module.exports = {
+    ...require('./delivery-orders'),
+    ...require('./delivery-routes'),
+    ...require('./delivery-tokens'),
+    ...require('./delivery-square'),
+    ...require('./delivery-backfill'),
+    ...require('./delivery-settings'),
+    ...require('./delivery-audit'),
+    ...require('./delivery-utils'),
+    ...require('./delivery-gtin'),
+    ...require('./delivery-geocoding'),
+    ...require('./delivery-pod'),
+};
