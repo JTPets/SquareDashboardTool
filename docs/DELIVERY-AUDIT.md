@@ -63,10 +63,178 @@ No delivery-specific cron jobs exist. Notable absence: **no POD cleanup job** de
 
 ---
 
-## 2. Order Lifecycle — TODO
+## 2. Order Lifecycle
+
+### 2a. How Orders Enter the System
+
+There are **four ingestion paths**:
+
+| # | Path | Entry Point | Trigger | Initial Status |
+|---|------|-------------|---------|----------------|
+| 1 | **Webhook auto-ingest** | `order-delivery.js:ingestDeliveryOrder()` → `delivery-service.js:ingestSquareOrder()` | Square `order.updated` webhook fires, `auto_ingest_ready_orders` setting is true, order has DELIVERY/SHIPMENT fulfillment with an address | `pending` (or `completed` if Square state is COMPLETED) |
+| 2 | **Fulfillment webhook auto-ingest** | `order-delivery.js:handleFulfillmentDeliveryUpdate()` → `autoIngestFromFulfillment()` → `delivery-service.js:ingestSquareOrder()` | Square `order.fulfillment.updated` webhook fires with non-terminal fulfillment state (not COMPLETED/CANCELED/FAILED), auto-ingest enabled | `pending` |
+| 3 | **Manual creation** | `routes/delivery.js:POST /orders` → `delivery-service.js:createOrder()` | User clicks "Add Order" in delivery.html, fills in customer name + address | `pending` |
+| 4 | **Manual sync** | `routes/delivery.js:POST /sync` → `delivery-service.js:ingestSquareOrder()` | User clicks "Sync from Square" button, searches last N days of OPEN/COMPLETED orders with DELIVERY/SHIPMENT fulfillments | `pending` (OPEN orders) or `completed` (existing orders updated to match Square COMPLETED state) |
+
+**Deduplication**: Square-linked orders use `ON CONFLICT (square_order_id, merchant_id)` upsert. Manual orders (null `square_order_id`) are excluded from the partial unique index and cannot conflict.
+
+**Customer refresh**: Orders ingested from DRAFT-state Square orders or with "Unknown Customer" are flagged with `needs_customer_refresh = TRUE`. The `refreshDeliveryOrderCustomerIfNeeded()` webhook handler updates customer data when the order transitions from DRAFT → OPEN.
+
+### 2b. All Possible Status Values
+
+From the CHECK constraint in `schema.sql:1309-1311`:
+
+```
+status IN ('pending', 'active', 'skipped', 'delivered', 'completed')
+```
+
+| Status | Meaning |
+|--------|---------|
+| `pending` | Ready for route assignment. Order is in the queue awaiting the next route generation. |
+| `active` | Assigned to an active route. Driver can see and act on this order. |
+| `skipped` | Driver skipped this stop (couldn't deliver). Still attached to the route. |
+| `delivered` | POD photo captured. Intermediate state between driver action and admin completion. |
+| `completed` | Fully done. Square fulfillment synced (if applicable). Terminal state. |
+
+### 2c. Status Transition Map
+
+| From | To | Function | File:Line | Trigger |
+|------|----|----------|-----------|---------|
+| *(new)* | `pending` | `createOrder()` | `delivery-service.js:337` | Webhook ingest, manual creation, or sync (for OPEN Square orders) |
+| *(new)* | `completed` | `createOrder()` | `delivery-service.js:1455` | `ingestSquareOrder()` when Square order state is already COMPLETED |
+| `pending` | `active` | `generateRoute()` | `delivery-service.js:684-689` | Route generation assigns pending orders to route |
+| `active` | `skipped` | `skipOrder()` | `delivery-service.js:490` | Driver or admin skips a stop |
+| `active` | `delivered` | `savePodPhoto()` | `delivery-service.js:1063` | POD photo uploaded (sets status to `delivered`) |
+| `active` | `completed` | `completeOrder()` | `delivery-service.js:518-519` | Admin marks order complete via route view |
+| `delivered` | `completed` | `completeOrder()` | `delivery-service.js:518-519` | Admin marks delivered order as fully complete |
+| `skipped` | `pending` | `finishRoute()` | `delivery-service.js:754-758` | Route finished — skipped orders rolled back to pending |
+| `active` | `pending` | `finishRoute()` | `delivery-service.js:754-758` | Route finished — still-active orders rolled back to pending |
+| `*` (not completed) | `completed` | `handleSquareOrderUpdate()` | `delivery-service.js:1580-1585` | Square webhook reports order COMPLETED |
+| `*` (not completed) | `completed` | `ingestSquareOrder()` | `delivery-service.js:1362-1366` | Re-ingest finds Square order is now COMPLETED |
+| `pending`/`active` | *(deleted)* | `handleSquareOrderUpdate()` | `delivery-service.js:1592-1604` | Square webhook reports order CANCELED |
+| `pending` | *(deleted)* | `deleteOrder()` | `delivery-service.js:464-480` | Manual order deleted by user (only if no `square_order_id` and not completed/delivered) |
+| `*` (any) | `completed` | sync route handler | `routes/delivery.js:859-863` | Sync finds existing order where Square state is COMPLETED but local status differs |
+| `*` (any) | `delivered` | `savePodPhoto()` | `delivery-service.js:1063` | POD upload unconditionally sets `delivered` **regardless of current status** |
+
+### 2d. State Machine Diagram
+
+```
+                         ┌──────────────────────────────────────────────────┐
+                         │           Square webhook: COMPLETED              │
+                         │      (handleSquareOrderUpdate / ingest)          │
+                         ▼                                                  │
+    ┌─────────┐    generateRoute()    ┌─────────┐    completeOrder()    ┌───┴──────┐
+    │         │ ──────────────────►   │         │ ──────────────────►   │          │
+    │ pending │                       │ active  │                       │completed │
+    │         │ ◄──────────────────   │         │                       │ (terminal│
+    └────┬────┘    finishRoute()      └────┬────┘                       │  state)  │
+         │         (rollback)              │                            └───▲──────┘
+         │                                 │                                │
+         │                                 │ skipOrder()                    │
+         │                                 ▼                                │
+         │                           ┌──────────┐   finishRoute()          │
+         │              ◄────────────│  skipped  │──(rollback to pending)   │
+         │                           └──────────┘                          │
+         │                                                                 │
+         │                                 │ savePodPhoto()                │
+         │                                 ▼                               │
+         │                           ┌──────────┐   completeOrder()        │
+         │                           │ delivered │─────────────────────────►│
+         │                           └──────────┘                          │
+         │                                                                 │
+         │  Square webhook: CANCELED                                       │
+         │  (deletes if pending/active)                                    │
+         ▼                                                                 │
+    ┌──────────┐                                                           │
+    │ (deleted)│     Note: 'completed' can be reached from ANY status      │
+    └──────────┘     via Square webhook or sync                            │
+
+    Entry points:
+    ─ Webhook auto-ingest ──────► pending (or completed if Square=COMPLETED)
+    ─ Manual creation ──────────► pending
+    ─ Manual sync ──────────────► pending (or completed)
+```
+
+### 2e. finishRoute() Behavior by Status
+
+`finishRoute()` at `delivery-service.js:721-793` operates within a transaction:
+
+| Order Status on Route | What finishRoute() Does | Result |
+|----------------------|-------------------------|--------|
+| `completed` | **Nothing** — not matched by `WHERE status IN ('skipped', 'active')` | Stays `completed`, keeps `route_id` reference |
+| `skipped` | Rolls back to `pending`, clears `route_id`, `route_position`, `route_date` | Order re-enters queue |
+| `active` | Rolls back to `pending`, clears `route_id`, `route_position`, `route_date` | Order re-enters queue |
+| **`delivered`** | **NOTHING** — not matched by the WHERE clause | **BUG: stays `delivered` with stale `route_id` pointing to a now-finished route** |
+
+### 2f. Force-Regenerate Behavior
+
+`generateRoute()` at `delivery-service.js:594-712` with `force: true`:
+
+1. Finds existing active route via `getActiveRoute()` (line 599)
+2. If `force` is true, does NOT throw the "already exists" error (line 600)
+3. **Cancels the old route**: `UPDATE delivery_routes SET status = 'cancelled' WHERE id = $1` (line 657-659)
+4. **Only selects `pending` orders**: `WHERE status = 'pending' AND geocoded_at IS NOT NULL` (line 612-614)
+5. Sets selected orders to `status = 'active'` with new `route_id` (line 684-689)
+
+**Critical gap**: When the old route is cancelled, **orders on that route are NOT touched**. Orders in `active`, `skipped`, or `delivered` status on the old route remain in those statuses with a `route_id` pointing to a now-cancelled route. They are **orphaned** — not on any active route, and not `pending` so they won't be picked up by the next route generation.
+
+### 2g. Route Planning WHERE Clause
+
+```sql
+SELECT * FROM delivery_orders
+WHERE merchant_id = $1 AND status = 'pending'
+  AND geocoded_at IS NOT NULL
+```
+
+Only `status = 'pending'` orders are eligible. This **excludes**:
+- `active` — orders still on a cancelled/finished route
+- `skipped` — orders on a cancelled route (only rolled back by `finishRoute()`, not by force-regenerate cancellation)
+- `delivered` — orders with POD but not yet completed (never rolled back by anything)
+- `completed` — terminal state (correct exclusion)
+
+### 2h. The Gap — Stuck Orders
+
+Three scenarios produce permanently stuck orders:
+
+**Scenario 1: Force-regenerate orphans (`active`/`skipped` on cancelled route)**
+1. Route A is active with orders in `active`/`skipped` status
+2. User force-generates Route B → Route A is set to `cancelled`
+3. Orders on Route A are NOT touched — they stay `active`/`skipped` with `route_id` = Route A
+4. Route generation only picks `pending` orders → these orders are invisible to the scheduler
+5. `finishRoute()` checks `route.status !== 'active'` and throws "Route is not active" → cannot finish Route A to roll them back
+6. **Result**: Orders are permanently stuck
+
+**Scenario 2: Delivered orders on finished route**
+1. Driver uploads POD photo → order status becomes `delivered`
+2. Admin finishes route → `finishRoute()` only rolls back `skipped` and `active` orders
+3. `delivered` orders stay `delivered` with `route_id` pointing to finished route
+4. They never become `pending` again and never become `completed` unless manually completed
+5. **Result**: Orders stuck in `delivered` status, no longer visible in normal workflow
+
+**Scenario 3: Cancelled order deletion ignores `skipped`/`delivered`**
+1. Square webhook fires CANCELED for an order currently in `skipped` or `delivered` status
+2. `handleSquareOrderUpdate()` only deletes if `status IN ('pending', 'active')`
+3. `skipped` and `delivered` orders for a cancelled Square order remain in the system
+4. **Result**: Zombie orders for cancelled Square orders
 ## 3. Route Generation — TODO
 ## 4. Security — TODO
-## 5. Bug Registry — TODO
+## 5. Bug Registry
+
+| ID | Severity | File:Line | Current Behavior | Expected Behavior | Suggested Fix |
+|----|----------|-----------|-----------------|-------------------|---------------|
+| DELIVERY-BUG-001 | **HIGH** | `delivery-service.js:650-660` | `generateRoute(force=true)` cancels old route record but leaves orders on that route in `active`/`skipped`/`delivered` status with stale `route_id`. These orders are orphaned — never picked up by future route generation (`WHERE status = 'pending'`) and cannot be rolled back via `finishRoute()` (rejects non-active routes). | Force-regenerate should roll back non-completed orders on the old route to `pending` (same as `finishRoute()` does) before cancelling it. | Add a statement inside the `if (existingRoute)` block: `UPDATE delivery_orders SET status = 'pending', route_id = NULL, route_position = NULL, route_date = NULL WHERE route_id = $1 AND status IN ('active', 'skipped', 'delivered')` |
+| DELIVERY-BUG-002 | **HIGH** | `delivery-service.js:754-758` | `finishRoute()` rolls back `skipped` and `active` orders but **ignores `delivered` orders**. Orders with POD photos stay in `delivered` status with a `route_id` pointing to the now-finished route. They are invisible to the scheduler — neither pending nor completed. | `finishRoute()` should also handle `delivered` orders. Either roll them back to `pending` (unlikely desired — they have PODs), or auto-complete them (more appropriate since POD is captured). | Change `WHERE status IN ('skipped', 'active')` to `WHERE status IN ('skipped', 'active', 'delivered')` and auto-complete delivered orders instead of rolling back: add a separate UPDATE to set `delivered` → `completed` before finishing the route. |
+| DELIVERY-BUG-003 | **MEDIUM** | `delivery-service.js:1592-1604` | `handleSquareOrderUpdate(CANCELED)` only deletes orders in `pending` or `active` status. Orders in `skipped` or `delivered` status for a cancelled Square order remain in the system as zombie records. | Cancellation should also remove `skipped` and `delivered` orders, or at minimum mark them completed/cancelled to prevent re-routing. | Expand the status check: `['pending', 'active', 'skipped', 'delivered'].includes(order.status)`. Consider soft-delete (set status to a new `cancelled` value) rather than hard delete to preserve audit trail for orders that had POD photos. |
+| DELIVERY-BUG-004 | **MEDIUM** | `delivery-service.js:1063` | `savePodPhoto()` unconditionally sets order status to `delivered` regardless of current status. A `completed` order can be regressed to `delivered` if a POD is uploaded after completion. A `pending` order (not on any route) can be set to `delivered`. | POD upload should only set `delivered` if current status is `active` or if the order is on a route. Should refuse or warn if order is already `completed`. | Add a status guard: only transition to `delivered` if current status is `active`. For `completed` orders, save the POD photo but skip the status change. |
+| DELIVERY-BUG-005 | **MEDIUM** | `routes/delivery.js:237-442` | `POST /orders/:id/complete` has no status guard — any order can be marked complete regardless of current status (`pending`, `skipped`, etc.). A pending order not on any route can be completed with Square fulfillment sync attempted. | Should only allow completing orders in `active`, `delivered`, or `skipped` status. Completing a `pending` order that was never on a route is likely a mistake. | Add a status whitelist check after fetching the order: reject if `order.status === 'pending'` or `order.status === 'completed'`. |
+| DELIVERY-BUG-006 | **MEDIUM** | `delivery-service.js:489-498` | `skipOrder()` has no status guard — any order in any status can be skipped. It also hardcodes `previousStatus: 'active'` in the audit log regardless of actual previous status. | Should only allow skipping `active` orders (orders currently on a route). Audit log should record actual previous status. | Add guard: `if (order.status !== 'active') throw new Error('...')`. Pass actual `order.status` into the audit event `previousStatus` field. |
+| DELIVERY-BUG-007 | **LOW** | `delivery-service.js:1294-1305` | `logAuditEvent()` never populates the `ip_address` or `user_agent` columns despite them existing in the schema. All audit records have NULL for these fields. | Audit trail should include IP and user-agent for accountability, especially for token-based driver actions. | Accept optional `req` parameter in `logAuditEvent()` and extract `req.ip` and `req.get('user-agent')`. Pass `req` from route handlers. |
+| DELIVERY-BUG-008 | **LOW** | `delivery-service.js:1111-1142` | `cleanupExpiredPods()` function exists and works correctly, but is **never called** by any cron job. The `expires_at` column is populated but expired POD files accumulate forever on disk. | Should be invoked by a scheduled job (daily). | Add a `pod-cleanup-job.js` to `jobs/` and register it in `cron-scheduler.js`. |
+| DELIVERY-BUG-009 | **LOW** | `routes/delivery.js:927` | `POST /backfill-customers` endpoint has no input validator — it goes straight to `asyncHandler` with only `requireAuth` and `requireMerchant`. All other delivery endpoints have validators. | Should have a validator, even if empty, for consistency and future-proofing. | Add `validators.backfillCustomers` (can be `[handleValidationErrors]` — no params to validate, but pattern is consistent). |
+| DELIVERY-BUG-010 | **LOW** | `routes/driver-api.js:77-82,93-101,113-117` | Three authenticated share-management endpoints (`POST /route/:id/share`, `GET /route/:id/token`, `DELETE /route/:id/token`) use raw `res.json()` instead of `sendSuccess()`/`sendError()` response helpers. | Should use response helpers for consistent API contract (`{ success: true, ... }`). | Replace `res.json(...)` with `sendSuccess(res, ...)` and import `sendSuccess`/`sendError` from `utils/response-helper`. |
+| DELIVERY-BUG-011 | **LOW** | `routes/driver-api.js:125-220` | All public driver endpoints use raw `res.json({ error: ... })` and `res.status(N).json(...)` instead of `sendError()`. Inconsistent error shape (`{ error }` vs `{ success: false, error, code }`). | Use `sendSuccess`/`sendError` for consistent API responses. | Import and use response helpers throughout `driver-api.js`. |
+| DELIVERY-BUG-012 | **LOW** | `delivery-stats.js:164-167` | `resolveCustomerId()` logs customer phone number at debug level: `phone: order.phone`. PII in logs. | Phone numbers should not appear in log output per CLAUDE.md security rules. | Remove `phone` from the log context object, or replace with `hasPhone: !!order.phone`. |
+| DELIVERY-BUG-013 | **INFO** | `delivery-service.js:493-495` | `skipOrder()` audit log always records `previousStatus: 'active'` as a hardcoded string rather than querying the actual previous status of the order. | Should record the real previous status for accurate audit trail. | Fetch order before update, capture `order.status`, then pass as `previousStatus` in audit details. |
 ## 6. Module Breakdown — TODO
 ## 7. CSS Findings — TODO
 ## 8. Test Coverage — TODO
