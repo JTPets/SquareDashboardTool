@@ -654,6 +654,26 @@ async function generateRoute(merchantId, userId, options = {}) {
 
         // Cancel any existing active routes for this date
         if (existingRoute) {
+            // LOGIC CHANGE: Reset orphaned orders before cancelling route (BUG-001 fix).
+            // Previously, force-regenerate cancelled the route but left its orders
+            // stranded in active/skipped/delivered status with a stale route_id.
+
+            // Step 1: Auto-complete delivered orders (they have POD photos — don't lose that work)
+            await client.query(
+                `UPDATE delivery_orders
+                 SET status = 'completed', updated_at = NOW()
+                 WHERE route_id = $1 AND status = 'delivered'`,
+                [existingRoute.id]
+            );
+
+            // Step 2: Roll back active/skipped orders to pending so they re-enter the queue
+            await client.query(
+                `UPDATE delivery_orders
+                 SET status = 'pending', route_id = NULL, route_position = NULL, route_date = NULL, updated_at = NOW()
+                 WHERE route_id = $1 AND status IN ('active', 'skipped')`,
+                [existingRoute.id]
+            );
+
             await client.query(
                 `UPDATE delivery_routes SET status = 'cancelled' WHERE id = $1`,
                 [existingRoute.id]
@@ -749,6 +769,16 @@ async function finishRoute(merchantId, routeId, userId) {
             [routeId]
         );
         const stats = statsResult.rows[0];
+
+        // LOGIC CHANGE: Auto-complete delivered orders before rollback (BUG-002 fix).
+        // Previously, delivered orders (with POD photos) were ignored by finishRoute()
+        // and left stranded with a stale route_id pointing to the now-finished route.
+        await client.query(
+            `UPDATE delivery_orders
+             SET status = 'completed', updated_at = NOW()
+             WHERE route_id = $1 AND status = 'delivered'`,
+            [routeId]
+        );
 
         // Roll skipped and still-active orders back to pending
         await client.query(
@@ -1590,8 +1620,10 @@ async function handleSquareOrderUpdate(merchantId, squareOrderId, newState) {
             });
         }
     } else if (newState === 'CANCELED') {
-        // Remove from queue if not yet delivered
-        if (['pending', 'active'].includes(order.status)) {
+        // LOGIC CHANGE: Expand cancellation to include skipped/delivered (BUG-003 fix).
+        // Previously only pending/active orders were deleted, leaving skipped/delivered
+        // orders as zombie records for cancelled Square orders.
+        if (['pending', 'active', 'skipped', 'delivered'].includes(order.status)) {
             await db.query(
                 `DELETE FROM delivery_orders WHERE id = $1 AND merchant_id = $2`,
                 [order.id, merchantId]

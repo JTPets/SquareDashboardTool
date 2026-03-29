@@ -440,7 +440,9 @@ describe('finishRoute', () => {
                 .mockResolvedValueOnce({
                     rows: [{ completed: '3', skipped: '2', delivered: '1', still_active: '1' }]
                 })
-                // Roll back
+                // Auto-complete delivered (BUG-002 fix)
+                .mockResolvedValueOnce({ rows: [] })
+                // Roll back skipped/active
                 .mockResolvedValueOnce({ rows: [] })
                 // Mark finished
                 .mockResolvedValueOnce({ rows: [] })

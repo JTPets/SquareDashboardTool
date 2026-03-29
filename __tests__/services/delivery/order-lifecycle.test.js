@@ -317,12 +317,16 @@ describe('Route Planning Query — Status Filtering', () => {
 // ============================================================================
 
 describe('finishRoute() — Status-Specific Behavior', () => {
+    // Setup helper accounts for the new auto-complete-delivered query (BUG-002 fix)
+    // Transaction call order: BEGIN, Get route, Stats, Auto-complete delivered,
+    // Roll back skipped/active, Mark finished, COMMIT
     function setupFinishRoute(statsRow) {
         const mockClient = makeMockClient([
             { rows: [] },                                         // BEGIN
             { rows: [{ id: ROUTE_ID, status: 'active' }] },      // Get route
             { rows: [statsRow] },                                 // Stats
-            { rows: [] },                                         // Roll back orders
+            { rows: [] },                                         // Auto-complete delivered (BUG-002 fix)
+            { rows: [] },                                         // Roll back skipped/active
             { rows: [] },                                         // Mark finished
             { rows: [] },                                         // COMMIT
         ]);
@@ -341,7 +345,8 @@ describe('finishRoute() — Status-Specific Behavior', () => {
         expect(result.skipped).toBe(3);
         expect(result.rolledBack).toBe(3);
 
-        const rollbackSql = mockClient.query.mock.calls[3][0];
+        // Index 4 = rollback query (after auto-complete delivered at index 3)
+        const rollbackSql = mockClient.query.mock.calls[4][0];
         expect(rollbackSql).toContain("status = 'pending'");
         expect(rollbackSql).toContain("status IN ('skipped', 'active')");
     });
@@ -355,7 +360,7 @@ describe('finishRoute() — Status-Specific Behavior', () => {
 
         expect(result.rolledBack).toBe(2);
 
-        const rollbackSql = mockClient.query.mock.calls[3][0];
+        const rollbackSql = mockClient.query.mock.calls[4][0];
         expect(rollbackSql).toContain("'active'");
     });
 
@@ -369,28 +374,31 @@ describe('finishRoute() — Status-Specific Behavior', () => {
         expect(result.completed).toBe(5);
         expect(result.rolledBack).toBe(0);
 
-        const rollbackSql = mockClient.query.mock.calls[3][0];
+        const rollbackSql = mockClient.query.mock.calls[4][0];
         expect(rollbackSql).not.toContain("'completed'");
     });
 
-    // BUG: DELIVERY-BUG-002 — finishRoute() ignores delivered orders.
-    // They stay in 'delivered' status with stale route_id pointing to finished route.
-    // Documents current broken behavior.
-    it('does NOT roll back delivered orders (BUG-002)', async () => {
+    // Fixed: DELIVERY-BUG-002 — finishRoute() now auto-completes delivered orders.
+    // Previously they were ignored and left stranded with stale route_id.
+    it('auto-completes delivered orders instead of ignoring them', async () => {
         const mockClient = setupFinishRoute({
             completed: '2', skipped: '1', delivered: '3', still_active: '0'
         });
 
         const result = await deliveryService.finishRoute(MERCHANT_ID, ROUTE_ID, USER_ID);
 
-        // delivered count is reported but NOT included in rolledBack
         expect(result.delivered).toBe(3);
         expect(result.rolledBack).toBe(1); // only skipped
 
-        // The WHERE clause does NOT include 'delivered'
-        const rollbackSql = mockClient.query.mock.calls[3][0];
+        // Index 3 = auto-complete delivered query (new BUG-002 fix)
+        const autoCompleteSql = mockClient.query.mock.calls[3][0];
+        expect(autoCompleteSql).toContain("status = 'completed'");
+        expect(autoCompleteSql).toContain("status = 'delivered'");
+        expect(autoCompleteSql).toContain('route_id = $1');
+
+        // Index 4 = rollback skipped/active (unchanged)
+        const rollbackSql = mockClient.query.mock.calls[4][0];
         expect(rollbackSql).toContain("status IN ('skipped', 'active')");
-        expect(rollbackSql).not.toContain("'delivered'");
     });
 
     it('clears route_id, route_position, route_date on rollback', async () => {
@@ -400,7 +408,7 @@ describe('finishRoute() — Status-Specific Behavior', () => {
 
         await deliveryService.finishRoute(MERCHANT_ID, ROUTE_ID, USER_ID);
 
-        const rollbackSql = mockClient.query.mock.calls[3][0];
+        const rollbackSql = mockClient.query.mock.calls[4][0];
         expect(rollbackSql).toContain('route_id = NULL');
         expect(rollbackSql).toContain('route_position = NULL');
         expect(rollbackSql).toContain('route_date = NULL');
@@ -413,7 +421,8 @@ describe('finishRoute() — Status-Specific Behavior', () => {
 
         await deliveryService.finishRoute(MERCHANT_ID, ROUTE_ID, USER_ID);
 
-        const finishSql = mockClient.query.mock.calls[4][0];
+        // Index 5 = mark route finished (shifted by one due to new query)
+        const finishSql = mockClient.query.mock.calls[5][0];
         expect(finishSql).toContain("status = 'finished'");
         expect(finishSql).toContain('finished_at = NOW()');
     });
@@ -439,7 +448,8 @@ describe('finishRoute() — Status-Specific Behavior', () => {
         await deliveryService.finishRoute(MERCHANT_ID, ROUTE_ID, USER_ID);
 
         expect(mockClient.query.mock.calls[0][0]).toBe('BEGIN');
-        expect(mockClient.query.mock.calls[5][0]).toBe('COMMIT');
+        // Index 6 = COMMIT (shifted by one due to new query)
+        expect(mockClient.query.mock.calls[6][0]).toBe('COMMIT');
     });
 
     it('rolls back transaction on error', async () => {
@@ -465,11 +475,10 @@ describe('finishRoute() — Status-Specific Behavior', () => {
 // ============================================================================
 
 describe('Force-Regenerate Route — Cancelled Route Orders', () => {
-    // BUG: DELIVERY-BUG-001 — generateRoute(force=true) cancels old route
-    // but does NOT roll back orders on it. Active/skipped/delivered orders
-    // become orphaned with stale route_id.
-    // Documents current broken behavior.
-    it('cancels existing route but does NOT reset its orders (BUG-001)', async () => {
+    // Fixed: DELIVERY-BUG-001 — generateRoute(force=true) now resets orders
+    // on the old route before cancelling it. Delivered orders are auto-completed,
+    // active/skipped are rolled back to pending.
+    it('auto-completes delivered and resets active/skipped on old route', async () => {
         const existingRoute = { id: ROUTE_ID, status: 'active', order_count: 3 };
         const pendingOrder = makeOrder({ id: ORDER_ID_3 });
 
@@ -482,6 +491,8 @@ describe('Force-Regenerate Route — Cancelled Route Orders', () => {
 
         const mockClient = makeMockClient([
             { rows: [] },                                         // BEGIN
+            { rows: [] },                                         // Auto-complete delivered on old route
+            { rows: [] },                                         // Reset active/skipped on old route
             { rows: [] },                                         // Cancel old route
             { rows: [{ id: ROUTE_ID_2 }] },                      // INSERT new route
             { rows: [] },                                         // UPDATE order active
@@ -498,28 +509,27 @@ describe('Force-Regenerate Route — Cancelled Route Orders', () => {
 
         await deliveryService.generateRoute(MERCHANT_ID, USER_ID, { force: true });
 
-        // Verify old route was cancelled
-        const cancelSql = mockClient.query.mock.calls[1][0];
-        expect(cancelSql).toContain("status = 'cancelled'");
+        // Index 1: Auto-complete delivered orders on old route
+        const autoCompleteSql = mockClient.query.mock.calls[1][0];
+        expect(autoCompleteSql).toContain("status = 'completed'");
+        expect(autoCompleteSql).toContain("status = 'delivered'");
         expect(mockClient.query.mock.calls[1][1]).toEqual([ROUTE_ID]);
 
-        // Verify NO query resets orders on the old route
-        // The only UPDATE on orders is setting the NEW route's orders to active
-        const allClientCalls = mockClient.query.mock.calls.map(c => c[0]);
-        const orderUpdates = allClientCalls.filter(sql =>
-            typeof sql === 'string' && sql.includes('delivery_orders') && sql.includes('UPDATE')
-        );
+        // Index 2: Reset active/skipped orders to pending on old route
+        const resetSql = mockClient.query.mock.calls[2][0];
+        expect(resetSql).toContain("status = 'pending'");
+        expect(resetSql).toContain("route_id = NULL");
+        expect(resetSql).toContain("status IN ('active', 'skipped')");
+        expect(mockClient.query.mock.calls[2][1]).toEqual([ROUTE_ID]);
 
-        // Only one UPDATE on delivery_orders: the assignment to new route
-        expect(orderUpdates).toHaveLength(1);
-        expect(orderUpdates[0]).toContain("status = 'active'");
-        // No rollback of old route's orders
-        expect(orderUpdates[0]).not.toContain("status = 'pending'");
+        // Index 3: Cancel old route
+        const cancelSql = mockClient.query.mock.calls[3][0];
+        expect(cancelSql).toContain("status = 'cancelled'");
+        expect(mockClient.query.mock.calls[3][1]).toEqual([ROUTE_ID]);
     });
 
-    it('does not include old route orders in new route (they remain orphaned)', async () => {
+    it('resets old route orders so they can re-enter the queue', async () => {
         const existingRoute = { id: ROUTE_ID, status: 'active' };
-        // Only a different pending order gets picked up
         const newPendingOrder = makeOrder({ id: ORDER_ID_3 });
 
         db.query.mockResolvedValueOnce({ rows: [existingRoute] });
@@ -527,11 +537,13 @@ describe('Force-Regenerate Route — Cancelled Route Orders', () => {
         db.query.mockResolvedValueOnce({ rows: [newPendingOrder] });
 
         const mockClient = makeMockClient([
-            { rows: [] },
-            { rows: [] },
-            { rows: [{ id: ROUTE_ID_2 }] },
-            { rows: [] },
-            { rows: [] },
+            { rows: [] },                    // BEGIN
+            { rows: [] },                    // Auto-complete delivered
+            { rows: [] },                    // Reset active/skipped
+            { rows: [] },                    // Cancel old route
+            { rows: [{ id: ROUTE_ID_2 }] }, // INSERT new route
+            { rows: [] },                    // UPDATE order active
+            { rows: [] },                    // COMMIT
         ]);
         db.getClient.mockResolvedValueOnce(mockClient);
         db.query.mockResolvedValueOnce({ rows: [] });
@@ -539,7 +551,8 @@ describe('Force-Regenerate Route — Cancelled Route Orders', () => {
 
         await deliveryService.generateRoute(MERCHANT_ID, USER_ID, { force: true });
 
-        // The order selection query only picks pending orders
+        // The order selection query only picks pending orders — but now old route's
+        // active/skipped orders have been reset to pending so they'll be eligible next time
         const orderSelectSql = db.query.mock.calls[2][0];
         expect(orderSelectSql).toContain("status = 'pending'");
     });
@@ -553,11 +566,13 @@ describe('Force-Regenerate Route — Cancelled Route Orders', () => {
         db.query.mockResolvedValueOnce({ rows: [pendingOrder] });
 
         const mockClient = makeMockClient([
-            { rows: [] },
-            { rows: [] },
-            { rows: [{ id: ROUTE_ID_2 }] },
-            { rows: [] },
-            { rows: [] },
+            { rows: [] },                    // BEGIN
+            { rows: [] },                    // Auto-complete delivered
+            { rows: [] },                    // Reset active/skipped
+            { rows: [] },                    // Cancel old route
+            { rows: [{ id: ROUTE_ID_2 }] }, // INSERT new route
+            { rows: [] },                    // UPDATE order active
+            { rows: [] },                    // COMMIT
         ]);
         db.getClient.mockResolvedValueOnce(mockClient);
         db.query.mockResolvedValueOnce({ rows: [] });
@@ -759,29 +774,30 @@ describe('handleSquareOrderUpdate — Cancellation Behavior', () => {
         expect(deleteSql).toContain('DELETE');
     });
 
-    // BUG: DELIVERY-BUG-003 — handleSquareOrderUpdate(CANCELED) only deletes
-    // pending/active orders. Skipped and delivered orders for cancelled Square
-    // orders remain as zombie records.
-    // Documents current broken behavior.
-    it('does NOT delete skipped order on CANCELED (BUG-003)', async () => {
-        db.query.mockResolvedValueOnce({
-            rows: [makeOrder({ status: 'skipped' })]
-        });
+    // Fixed: DELIVERY-BUG-003 — Cancellation now includes skipped and delivered orders.
+    // Previously only pending/active were deleted, leaving zombie records.
+    it('deletes skipped order on CANCELED', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [makeOrder({ status: 'skipped' })] })
+            .mockResolvedValueOnce({ rows: [{ id: ORDER_ID }] });
 
         await deliveryService.handleSquareOrderUpdate(MERCHANT_ID, 'SQ_1', 'CANCELED');
 
-        // Only one query — the lookup. No delete.
-        expect(db.query).toHaveBeenCalledTimes(1);
+        expect(db.query).toHaveBeenCalledTimes(2);
+        const deleteSql = db.query.mock.calls[1][0];
+        expect(deleteSql).toContain('DELETE FROM delivery_orders');
     });
 
-    it('does NOT delete delivered order on CANCELED (BUG-003)', async () => {
-        db.query.mockResolvedValueOnce({
-            rows: [makeOrder({ status: 'delivered' })]
-        });
+    it('deletes delivered order on CANCELED', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [makeOrder({ status: 'delivered' })] })
+            .mockResolvedValueOnce({ rows: [{ id: ORDER_ID }] });
 
         await deliveryService.handleSquareOrderUpdate(MERCHANT_ID, 'SQ_1', 'CANCELED');
 
-        expect(db.query).toHaveBeenCalledTimes(1);
+        expect(db.query).toHaveBeenCalledTimes(2);
+        const deleteSql = db.query.mock.calls[1][0];
+        expect(deleteSql).toContain('DELETE FROM delivery_orders');
     });
 
     it('does not delete completed order on CANCELED', async () => {
