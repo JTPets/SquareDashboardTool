@@ -79,11 +79,12 @@ async function geocodePendingOrders(merchantId, limit = 10) {
         const coords = await geocodeAddress(order.address, apiKey);
 
         if (coords && coords.lat && coords.lng) {
+            // LOGIC CHANGE (SEC-1): Added merchant_id guard for defense in depth
             await db.query(
                 `UPDATE delivery_orders
                  SET address_lat = $1, address_lng = $2, geocoded_at = NOW()
-                 WHERE id = $3`,
-                [coords.lat, coords.lng, order.id]
+                 WHERE id = $3 AND merchant_id = $4`,
+                [coords.lat, coords.lng, order.id, merchantId]
             );
             results.success++;
             results.orders.push({ id: order.id, status: 'success', coords });

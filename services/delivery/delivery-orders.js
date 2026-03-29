@@ -285,11 +285,22 @@ async function deleteOrder(merchantId, orderId) {
  * @returns {Promise<Object|null>} Updated order
  */
 async function skipOrder(merchantId, orderId, userId) {
+    // LOGIC CHANGE (BUG-006): Only allow skipping 'active' orders.
+    // Pending orders are not on a route, completed/delivered should not regress.
+    const existing = await getOrderById(merchantId, orderId);
+    if (!existing) {
+        return null;
+    }
+    if (existing.status !== 'active') {
+        throw new Error(`Cannot skip order in '${existing.status}' status — only active orders can be skipped`);
+    }
+
     const order = await updateOrder(merchantId, orderId, { status: 'skipped' });
 
     if (order) {
+        // LOGIC CHANGE (BUG-013): Use actual previous status instead of hardcoded 'active'
         await logAuditEvent(merchantId, userId, 'order_skipped', orderId, null, {
-            previousStatus: 'active'
+            previousStatus: existing.status
         });
     }
 
@@ -314,6 +325,17 @@ async function markDelivered(merchantId, orderId) {
  * @returns {Promise<Object|null>} Updated order
  */
 async function completeOrder(merchantId, orderId, userId) {
+    // LOGIC CHANGE (BUG-005): Only allow completing orders in active, delivered, or skipped status.
+    // Reject pending (not on a route) and already-completed orders.
+    const existing = await getOrderById(merchantId, orderId);
+    if (!existing) {
+        return null;
+    }
+    const allowedStatuses = ['active', 'delivered', 'skipped'];
+    if (!allowedStatuses.includes(existing.status)) {
+        throw new Error(`Cannot complete order in '${existing.status}' status — only active, delivered, or skipped orders can be completed`);
+    }
+
     const order = await updateOrder(merchantId, orderId, {
         status: 'completed',
         squareSyncedAt: new Date()
