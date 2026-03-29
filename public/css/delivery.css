@@ -1,0 +1,197 @@
+/**
+ * Shared Delivery CSS Components
+ *
+ * Extracted from delivery-route.html (source of truth).
+ * Used by: delivery.html, delivery-route.html, delivery-history.html, delivery-settings.html
+ *
+ * Components:
+ * - Status badges (.status-active, .status-completed, .status-skipped, .status-delivered, .status-pending)
+ * - Stop cards (.stop-card, .stop-header, .stop-number, .stop-customer, .stop-address)
+ * - Progress bar (.progress-bar, .progress-fill)
+ * - Empty state (.empty-state)
+ * - Modal styles (.modal-overlay, .modal, .modal-header, .modal-close, .modal-body, .modal-footer)
+ */
+
+/* ==================== Status Badges ==================== */
+
+.status-active { background: #dbeafe; color: #1d4ed8; }
+.status-completed { background: #d1fae5; color: #065f46; }
+.status-skipped { background: #fef3c7; color: #92400e; }
+.status-delivered { background: #d1fae5; color: #065f46; }
+.status-pending { background: #fef3c7; color: #92400e; }
+
+/* ==================== Stop Cards ==================== */
+
+.stop-card {
+  background: white;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  overflow: hidden;
+}
+.stop-card.completed {
+  opacity: 0.6;
+}
+.stop-card.current {
+  border: 2px solid #2563eb;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+}
+.stop-card.skipped {
+  border-left: 4px solid #f59e0b;
+}
+
+.stop-header {
+  display: flex;
+  align-items: center;
+  padding: 15px;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.stop-number {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #2563eb;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 16px;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+.stop-card.completed .stop-number {
+  background: #10b981;
+}
+.stop-card.skipped .stop-number {
+  background: #f59e0b;
+}
+
+.stop-customer {
+  flex: 1;
+}
+.stop-customer h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.stop-address {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  padding: 12px;
+  background: #f3f4f6;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+.stop-address:hover {
+  background: #e5e7eb;
+}
+.stop-address .icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.stop-address .text {
+  flex: 1;
+  font-size: 15px;
+  color: #374151;
+}
+.stop-address .arrow {
+  color: #9ca3af;
+  font-size: 20px;
+}
+
+/* ==================== Progress Bar ==================== */
+
+.progress-bar {
+  height: 8px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: #10b981;
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+
+/* ==================== Empty State ==================== */
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: #6b7280;
+}
+.empty-state h2 {
+  font-size: 20px;
+  margin-bottom: 10px;
+  color: #374151;
+}
+.empty-state h3 {
+  font-size: 18px;
+  margin-bottom: 8px;
+  color: #374151;
+}
+.empty-state a {
+  color: #2563eb;
+}
+
+/* ==================== Modal ==================== */
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  display: none;
+}
+.modal-overlay.active { display: flex; }
+
+.modal {
+  background: white;
+  border-radius: 12px;
+  max-width: 400px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  padding: 20px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.modal-header h2 { font-size: 18px; }
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 28px;
+  cursor: pointer;
+  color: #6b7280;
+  line-height: 1;
+}
+
+.modal-body { padding: 20px; }
+
+.modal-footer {
+  padding: 15px 20px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  gap: 10px;
+}
+.modal-footer .btn { flex: 1; }
