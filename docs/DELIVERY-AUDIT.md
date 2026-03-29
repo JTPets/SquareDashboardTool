@@ -586,7 +586,57 @@ These two pages share ~90% of their CSS (stop cards, status badges, progress bar
 - `delivery-route.html` has customer stats badge styles and share modal styles
 
 A shared `delivery-shared.css` for delivery-specific components (stop cards, status badges, progress) would collapse ~500 lines of duplication between just these two files.
-## 8. Test Coverage — TODO
+## 8. Test Coverage
+
+### Test Files
+
+| File | Tests | Focus |
+|------|-------|-------|
+| `__tests__/services/delivery/delivery-service.test.js` | ~60 | Existing: CRUD, geocoding, POD, settings, ingestion, tokens, GTIN, backfill, audit |
+| `__tests__/services/delivery/order-lifecycle.test.js` | 46 | **New (this audit)**: Status transitions, finishRoute per-status, force-regenerate orphans, route planning query, bug behavior snapshots |
+
+### order-lifecycle.test.js Coverage Map
+
+| Section | Tests | What's Covered |
+|---------|-------|----------------|
+| Order Creation — Initial Status | 5 | Manual order → pending, Square upsert, conflict handling, geocoded_at logic |
+| Route Generation — Order Assignment | 3 | Pending → active, WHERE clause verification, orderIds filter |
+| Route Planning Query — Status Filtering | 3 | Only pending selected, active/skipped/delivered/completed excluded, geocoded_at required |
+| finishRoute() — Status-Specific | 8 | Skipped → pending, active → pending, completed untouched, **delivered ignored (BUG-002)**, field clearing, transaction BEGIN/COMMIT/ROLLBACK |
+| Force-Regenerate — Cancelled Route | 4 | **Old route orders NOT reset (BUG-001)**, orphaned orders excluded from new route, force vs non-force |
+| skipOrder — Status Guard | 3 | Happy path, **no status guard (BUG-006)**, **hardcoded previousStatus (BUG-013)** |
+| completeOrder — Status Guard | 3 | Happy path, **no status guard (BUG-005)**, audit details |
+| savePodPhoto — Status Transition | 2 | Active → delivered, **completed regresses to delivered (BUG-004)** |
+| handleSquareOrderUpdate — Cancellation | 7 | Pending/active deleted, **skipped/delivered NOT deleted (BUG-003)**, completed safe, COMPLETED transition, no-op for unknown |
+| deleteOrder — Guard Conditions | 4 | Manual delete, Square-linked blocked, completed blocked, merchant_id scoping |
+| markDelivered | 1 | Status → delivered |
+| Full Lifecycle Sequence | 1 | pending → delivered → completed happy path |
+
+### Bug Behavior Snapshots
+
+Tests that document current broken behavior (will fail when bugs are fixed):
+
+| Bug ID | Test Description | Expected Fix Behavior |
+|--------|-----------------|----------------------|
+| BUG-001 | `cancels existing route but does NOT reset its orders` | Should reset old-route orders to pending |
+| BUG-002 | `does NOT roll back delivered orders` | Should auto-complete delivered or roll back to pending |
+| BUG-003 | `does NOT delete skipped/delivered order on CANCELED` | Should delete or mark cancelled |
+| BUG-004 | `overwrites completed status with delivered — no guard` | Should skip status change for completed orders |
+| BUG-005 | `allows completing a pending order — no status guard` | Should reject non-route orders |
+| BUG-006 | `allows skipping a pending order — no status guard` | Should reject non-active orders |
+| BUG-013 | `hardcodes previousStatus as active in audit log` | Should record actual previous status |
+
+### Gaps — Not Yet Covered
+
+| Area | Why | Priority |
+|------|-----|----------|
+| Route optimization (ORS integration) | Covered in delivery-service.test.js | — |
+| POD photo validation (magic bytes) | Covered in delivery-service.test.js | — |
+| Token-based driver operations | Covered in delivery-service.test.js | — |
+| `routes/delivery.js` complete handler (200-line Square fulfillment logic) | Route-level integration test needed | Medium |
+| `routes/driver-api.js` response format | Needs route-level test for sendSuccess/sendError | Low |
+| Webhook handler `order-delivery.js` | Needs dedicated test file | Medium |
+| Frontend JS (delivery.js, driver.js) | No framework for frontend testing | Low |
 ## 9. Proposed Fix Plan
 
 ### Phase 1: Stuck-Order Fix (DELIVERY-BUG-001, BUG-002, BUG-003)
