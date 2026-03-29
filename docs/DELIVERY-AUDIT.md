@@ -216,8 +216,251 @@ Three scenarios produce permanently stuck orders:
 2. `handleSquareOrderUpdate()` only deletes if `status IN ('pending', 'active')`
 3. `skipped` and `delivered` orders for a cancelled Square order remain in the system
 4. **Result**: Zombie orders for cancelled Square orders
-## 3. Route Generation — TODO
-## 4. Security — TODO
+## 3. Route Generation
+
+### 3a. Order Selection
+
+**Query** (`delivery-service.js:611-621`):
+```sql
+SELECT * FROM delivery_orders
+WHERE merchant_id = $1 AND status = 'pending'
+  AND geocoded_at IS NOT NULL
+```
+
+**Eligibility criteria** — all three must be true:
+1. `status = 'pending'` — only unassigned orders
+2. `geocoded_at IS NOT NULL` — address must be geocoded (has lat/lng)
+3. `merchant_id = $1` — tenant isolation
+
+### 3b. Manual Include / Exclude
+
+| Capability | Supported | How |
+|-----------|-----------|-----|
+| **Include specific orders** | Yes | Pass `orderIds` array in options → appends `AND id = ANY($2)` to the WHERE clause (line 618-620). Only orders matching the eligibility criteria AND in the array are selected. |
+| **Exclude specific orders** | **No** | No exclusion mechanism exists. To exclude orders, you must either change their status away from `pending` or remove their geocode. There is no `excludeIds` parameter. |
+
+### 3c. Start / End Point Source
+
+| Point | Source | Fallback |
+|-------|--------|----------|
+| **Start** | `delivery_settings.start_address_lat/lng` per merchant (line 817-821) | None — throws `'Start address not geocoded'` if missing |
+| **End** | `delivery_settings.end_address_lat/lng` per merchant (line 831-835) | Returns to start point if end not configured: `coordinates.push(coordinates[0])` |
+
+Start/end are **per-merchant**, not per-route. Set once in delivery settings, used for all routes.
+
+### 3d. ORS Integration
+
+**Endpoint**: `POST https://api.openrouteservice.org/optimization` (VROOM-based TSP solver)
+
+**API key priority** (`delivery-service.js:802`):
+1. Merchant setting `openrouteservice_api_key` (decrypted from `ors_api_key_encrypted` via AES-256-GCM)
+2. Environment variable `OPENROUTESERVICE_API_KEY`
+3. If neither → fallback to creation-time ordering (no optimization)
+
+**Request shape** (`delivery-service.js:845-857`):
+```json
+{
+  "jobs": [
+    { "id": 1, "location": [lng, lat], "service": 300 },
+    { "id": 2, "location": [lng, lat], "service": 300 }
+  ],
+  "vehicles": [{
+    "id": 1,
+    "profile": "driving-car",
+    "start": [startLng, startLat],
+    "end": [endLng, endLat]
+  }]
+}
+```
+
+- **Service time**: Hardcoded 300 seconds (5 min) per stop
+- **Vehicle profile**: `driving-car` (hardcoded)
+- **Single vehicle**: Only one vehicle/driver supported per route
+- **Coordinates**: `[lng, lat]` order (GeoJSON convention)
+
+**Response handling** (`delivery-service.js:867-878`):
+- Extracts `routes[0].steps` filtered to `type === 'job'`
+- Maps step job IDs back to order IDs: `orderCoords[step.job - 1].id`
+- Distance converted from meters to km (`/ 1000`)
+- Duration converted from seconds to minutes (`/ 60`, rounded)
+
+**Error handling** (`delivery-service.js:638-648, 888-891`):
+- `optimizeRoute()` throws on ORS errors
+- `generateRoute()` catches the throw and falls back to creation-time ordering:
+  ```js
+  orderedIds: pendingOrders.map(o => o.id)  // insertion order
+  ```
+- Sets `distance: null, duration: null` on fallback (no estimates available)
+
+### 3e. Geocoding
+
+**Endpoint**: `GET https://api.openrouteservice.org/geocode/search` (Pelias-based)
+
+**Query params**: `api_key={key}&text={encodedAddress}&size=1` — returns single best match.
+
+**Batch geocoding** (`geocodePendingOrders`, line 949-985):
+- Selects orders with `geocoded_at IS NULL`, limited to `$2` (default 10)
+- Processes sequentially with 100ms sleep between requests (naive rate limiting)
+- Updates `address_lat`, `address_lng`, `geocoded_at` per order
+
+**Inline geocoding** (`ingestSquareOrder`, line 1544-1561):
+- Each ingested order is geocoded immediately after creation
+- Failure does not block order creation (catch-and-log)
+
+### 3f. Route Generation Flow (Summary)
+
+```
+generateRoute(merchantId, userId, options)
+  │
+  ├─ 1. Check for existing active route (getActiveRoute)
+  │     └─ If exists and !force → throw error
+  │
+  ├─ 2. Load merchant settings (start/end addresses)
+  │     └─ If no start address → throw error
+  │
+  ├─ 3. Query eligible orders (pending + geocoded + optional ID filter)
+  │     └─ If 0 orders → throw error
+  │
+  ├─ 4. Call optimizeRoute(settings, orders)
+  │     ├─ No API key → fallback to creation order
+  │     ├─ ORS POST /optimization → TSP-optimized order
+  │     └─ ORS error → fallback to creation order
+  │
+  └─ 5. Transaction:
+        ├─ Cancel existing active route (if force=true)
+        ├─ INSERT delivery_routes record
+        ├─ UPDATE each order: route_id, route_position, status='active'
+        └─ COMMIT
+```
+## 4. Security
+
+### 4a. SQL Query Audit — `delivery-service.js`
+
+Every SQL query was reviewed for parameterization and `merchant_id` filtering.
+
+| Function | Line | Query Type | Parameterized | merchant_id Filter | Notes |
+|----------|------|-----------|---------------|-------------------|-------|
+| `getOrders()` | 233-289 | SELECT dynamic | Yes (`$1`-`$N`) | Yes (`$1`) | Dynamic WHERE builder — all filters added via `$N` placeholders |
+| `getOrderById()` | 303-312 | SELECT | Yes (`$1,$2`) | Yes (`$2`) | Also validates UUID format before query |
+| `getOrderBySquareId()` | 323-328 | SELECT | Yes (`$1,$2`) | Yes (`$2`) | — |
+| `createOrder()` | 359-389 | INSERT/UPSERT | Yes (`$1`-`$15`) | Yes (`$1`) | ON CONFLICT uses partial unique index with merchant_id |
+| `updateOrder()` | 447-452 | UPDATE dynamic | Yes (`$N`) | Yes (last param) | Field names from allowedFields whitelist (code-controlled, not user input) |
+| `deleteOrder()` | 466-473 | DELETE | Yes (`$1,$2`) | Yes (`$2`) | Also guards on `square_order_id IS NULL` and status |
+| `getActiveRoute()` | 547-557 | SELECT + subqueries | Yes (`$1,$2`) | Yes (`$1`) | Subqueries on delivery_orders lack merchant_id but are scoped by `route_id` from merchant-filtered parent |
+| `getRouteWithOrders()` | 569-572 | SELECT | Yes (`$1,$2`) | Yes (`$2`) | — |
+| `generateRoute()` | 611-621 | SELECT | Yes (`$1`[,`$2`]) | Yes (`$1`) | Optional `orderIds` via `ANY($2)` |
+| `generateRoute()` | 657-659 | UPDATE (cancel) | Yes (`$1`) | **No** | Safe: `existingRoute.id` from merchant-filtered `getActiveRoute()` |
+| `generateRoute()` | 664-678 | INSERT route | Yes (`$1`-`$7`) | Yes (`$1`) | — |
+| `generateRoute()` | 684-689 | UPDATE orders | Yes (`$1`-`$5`) | Yes (`$5`) | Per-order update within transaction |
+| `finishRoute()` | 727-729 | SELECT route | Yes (`$1,$2`) | Yes (`$2`) | Within transaction |
+| `finishRoute()` | 742-749 | SELECT stats | Yes (`$1`) | **No** | Safe: `routeId` from merchant-filtered SELECT above |
+| `finishRoute()` | 754-758 | UPDATE orders | Yes (`$1`) | **No** | Safe: `routeId` from merchant-filtered SELECT above, within same transaction |
+| `finishRoute()` | 762-766 | UPDATE route | Yes (`$1`) | **No** | Safe: same verified `routeId` |
+| `geocodePendingOrders()` | 953-958 | SELECT | Yes (`$1,$2`) | Yes (`$1`) | — |
+| `geocodePendingOrders()` | 967-970 | UPDATE | Yes (`$1,$2,$3`) | **No** | **CONCERN**: Updates by `id` only, no `merchant_id` re-check. Orders were selected with merchant_id but UPDATE lacks it. Low risk (IDs are UUIDs from the same query) but defense-in-depth violation. |
+| `savePodPhoto()` | 1050-1059 | INSERT pod | Yes (`$1`-`$8`) | **No** (implicit) | `orderId` verified via `getOrderById(merchantId, orderId)` first. Pod table lacks merchant_id column — scoped via FK to delivery_orders. |
+| `getPodPhoto()` | 1080-1085 | SELECT + JOIN | Yes (`$1,$2`) | Yes (`$2`) | Joins through delivery_orders for merchant_id check |
+| `cleanupExpiredPods()` | 1112-1116 | SELECT | No params | **No** | System-wide cleanup (intentional — no merchant scope). No user input. |
+| `cleanupExpiredPods()` | 1126,1134 | DELETE | Yes (`$1`) | **No** | By pod `id` from system query above. Intentional. |
+| `getSettings()` | 1154-1157 | SELECT | Yes (`$1`) | Yes (`$1`) | — |
+| `_decryptOrsKey()` | 1196-1200 | UPDATE (migration) | Yes (`$1,$2`) | Yes (`$2`) | Fire-and-forget encrypt-on-read |
+| `updateSettings()` | 1243-1268 | INSERT/UPSERT | Yes (`$1`-`$11`) | Yes (`$1`) | ON CONFLICT (merchant_id) |
+| `logAuditEvent()` | 1296-1300 | INSERT | Yes (`$1`-`$6`) | Yes (`$1`) | — |
+| `getAuditLog()` | 1316-1342 | SELECT dynamic | Yes (`$1`-`$N`) | Yes (`$1`) | Dynamic WHERE builder |
+| `ingestSquareOrder()` | via `createOrder` | INSERT/UPSERT | Yes | Yes | Delegates to `createOrder()` |
+| `handleSquareOrderUpdate()` | via `updateOrder` | UPDATE | Yes | Yes | Delegates to `updateOrder()` |
+| `handleSquareOrderUpdate()` | 1595-1598 | DELETE | Yes (`$1,$2`) | Yes (`$2`) | Direct delete for cancelled orders |
+| `generateRouteToken()` | 1624-1627 | SELECT route | Yes (`$1,$2`) | Yes (`$2`) | Validates route belongs to merchant |
+| `generateRouteToken()` | 1639-1643 | UPDATE revoke | Yes (`$1`) | **No** | Safe: `routeId` from merchant-filtered query above |
+| `generateRouteToken()` | 1654-1659 | INSERT token | Yes (`$1`-`$5`) | Yes (`$1`) | — |
+| `getRouteByToken()` | 1682-1697 | SELECT + JOINs | Yes (`$1`) | **No** | Intentional: public endpoint, token is the auth. No merchant_id filter needed. |
+| `getRouteByToken()` | 1713-1715 | UPDATE expired | Yes (`$1`) | **No** | By token record `id` — safe |
+| `getRouteByToken()` | 1726-1728 | UPDATE used_at | Yes (`$1`) | **No** | By token record `id` — safe |
+| `revokeRouteToken()` | 1873-1877 | UPDATE | Yes (`$1,$2`) | Yes (`$2`) | — |
+| `getActiveRouteToken()` | 1895-1901 | SELECT | Yes (`$1,$2`) | Yes (`$1`) | — |
+| `backfillUnknownCustomers()` | 1914-1923 | SELECT | Yes (`$1`) | Yes (`$1`) | — |
+| `finishRouteByToken()` | 1848-1852 | UPDATE token | Yes (`$1`-`$3`) | **No** | By token record `id` from validated `getRouteByToken()` — safe |
+
+### 4b. SQL Query Audit — `delivery-stats.js`
+
+| Function | Line | Query Type | Parameterized | merchant_id Filter | Notes |
+|----------|------|-----------|---------------|-------------------|-------|
+| `getLocationIds()` | 25-28 | SELECT | Yes (`$1`) | Yes (`$1`) | — |
+| `getDashboardStats()` | 353-358 | SELECT (status counts) | Yes (`$1`) | Yes (`$1`) | — |
+| `getDashboardStats()` | 362-368 | SELECT (completions) | Yes (`$1`) | Yes (`$1`) | — |
+
+### 4c. SQL Query Audit — `routes/delivery.js` and `routes/driver-api.js`
+
+**No direct SQL queries found.** Both route files delegate all database operations to the service layer (`services/delivery`). This is correct per CLAUDE.md architecture rules.
+
+### 4d. Unparameterized Query Summary
+
+**Zero unparameterized queries with user-controlled input.** All SQL uses `$N` placeholders.
+
+The only queries without parameters are:
+- `cleanupExpiredPods()` — system-wide cleanup, no user input
+- Static string comparisons in WHERE clauses (e.g., `status = 'pending'`)
+
+### 4e. Driver Token Scoping
+
+Token-based public endpoints follow a consistent security pattern:
+
+```
+getRouteByToken(token)
+  → Returns { merchant_id, route_id, valid, ... }
+  → All subsequent operations use:
+      getOrderById(tokenData.merchant_id, orderId)  ← merchant isolation
+      AND order.route_id === tokenData.route_id      ← route scoping
+```
+
+| Token Function | merchant_id Used | route_id Verified | Notes |
+|---------------|-----------------|-------------------|-------|
+| `completeOrderByToken()` | Yes (from token) | Yes (line 1775) | — |
+| `skipOrderByToken()` | Yes (from token) | Yes (line 1798) | — |
+| `savePodByToken()` | Yes (from token) | Yes (line 1822) | — |
+| `finishRouteByToken()` | Yes (from token) | Implicit (finishes token's route) | — |
+| `getRouteOrdersByToken()` | Yes (from token) | Yes (queries by routeId) | — |
+
+**Token properties**: 64-char hex (256-bit entropy via `crypto.randomBytes(32)`), configurable expiry (default 24h), single active token per route (partial unique index), revocable by merchant.
+
+### 4f. Hardcoded Values
+
+| Value | Location | Risk |
+|-------|----------|------|
+| `ORS_BASE_URL = 'https://api.openrouteservice.org'` | Line 26 | **None** — stable API base URL, acceptable constant |
+| `service: 300` (5 min per stop) | Line 849 | **Low** — not configurable per merchant. May not suit all delivery scenarios. |
+| `profile: 'driving-car'` | Line 852 | **Low** — not configurable. Fine for current use (pet food delivery). |
+| `expiresInHours = 24` | Line 1621 | **None** — default, overridable per request |
+| `POD_STORAGE_DIR = 'storage/pod'` | Line 23 | **None** — env-overridable |
+| `limit = 10` (geocode batch) | Line 949 | **Low** — parameter with default, overridable |
+| `100ms` rate limit sleep | Line 981 | **Low** — naive rate limiting, not configurable |
+| `'Unknown Customer'` sentinel | Lines 1392, 1467, 1918 | **Low** — used as comparison string in multiple places. A constant would be cleaner. |
+
+No hardcoded merchant IDs, location IDs, coordinates, or secrets found.
+
+### 4g. Additional Security Observations
+
+1. **UUID validation**: `validateUUID()` called before `getOrderById()` and `savePodPhoto()` (lines 301, 1008). Prevents malformed ID injection.
+
+2. **POD path traversal protection**: `getPodPhoto()` (line 1093-1101) resolves the file path and verifies it starts with the expected storage prefix. Correct implementation.
+
+3. **POD magic byte validation**: `savePodPhoto()` (lines 1011-1019) checks JPEG/PNG/GIF/WebP magic bytes. File extension derived from detected type, not user input (line 1034).
+
+4. **Rate limiting**: Public driver endpoints use IP-based rate limiting via `configureDeliveryRateLimit()` and `configureDeliveryStrictRateLimit()` (driver-api.js:38-39). POD upload uses the stricter limiter.
+
+5. **Input validation**: All endpoints have express-validator middleware. Token format validated as 64-char hex regex.
+
+6. **ORS API key at rest**: Encrypted with AES-256-GCM via `utils/token-encryption`. Encrypt-on-read migration from plaintext column. Key never logged.
+
+7. **`updateOrder()` dynamic SET clause** (line 428-438): Field names come from a hardcoded `allowedFields` whitelist, not user input. The `snakeKey` conversion uses `key.replace(/[A-Z]/g, ...)` on object keys from internal callers. No SQL injection risk.
+
+### 4h. Security Findings
+
+| ID | Severity | Finding | Location |
+|----|----------|---------|----------|
+| SEC-1 | **LOW** | `geocodePendingOrders()` UPDATE lacks `merchant_id` in WHERE clause. Orders were selected with merchant_id but the UPDATE only uses `WHERE id = $3`. Defense-in-depth violation — add `AND merchant_id = $4`. | `delivery-service.js:967-970` |
+| SEC-2 | **INFO** | `delivery-stats.js:164-167` logs customer phone at debug level (`phone: order.phone`). PII in logs. Same as BUG-012. | `delivery-stats.js:164` |
+| SEC-3 | **INFO** | `routes/driver-api.js` public endpoints return `{ error: ... }` instead of `{ success: false, error: ... }` — inconsistent error shape could leak info about endpoint types. Same as BUG-011. | `routes/driver-api.js:129-134` |
 ## 5. Bug Registry
 
 | ID | Severity | File:Line | Current Behavior | Expected Behavior | Suggested Fix |
@@ -235,7 +478,59 @@ Three scenarios produce permanently stuck orders:
 | DELIVERY-BUG-011 | **LOW** | `routes/driver-api.js:125-220` | All public driver endpoints use raw `res.json({ error: ... })` and `res.status(N).json(...)` instead of `sendError()`. Inconsistent error shape (`{ error }` vs `{ success: false, error, code }`). | Use `sendSuccess`/`sendError` for consistent API responses. | Import and use response helpers throughout `driver-api.js`. |
 | DELIVERY-BUG-012 | **LOW** | `delivery-stats.js:164-167` | `resolveCustomerId()` logs customer phone number at debug level: `phone: order.phone`. PII in logs. | Phone numbers should not appear in log output per CLAUDE.md security rules. | Remove `phone` from the log context object, or replace with `hasPhone: !!order.phone`. |
 | DELIVERY-BUG-013 | **INFO** | `delivery-service.js:493-495` | `skipOrder()` audit log always records `previousStatus: 'active'` as a hardcoded string rather than querying the actual previous status of the order. | Should record the real previous status for accurate audit trail. | Fetch order before update, capture `order.status`, then pass as `previousStatus` in audit details. |
-## 6. Module Breakdown — TODO
+## 6. Module Breakdown Map — `delivery-service.js` (2,031 lines)
+
+Per CLAUDE.md refactor-on-touch policy: this file exceeds the 300-line limit by 7x. The table below documents extraction targets.
+
+| # | Module Name | Responsibility | Line Range | Lines | Dependencies | Extraction Risk |
+|---|-------------|---------------|------------|-------|-------------|-----------------|
+| 1 | **Utilities** | `safeJsonStringify()`, `validateUUID()`, UUID regex, constants (`POD_STORAGE_DIR`, `ORS_BASE_URL`, `ORS_API_KEY`) | 1–55 | 55 | `token-encryption`, `path`, `fs`, `crypto`, `loyalty-admin/customer-details-service` | **Low** — Pure functions + constants. Extract to `delivery-utils.js`. The `getSquareCustomerDetails` import only used by Square Integration and Customer Backfill modules. |
+| 2 | **GTIN Enrichment** | `enrichLineItemsWithGtin()`, `enrichOrdersWithGtin()` — UPC lookup for line items at ingest/display time | 56–213 | 158 | `utils/database` | **Low** — Self-contained. Only called by `ingestSquareOrder()` and `getRouteWithOrders()`. Extract to `delivery-gtin.js`. |
+| 3 | **Order CRUD** | `getOrders()`, `getOrderById()`, `getOrderBySquareId()`, `createOrder()`, `updateOrder()`, `deleteOrder()`, `skipOrder()`, `markDelivered()`, `completeOrder()` | 214–532 | 319 | `utils/database`, Audit module (for `logAuditEvent`) | **Medium** — Core module. Many other modules depend on `getOrderById()`, `updateOrder()`, `createOrder()`. Extract to `delivery-orders.js`. Circular dependency risk with Audit module (both in same file currently). |
+| 4 | **Route Management** | `getActiveRoute()`, `getRouteWithOrders()`, `generateRoute()`, `finishRoute()`, `optimizeRoute()` | 534–892 | 359 | `utils/database`, Order CRUD (for `getOrders`, `updateOrder`), Settings (for `getSettings`), GTIN Enrichment, Audit | **Medium** — Heavy cross-module coupling. `generateRoute()` uses Settings, Order CRUD, and ORS optimization. `finishRoute()` uses Order CRUD and Audit. Extract to `delivery-routes.js`. Will need imports from 3–4 sibling modules. |
+| 5 | **Geocoding** | `geocodeAddress()`, `geocodePendingOrders()` | 894–985 | 92 | `utils/database`, Settings (for API key), external `fetch` | **Low** — Two functions, clean boundary. Only inbound dependency: `ingestSquareOrder()` calls `geocodeAddress()`. Extract to `delivery-geocoding.js`. |
+| 6 | **POD Storage** | `savePodPhoto()`, `getPodPhoto()`, `cleanupExpiredPods()` | 987–1142 | 156 | `utils/database`, `fs`, `path`, `crypto`, Order CRUD (for `getOrderById`, `updateOrder`), Settings (for retention) | **Low** — Well-isolated I/O module. Extract to `delivery-pod.js`. |
+| 7 | **Settings** | `getSettings()`, `_decryptOrsKey()`, `updateSettings()` | 1144–1279 | 136 | `utils/database`, `token-encryption` | **Low** — Self-contained. Many modules depend on this (Route, Geocoding, POD). Extract to `delivery-settings.js`. Should be extracted first since others depend on it. |
+| 8 | **Audit** | `logAuditEvent()`, `getAuditLog()` | 1281–1344 | 64 | `utils/database` | **Very Low** — Minimal code, no dependencies on other delivery modules. Extract to `delivery-audit.js`. |
+| 9 | **Square Integration** | `ingestSquareOrder()`, `handleSquareOrderUpdate()` | 1346–1606 | 261 | `utils/database`, Order CRUD, Geocoding, Settings, GTIN Enrichment, `loyalty-admin/customer-details-service` | **High** — Largest dependency fan-out. Calls into 5 other modules. Extract to `delivery-square.js`. Must be extracted after all its dependencies. |
+| 10 | **Route Tokens** | `generateRouteToken()`, `getRouteByToken()`, `getRouteOrdersByToken()`, `completeOrderByToken()`, `skipOrderByToken()`, `savePodByToken()`, `finishRouteByToken()`, `revokeRouteToken()`, `getActiveRouteToken()` | 1608–1904 | 297 | `utils/database`, Order CRUD, Route Management, POD Storage | **Medium** — 9 functions but consistent pattern (validate token → delegate to core function). Extract to `delivery-tokens.js`. |
+| 11 | **Customer Backfill** | `backfillUnknownCustomers()` | 1906–1979 | 74 | `utils/database`, Order CRUD, `loyalty-admin/customer-details-service` | **Very Low** — Single function, minimal coupling. Extract to `delivery-backfill.js` or merge into Square Integration. |
+
+### Recommended Extraction Order
+
+Extract in dependency order (leaves first):
+
+1. **Settings** (no delivery-module deps) → `delivery-settings.js`
+2. **Audit** (no delivery-module deps) → `delivery-audit.js`
+3. **Utilities + GTIN** → `delivery-utils.js`, `delivery-gtin.js`
+4. **Geocoding** → `delivery-geocoding.js`
+5. **POD Storage** → `delivery-pod.js`
+6. **Order CRUD** (depends on Audit) → `delivery-orders.js`
+7. **Route Management** (depends on Orders, Settings) → `delivery-routes.js`
+8. **Route Tokens** (depends on Orders, Routes, POD) → `delivery-tokens.js`
+9. **Square Integration** (depends on everything) → `delivery-square.js`
+10. **Customer Backfill** → fold into `delivery-square.js` or standalone
+
+### Dependency Graph
+
+```
+Settings ◄── Route Management ◄── Route Tokens
+   ▲              ▲                    ▲
+   │              │                    │
+Geocoding    Order CRUD ◄──────── Square Integration
+   ▲              ▲                    │
+   │              │                    │
+   │         POD Storage               │
+   │              ▲                    │
+   │              │                    │
+   └──── GTIN Enrichment ◄────────────┘
+                  ▲
+                  │
+              Utilities
+                  ▲
+                  │
+               Audit (independent)
+```
 ## 7. CSS Findings — TODO
 ## 8. Test Coverage — TODO
 ## 9. Fix Plan — TODO
