@@ -284,6 +284,31 @@ async function getDataSourceInfo(merchantId, gmcMerchantId, dataSourceId) {
     }
 }
 
+// ==================== DEVELOPER REGISTRATION CHECK ====================
+
+/**
+ * Verify that the GCP project is registered with the merchant's GMC account.
+ * Required before any Products sub-API calls will work (v1 requirement).
+ * Returns true if registered, false if not.
+ */
+async function verifyDeveloperRegistration(merchantId, gmcMerchantId) {
+    try {
+        const auth = await getAuthClient(merchantId);
+        const path = `/accounts/v1/accounts/${gmcMerchantId}/developerRegistration`;
+        const response = await merchantApiRequest(auth, 'GET', path);
+        return !!(response && response.name);
+    } catch (error) {
+        // 404 means not registered; other errors we log and treat as unregistered
+        logger.warn('GCP developer registration check failed', {
+            merchantId,
+            gmcMerchantId,
+            error: error.message,
+            status: error.status
+        });
+        return false;
+    }
+}
+
 // ==================== PRODUCT CATALOG SYNC ====================
 
 // LOGIC CHANGE: removed write-only debug files and shared module state (MT-4, MT-13)
@@ -301,8 +326,11 @@ async function upsertProduct(options) {
     let apiPath;
     try {
         // dataSource must be passed as query parameter, not in body
+        // IMPORTANT: Do NOT encodeURIComponent the resource name — Google expects literal
+        // slashes in the resource path (accounts/X/dataSources/Y). Encoding them to %2F
+        // causes PERMISSION_DENIED_ACCOUNTS because Google can't parse account ownership.
         const dataSourceName = `accounts/${gmcMerchantId}/dataSources/${dataSourceId}`;
-        apiPath = `/products/v1/accounts/${gmcMerchantId}/productInputs:insert?dataSource=${encodeURIComponent(dataSourceName)}`;
+        apiPath = `/products/v1/accounts/${gmcMerchantId}/productInputs:insert?dataSource=${dataSourceName}`;
 
         // Convert to Merchant API format (without dataSource in body)
         const productInput = buildMerchantApiProduct(product, gmcMerchantId, channel);
@@ -535,6 +563,23 @@ async function syncProductCatalog(merchantId) {
             feedLabel: settings.feed_label || '(not set)',
             contentLanguage: settings.content_language || '(not set)'
         });
+
+        // Verify GCP developer registration before attempting product sync.
+        // The Products sub-API is gated behind registerGcp — the Accounts sub-API
+        // works without it (since it hosts the registration endpoint), so testConnection
+        // can pass while product operations fail with PERMISSION_DENIED_ACCOUNTS.
+        const registrationOk = await verifyDeveloperRegistration(merchantId, gmcMerchantId);
+        if (!registrationOk) {
+            const regError = 'GCP developer registration required. Go to GMC Settings and click "Register GCP Project" before syncing products.';
+            await updateSyncLog(logId, {
+                status: 'failed',
+                total: 0,
+                succeeded: 0,
+                failed: 0,
+                errors: [{ error: regError }]
+            });
+            throw new Error(regError);
+        }
 
         // Try to get data source info to verify configuration
         const dataSourceInfo = await getDataSourceInfo(merchantId, gmcMerchantId, dataSourceId);
