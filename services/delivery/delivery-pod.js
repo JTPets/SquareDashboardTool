@@ -16,12 +16,11 @@ const crypto = require('crypto');
 const { validateUUID, POD_STORAGE_DIR } = require('./delivery-utils');
 
 /**
- * Get delivery-service lazily to avoid circular dependency.
- * delivery-pod requires delivery-service for getOrderById/updateOrder,
- * and delivery-service requires delivery-pod for re-export.
+ * Get delivery-orders lazily to avoid circular dependency.
+ * delivery-pod requires delivery-orders for getOrderById/updateOrder.
  */
-function _getDeliveryService() {
-    return require('./delivery-service');
+function _getDeliveryOrders() {
+    return require('./delivery-orders');
 }
 
 /**
@@ -62,7 +61,7 @@ async function savePodPhoto(merchantId, orderId, photoBuffer, metadata = {}) {
     }
 
     // Verify order belongs to merchant
-    const { getOrderById } = _getDeliveryService();
+    const { getOrderById } = _getDeliveryOrders();
     const order = await getOrderById(merchantId, orderId);
     if (!order) {
         throw new Error('Order not found');
@@ -105,7 +104,7 @@ async function savePodPhoto(merchantId, orderId, photoBuffer, metadata = {}) {
     );
 
     // Update order status to delivered
-    const { updateOrder } = _getDeliveryService();
+    const { updateOrder } = _getDeliveryOrders();
     await updateOrder(merchantId, orderId, { status: 'delivered' });
 
     logger.info('Saved POD photo', { merchantId, orderId, podId: result.rows[0].id });
