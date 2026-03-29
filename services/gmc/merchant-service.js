@@ -19,7 +19,9 @@ const { google } = require('googleapis');
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 
-// OAuth2 scopes for Merchant Center (content scope works for new API too)
+// OAuth2 scopes for Merchant Center
+// The 'content' scope covers both Content API and Merchant API v1 — no re-auth needed.
+// Google confirmed backward compatibility: https://developers.google.com/merchant/api/guides/auth
 const SCOPES = ['https://www.googleapis.com/auth/content'];
 
 // LOGIC CHANGE: use centralized retry config from constants (C-1)
@@ -307,7 +309,8 @@ async function merchantApiRequest(auth, method, path, body = null) {
 async function getDataSourceInfo(merchantId, gmcMerchantId, dataSourceId) {
     try {
         const auth = await getAuthClient(merchantId);
-        const path = `/datasources/v1beta/accounts/${gmcMerchantId}/dataSources/${dataSourceId}`;
+        // LOGIC CHANGE: v1beta → v1 (BACKLOG-61 — Google deprecated v1beta Feb 28 2026)
+        const path = `/datasources/v1/accounts/${gmcMerchantId}/dataSources/${dataSourceId}`;
         const response = await merchantApiRequest(auth, 'GET', path);
         logger.info('GMC Data Source info', {
             dataSourceId,
@@ -315,7 +318,15 @@ async function getDataSourceInfo(merchantId, gmcMerchantId, dataSourceId) {
         });
         return response;
     } catch (error) {
-        logger.error('Failed to get data source info', { error: error.message, stack: error.stack });
+        // TODO: remove after v1 migration confirmed working
+        logger.error('Failed to get data source info', {
+            error: error.message,
+            stack: error.stack,
+            url: `https://merchantapi.googleapis.com${path}`,
+            httpStatus: error.status || 'N/A',
+            responseBody: error.details ? JSON.stringify(error.details).substring(0, 500) : 'N/A',
+            hint: 'GMC v1 API call failed — may need scope re-auth or schema update'
+        });
         return null;
     }
 }
@@ -334,10 +345,10 @@ async function upsertProduct(options) {
     const auth = await getAuthClient(merchantId);
 
     try {
-        // Use the Products API (products_v1beta)
+        // LOGIC CHANGE: v1beta → v1 (BACKLOG-61 — Google deprecated v1beta Feb 28 2026)
         // dataSource must be passed as query parameter, not in body
         const dataSourceName = `accounts/${gmcMerchantId}/dataSources/${dataSourceId}`;
-        const apiPath = `/products/v1beta/accounts/${gmcMerchantId}/productInputs:insert?dataSource=${encodeURIComponent(dataSourceName)}`;
+        const apiPath = `/products/v1/accounts/${gmcMerchantId}/productInputs:insert?dataSource=${encodeURIComponent(dataSourceName)}`;
 
         // Convert to Merchant API format (without dataSource in body)
         const productInput = buildMerchantApiProduct(product, gmcMerchantId, channel);
@@ -346,6 +357,7 @@ async function upsertProduct(options) {
 
         return { success: true, data: response };
     } catch (error) {
+        // TODO: remove after v1 migration confirmed working
         logger.error('Failed to upsert product in GMC', {
             error: error.message,
             merchantId,
@@ -353,7 +365,10 @@ async function upsertProduct(options) {
             channel,
             feedLabel: product.feedLabel || '(not set)',
             contentLanguage: product.contentLanguage || '(not set)',
-            errorDetails: error.details ? JSON.stringify(error.details) : undefined
+            url: `https://merchantapi.googleapis.com${apiPath}`,
+            httpStatus: error.status || 'N/A',
+            responseBody: error.details ? JSON.stringify(error.details).substring(0, 500) : 'N/A',
+            hint: 'GMC v1 API call failed — may need scope re-auth or schema update'
         });
         throw error;
     }
@@ -427,7 +442,7 @@ async function batchUpsertProducts(options) {
  */
 function buildMerchantApiProduct(product, gmcMerchantId, channel = 'ONLINE') {
     // Merchant API productInput format
-    // https://developers.google.com/merchant/api/reference/rest/products_v1beta/accounts.productInputs
+    // https://developers.google.com/merchant/api/reference/rest/products_v1/accounts.productInputs
     const productInput = {
         offerId: product.offerId,
         channel: channel.toUpperCase(),
@@ -690,14 +705,14 @@ async function updateLocalInventory(options) {
 
     const inventoryAvailability = availability || (quantity > 0 ? 'in_stock' : 'out_of_stock');
 
-    // Merchant Inventories API endpoint
-    // POST /inventories/v1beta/accounts/{account}/products/{product}/localInventories:insert
+    // LOGIC CHANGE: v1beta → v1 (BACKLOG-61 — Google deprecated v1beta Feb 28 2026)
+    // POST /inventories/v1/accounts/{account}/products/{product}/localInventories:insert
     // Product name format for LOCAL inventory: local~contentLanguage~feedLabel~offerId
     // (Note: online products use "online~" prefix, local inventory uses "local~" prefix)
     const lang = contentLanguage || 'en';
     const feed = feedLabel || 'CA';
     const productName = `local~${lang}~${feed}~${productId}`;
-    const apiPath = `/inventories/v1beta/accounts/${gmcMerchantId}/products/${encodeURIComponent(productName)}/localInventories:insert`;
+    const apiPath = `/inventories/v1/accounts/${gmcMerchantId}/products/${encodeURIComponent(productName)}/localInventories:insert`;
 
     const localInventory = {
         storeCode: storeCode,
@@ -710,16 +725,19 @@ async function updateLocalInventory(options) {
 
         return { success: true, data: response };
     } catch (error) {
+        // TODO: remove after v1 migration confirmed working
         logger.error('Local inventory update failed', {
             error: error.message,
-            errorDetails: error.details ? JSON.stringify(error.details) : undefined,
             merchantId,
             productId,
             productName,
             storeCode,
-            path: apiPath,
+            url: `https://merchantapi.googleapis.com${apiPath}`,
+            httpStatus: error.status || 'N/A',
+            responseBody: error.details ? JSON.stringify(error.details).substring(0, 500) : 'N/A',
             feedLabel: feed,
-            contentLanguage: lang
+            contentLanguage: lang,
+            hint: 'GMC v1 API call failed — may need scope re-auth or schema update'
         });
         throw error;
     }
@@ -1019,6 +1037,7 @@ async function syncAllLocationsInventory(merchantId) {
  * Test GMC API connection using new Merchant API
  */
 async function testConnection(merchantId) {
+    let apiPath;
     try {
         const settings = await getGmcApiSettings(merchantId);
         const gmcMerchantId = settings.gmc_merchant_id;
@@ -1032,9 +1051,10 @@ async function testConnection(merchantId) {
 
         const auth = await getAuthClient(merchantId);
 
-        // Use Merchant Accounts API to get account info
-        // GET /accounts/v1beta/accounts/{account}
-        const path = `/accounts/v1beta/accounts/${gmcMerchantId}`;
+        // LOGIC CHANGE: v1beta → v1 (BACKLOG-61 — Google deprecated v1beta Feb 28 2026)
+        // GET /accounts/v1/accounts/{account}
+        apiPath = `/accounts/v1/accounts/${gmcMerchantId}`;
+        const path = apiPath;
 
         const response = await merchantApiRequest(auth, 'GET', path);
 
@@ -1044,7 +1064,16 @@ async function testConnection(merchantId) {
             accountId: gmcMerchantId
         };
     } catch (error) {
-        logger.error('GMC API connection test failed', { error: error.message, stack: error.stack, merchantId });
+        // TODO: remove after v1 migration confirmed working
+        logger.error('GMC API connection test failed', {
+            error: error.message,
+            stack: error.stack,
+            merchantId,
+            url: apiPath ? `https://merchantapi.googleapis.com${apiPath}` : 'N/A',
+            httpStatus: error.status || 'N/A',
+            responseBody: error.details ? JSON.stringify(error.details).substring(0, 500) : 'N/A',
+            hint: 'GMC v1 API call failed — may need scope re-auth or schema update'
+        });
         return {
             success: false,
             error: error.message

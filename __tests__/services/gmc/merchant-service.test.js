@@ -221,6 +221,125 @@ describe('GMC Merchant Service', () => {
         });
     });
 
+    describe('GMC API v1 migration (BACKLOG-61)', () => {
+        it('should use v1 paths for all API endpoints (not v1beta)', async () => {
+            // Read the source file and verify no v1beta references remain in API paths
+            const realFs = jest.requireActual('fs');
+            const source = realFs.readFileSync(
+                require('path').join(__dirname, '../../../services/gmc/merchant-service.js'),
+                'utf8'
+            );
+
+            // Should not have any v1beta in API path strings
+            const v1betaPathMatches = source.match(/\/v1beta\/accounts\//g);
+            expect(v1betaPathMatches).toBeNull();
+
+            // Should have v1 paths for all 4 endpoint types
+            expect(source).toContain('/datasources/v1/accounts/');
+            expect(source).toContain('/products/v1/accounts/');
+            expect(source).toContain('/inventories/v1/accounts/');
+            expect(source).toContain('/accounts/v1/accounts/');
+        });
+
+        it('testConnection should use /accounts/v1/ path', async () => {
+            mockTestConnectionDeps();
+
+            global.fetch = jest.fn().mockResolvedValueOnce({
+                status: 200,
+                ok: true,
+                json: () => Promise.resolve({ accountName: 'Test Account' })
+            });
+
+            await merchantService.testConnection(1);
+
+            const calledUrl = global.fetch.mock.calls[0][0];
+            expect(calledUrl).toContain('/accounts/v1/accounts/12345');
+            expect(calledUrl).not.toContain('v1beta');
+        });
+
+        it('upsertProduct should use /products/v1/ path', async () => {
+            // Mock getGmcApiSettings is not needed — upsertProduct takes options directly
+            // Mock getAuthClient: db.query for token lookup
+            db.query.mockResolvedValueOnce({
+                rows: [{
+                    access_token: 'test-token',
+                    refresh_token: 'test-refresh',
+                    expiry_date: Date.now() + 3600000
+                }]
+            });
+
+            global.fetch = jest.fn().mockResolvedValueOnce({
+                status: 200,
+                ok: true,
+                json: () => Promise.resolve({ name: 'products/123' })
+            });
+
+            await merchantService.upsertProduct({
+                merchantId: 1,
+                gmcMerchantId: '12345',
+                dataSourceId: '67890',
+                product: {
+                    offerId: 'SKU-001',
+                    title: 'Test Product',
+                    description: 'A test product',
+                    link: 'https://example.com/product/1',
+                    imageLink: 'https://example.com/image.jpg',
+                    availability: 'in_stock',
+                    condition: 'new',
+                    price: { value: '19.99', currency: 'CAD' }
+                },
+                channel: 'ONLINE'
+            });
+
+            const calledUrl = global.fetch.mock.calls[0][0];
+            expect(calledUrl).toContain('/products/v1/accounts/12345/productInputs:insert');
+            expect(calledUrl).not.toContain('v1beta');
+        });
+
+        it('getDataSourceInfo should use /datasources/v1/ path', async () => {
+            // Mock getAuthClient
+            db.query.mockResolvedValueOnce({
+                rows: [{
+                    access_token: 'test-token',
+                    refresh_token: 'test-refresh',
+                    expiry_date: Date.now() + 3600000
+                }]
+            });
+
+            global.fetch = jest.fn().mockResolvedValueOnce({
+                status: 200,
+                ok: true,
+                json: () => Promise.resolve({ name: 'datasources/123' })
+            });
+
+            await merchantService.getDataSourceInfo(1, '12345', '67890');
+
+            const calledUrl = global.fetch.mock.calls[0][0];
+            expect(calledUrl).toContain('/datasources/v1/accounts/12345/dataSources/67890');
+            expect(calledUrl).not.toContain('v1beta');
+        });
+
+        it('buildMerchantApiProduct output shape should be unchanged', () => {
+            // Access the function via the module internals — it's not exported,
+            // so we test it indirectly through upsertProduct. But we can verify
+            // the product format by checking what gets sent to the API.
+            // For a direct shape test, we read the source.
+            const realFs = jest.requireActual('fs');
+            const source = realFs.readFileSync(
+                require('path').join(__dirname, '../../../services/gmc/merchant-service.js'),
+                'utf8'
+            );
+
+            // Verify the product shape keys are still present
+            expect(source).toContain('offerId: product.offerId');
+            expect(source).toContain("channel: channel.toUpperCase()");
+            expect(source).toContain('attributes: {');
+            expect(source).toContain('title: product.title');
+            expect(source).toContain('amountMicros:');
+            expect(source).toContain('currencyCode: product.price.currency');
+        });
+    });
+
     describe('saveGmcApiSettings - batch insert (P-6)', () => {
         it('should insert all settings in a single query using UNNEST', async () => {
             db.query.mockResolvedValueOnce({ rows: [] });
