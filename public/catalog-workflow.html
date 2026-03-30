@@ -127,33 +127,11 @@
       font-size: 13px;
     }
 
-    /* Tabs */
-    .tabs {
-      display: flex;
-      border-bottom: 2px solid #e5e7eb;
-      background: #f9fafb;
-      overflow-x: auto;
-    }
+    /* Tabs — .tabs, .tab, .tab:hover, .tab.active from shared.css */
     .tab {
-      padding: 12px 24px;
-      cursor: pointer;
-      border-bottom: 3px solid transparent;
-      font-weight: 500;
-      color: #6b7280;
-      transition: all 0.2s;
-      white-space: nowrap;
-      display: flex;
+      display: flex; /* page-specific: flex layout for badge inside tab */
       align-items: center;
       gap: 8px;
-    }
-    .tab:hover {
-      color: #374151;
-      background: #f3f4f6;
-    }
-    .tab.active {
-      color: #2563eb;
-      border-bottom-color: #2563eb;
-      background: white;
     }
     .tab .badge {
       background: #e5e7eb;
@@ -168,12 +146,10 @@
       color: #1d4ed8;
     }
 
-    /* Tab content */
+    /* Tab content — .tab-content.active from shared.css */
     .tab-content {
-      display: none;
-      padding: 20px;
+      padding: 20px; /* page-specific: shared only sets display:none */
     }
-    .tab-content.active { display: block; }
 
     /* Buttons */
     .btn {
@@ -367,35 +343,18 @@
       color: #92400e !important;
     }
 
-    /* Empty state */
-    .empty-state {
-      text-align: center;
-      padding: 60px 20px;
-      color: #6b7280;
-    }
+    /* Empty state — .empty-state from shared.css */
     .empty-state h3 {
-      font-size: 18px;
-      color: #374151;
-      margin-bottom: 10px;
+      margin-bottom: 10px; /* page-specific: 10px vs shared 8px */
     }
 
-    /* Loading spinner */
-    .loading {
-      text-align: center;
-      padding: 40px;
-      color: #6b7280;
-    }
+    /* Loading — .loading, @keyframes spin from shared.css */
+    /* page-specific: larger block-centered spinner */
     .spinner {
+      display: block;
       width: 40px;
       height: 40px;
-      border: 3px solid #e5e7eb;
-      border-top-color: #2563eb;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
       margin: 0 auto 15px;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
     }
 
     /* Alert boxes */

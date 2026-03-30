@@ -227,12 +227,11 @@
       background: #d1d5db;
     }
 
-    /* Loading & Empty States */
-    .loading, .empty-state {
-      padding: 60px 20px;
-      text-align: center;
-      color: #6b7280;
+    /* .empty-state from shared.css; .loading needs extra vertical padding */
+    .loading {
+      padding: 60px 20px; /* page-specific: matches empty-state padding for visual consistency */
     }
+    /* page-specific: CSS pseudo-element spinner on loading div */
     .loading::before {
       content: '';
       display: inline-block;
@@ -244,7 +243,7 @@
       animation: spin 1s linear infinite;
       margin-bottom: 15px;
     }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    /* @keyframes spin from shared.css */
 
     /* Pagination */
     .pagination {

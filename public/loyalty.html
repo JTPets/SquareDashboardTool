@@ -47,27 +47,19 @@
       margin-top: 5px;
     }
 
-    /* Controls */
+    /* Controls — .controls from shared.css */
     .controls {
-      padding: 15px 20px;
-      border-bottom: 1px solid #e5e7eb;
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      flex-wrap: wrap;
+      padding: 15px 20px; /* page-specific: 15px top/bottom vs shared 20px */
+      gap: 10px; /* page-specific: tighter gap vs shared 15px */
     }
-    .controls input, .controls select, .controls button {
-      background: none; /* page-specific: outline-style button, not green */
-      padding: 8px 14px; /* page-specific: shared has 8px 16px */
-      border: 1px solid #d1d5db; /* page-specific: shared has none */
+    .controls input, .controls select {
+      background: none; /* page-specific: outline-style inputs */
+      padding: 8px 14px;
+      border: 1px solid #d1d5db;
       min-height: 38px;
-      color: inherit; /* page-specific: dark text, not white */
+      color: inherit;
 }
     .controls input { flex: 1; min-width: 200px; }
-    .controls button {
-      cursor: pointer;
-      font-weight: 500;
-    }
     .btn-primary {
     border: none;
 }
@@ -85,28 +77,14 @@
     border: none;
 }
 
-    /* Tabs */
-    .tabs {
-      display: flex;
-      border-bottom: 2px solid #e5e7eb;
-      background: #f9fafb;
-      overflow-x: auto;
+    /* Tabs — .tabs, .tab, .tab:hover, .tab-content.active from shared.css */
+    .tab.active {
+      color: #7c3aed; /* page-specific: purple accent */
+      border-bottom-color: #7c3aed;
     }
-    .tab {
-      padding: 12px 24px;
-      cursor: pointer;
-      border-bottom: 3px solid transparent;
-      font-weight: 500;
-      color: #6b7280;
-      transition: all 0.2s;
-      white-space: nowrap;
-    }
-    .tab:hover { color: #374151; background: #f3f4f6; }
-    .tab.active { color: #7c3aed; border-bottom-color: #7c3aed; background: white; }
 
-    /* Tab content */
-    .tab-content { display: none; padding: 20px; }
-    .tab-content.active { display: block; }
+    /* Tab content — .tab-content.active from shared.css */
+    .tab-content { padding: 20px; /* page-specific: shared only sets display:none */ }
 
     /* page-specific: scrollable table height */
     .table-container { max-height: 60vh; overflow-y: auto; }
@@ -143,33 +121,14 @@
     }
     .progress-bar.complete { background: #10b981; }
 
-    /* Loading state */
-    .loading {
-      text-align: center;
-      padding: 40px;
-      color: #6b7280;
-    }
+    /* Loading state — .loading, @keyframes spin from shared.css */
     .spinner {
-      display: inline-block;
-      width: 30px;
-      height: 30px;
-      border: 3px solid #e5e7eb;
-      border-top-color: #7c3aed;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
+      border-top-color: #7c3aed; /* page-specific: purple spinner */
     }
-    @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* Empty state */
-    .empty-state {
-      text-align: center;
-      padding: 60px 20px;
-      color: #6b7280;
-    }
+    /* Empty state — .empty-state from shared.css */
     .empty-state h3 {
-      font-size: 18px;
-      margin-bottom: 10px;
-      color: #374151;
+      margin-bottom: 10px; /* page-specific: 10px vs shared 8px */
     }
 
     /* Modal */

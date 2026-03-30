@@ -535,3 +535,136 @@ tr:hover {
   border: 1px solid #2563eb;
   color: #1e40af;
 }
+
+/* =============================================================
+   Stats Bar
+   Canonical dark-background stats strip used by 4+ pages.
+   Pages with grid layout, white background, or different padding
+   override locally with a comment.
+   ============================================================= */
+
+.stats-bar {
+  background: #1f2937;
+  color: white;
+  padding: 15px 30px;
+  display: flex;
+  justify-content: space-around;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.stat {
+  text-align: center;
+  min-width: 100px;
+}
+
+.stat-number {
+  font-size: 24px;
+  font-weight: bold;
+  color: #10b981;
+}
+
+/* =============================================================
+   Tabs
+   Canonical tab bar: 2px border, light-grey background.
+   Pages with 1px border or white background override locally.
+   Tab active color defaults to blue; purple-theme pages override
+   .tab.active { color / border-bottom-color } locally.
+   ============================================================= */
+
+.tabs {
+  display: flex;
+  border-bottom: 2px solid #e5e7eb;
+  background: #f9fafb;
+  overflow-x: auto;
+}
+
+.tab {
+  padding: 12px 24px;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  font-weight: 500;
+  color: #6b7280;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.tab:hover {
+  color: #374151;
+  background: #f3f4f6;
+}
+
+.tab.active {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+  background: white;
+}
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+/* =============================================================
+   Empty State
+   Canonical: dark text, generous padding. Pages with smaller
+   padding or h2 instead of h3 override locally.
+   ============================================================= */
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: #6b7280;
+}
+
+.empty-state h3 {
+  font-size: 18px;
+  margin-bottom: 8px;
+  color: #374151;
+}
+
+/* =============================================================
+   Loading & Spinner
+   Pages with extra properties (font-size, font-style) add them
+   locally. Spinner color overridden with border-top-color.
+   Pages needing a larger block-centered spinner override
+   display/width/height/margin locally.
+   ============================================================= */
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: #6b7280;
+}
+
+.spinner {
+  display: inline-block;
+  width: 30px;
+  height: 30px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* =============================================================
+   Controls bar
+   Pages with different padding (loyalty: 15px 20px) or gap
+   override locally. Note: .controls button is defined above.
+   ============================================================= */
+
+.controls {
+  padding: 20px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  flex-wrap: wrap;
+}

@@ -59,25 +59,13 @@
       font-weight: 600;
     }
 
-    /* Controls section */
-    .controls {
-      padding: 20px;
-      border-bottom: 1px solid #e5e7eb;
-      display: flex;
-      gap: 15px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-    .controls select, .controls button {
-      background: none; /* page-specific: outline-style button, not green */
-      border: 1px solid #d1d5db; /* page-specific: shared has none */
+    /* Controls section — .controls from shared.css */
+    .controls select {
+      background: none; /* page-specific: outline-style select */
+      border: 1px solid #d1d5db;
       min-height: 40px;
-      color: inherit; /* page-specific: dark text, not white */
+      color: inherit;
 }
-    .controls button {
-      cursor: pointer;
-      font-weight: 500;
-    }
     .btn-primary {
       border: none;
 }
@@ -112,36 +100,10 @@
     }
     .last-run { color: #6b7280; }
 
-    /* Tabs */
-    .tabs {
-      display: flex;
-      border-bottom: 2px solid #e5e7eb;
-      background: #f9fafb;
-    }
-    .tab {
-      padding: 12px 24px;
-      cursor: pointer;
-      border-bottom: 3px solid transparent;
-      font-weight: 500;
-      color: #6b7280;
-      transition: all 0.2s;
-    }
-    .tab:hover {
-      color: #374151;
-      background: #f3f4f6;
-    }
-    .tab.active {
-      color: #2563eb;
-      border-bottom-color: #2563eb;
-      background: white;
-    }
-
-    /* Tab content */
+    /* Tabs — .tabs, .tab, .tab:hover, .tab.active, .tab-content.active from shared.css */
     .tab-content {
-      display: none;
-      padding: 20px;
+      padding: 20px; /* page-specific: shared only sets display:none */
     }
-    .tab-content.active { display: block; }
 
     /* page-specific: scrollable table height */
     .table-container { max-height: 60vh; overflow-y: auto; }
@@ -252,24 +214,7 @@
       width: auto;
     }
 
-    /* Loading state */
-    .loading {
-      text-align: center;
-      padding: 40px;
-      color: #6b7280;
-    }
-    .spinner {
-      display: inline-block;
-      width: 30px;
-      height: 30px;
-      border: 3px solid #e5e7eb;
-      border-top-color: #2563eb;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
+    /* Loading state — .loading, .spinner, @keyframes spin from shared.css */
 
     /* Audit log */
     .audit-action {
@@ -283,16 +228,9 @@
     .audit-action.DISCOUNT_APPLIED { background: #d1fae5; color: #065f46; }
     .audit-action.DISCOUNT_REMOVED { background: #fee2e2; color: #991b1b; }
 
-    /* Empty state */
-    .empty-state {
-      text-align: center;
-      padding: 60px 20px;
-      color: #6b7280;
-    }
+    /* Empty state — .empty-state from shared.css */
     .empty-state h3 {
-      font-size: 18px;
-      margin-bottom: 10px;
-      color: #374151;
+      margin-bottom: 10px; /* page-specific: 10px vs shared 8px */
     }
 
     /* Flagged badge */

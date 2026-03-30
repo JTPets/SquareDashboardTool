@@ -8,33 +8,18 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }    .header {
       background: #1f2937; /* page-specific: shared has #2563eb */
-}    /* Tabs */
+}    /* Tabs — .tabs, .tab, .tab:hover, .tab.active, .tab-content.active from shared.css */
     .tabs {
-      display: flex;
-      background: #f9fafb;
-      border-bottom: 1px solid #e5e7eb;
+      border-bottom-width: 1px; /* page-specific: 1px vs shared 2px */
     }
     .tab {
-      padding: 15px 25px;
-      cursor: pointer;
-      font-weight: 500;
-      color: #6b7280;
-      border-bottom: 3px solid transparent;
-      transition: all 0.2s;
-    }
-    .tab:hover { color: #374151; background: #f3f4f6; }
-    .tab.active {
-      color: #2563eb;
-      border-bottom-color: #2563eb;
-      background: white;
+      padding: 15px 25px; /* page-specific: larger padding */
     }
 
-    /* Tab Content */
+    /* Tab Content — .tab-content.active from shared.css */
     .tab-content {
-      display: none;
-      padding: 30px;
+      padding: 30px; /* page-specific: larger than typical 20px */
     }
-    .tab-content.active { display: block; }
 
     /* Section */
     .section {

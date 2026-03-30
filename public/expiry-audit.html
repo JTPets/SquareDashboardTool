@@ -464,31 +464,22 @@
       box-shadow: none;
     }
 
-    .empty-state {
-      text-align: center;
-      padding: 60px 20px;
-      color: #6b7280;
-    }
+    /* .empty-state from shared.css */
     .empty-state-icon {
       font-size: 64px;
       margin-bottom: 20px;
       opacity: 0.5;
     }
     .empty-state h3 {
-      font-size: 20px;
-      color: #374151;
-      margin-bottom: 10px;
+      font-size: 20px; /* page-specific: larger than shared 18px */
+      margin-bottom: 10px; /* page-specific: 10px vs shared 8px */
     }
     .empty-state p {
       font-size: 14px;
       line-height: 1.6;
     }
 
-    .loading {
-      text-align: center;
-      padding: 40px;
-      color: #6b7280;
-    }
+    /* .loading from shared.css */
     .loading-spinner {
       border: 3px solid #f3f4f6;
       border-top: 3px solid #3b82f6;
@@ -498,10 +489,7 @@
       animation: spin 1s linear infinite;
       margin: 0 auto 20px;
     }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
+    /* @keyframes spin from shared.css */
 
     .modal-content {
       background: white;

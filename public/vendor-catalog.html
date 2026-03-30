@@ -32,26 +32,9 @@
       background: rgba(255,255,255,0.3);
     }
 
-    /* STATS BAR */
-    .stats-bar {
-      background: #1f2937;
-      color: white;
-      padding: 15px 30px;
-      display: flex;
-      justify-content: space-around;
-      flex-wrap: wrap;
-      gap: 20px;
-    }
-
+    /* STATS BAR — .stats-bar, .stat-number from shared.css */
     .stat {
-      text-align: center;
-      min-width: 120px;
-    }
-
-    .stat-number {
-      font-size: 24px;
-      font-weight: bold;
-      color: #10b981;
+      min-width: 120px; /* page-specific: wider than shared 100px */
     }
 
     .stat-label {
@@ -62,40 +45,22 @@
       margin-top: 4px;
     }
 
-    /* TABS */
+    /* TABS — .tabs, .tab:hover, .tab-content, .tab-content.active from shared.css */
     .tabs {
-      display: flex;
-      border-bottom: 1px solid #e5e7eb;
-      background: #f9fafb;
+      border-bottom-width: 1px; /* page-specific: 1px vs shared 2px */
     }
 
     .tab {
-      padding: 15px 25px;
-      cursor: pointer;
-      border-bottom: 3px solid transparent;
-      font-weight: 500;
-      color: #6b7280;
-      transition: all 0.15s;
-    }
-
-    .tab:hover {
-      color: #374151;
-      background: #f3f4f6;
+      padding: 15px 25px; /* page-specific: larger padding */
+      transition: all 0.15s; /* page-specific: faster transition */
     }
 
     .tab.active {
+      color: #7c3aed; /* page-specific: purple accent */
       border-bottom-color: #7c3aed;
-      color: #7c3aed;
-      background: white;
     }
 
-    /* CONTENT SECTIONS */    .tab-content {
-      display: none;
-    }
-
-    .tab-content.active {
-      display: block;
-    }
+    /* .tab-content, .tab-content.active from shared.css */
 
     /* IMPORT SECTION */
     .import-section {
@@ -219,9 +184,7 @@
       margin: 0 auto 15px;
     }
 
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
+    /* @keyframes spin from shared.css */
 
     /* IMPORT RESULT */
     .import-result {
@@ -497,23 +460,11 @@
       background: #fecaca;
     }
 
-    /* LOADING */
-    .loading {
-      text-align: center;
-      padding: 40px;
-      color: #6b7280;
-    }
+    /* LOADING — .loading from shared.css */
 
-    /* EMPTY STATE */
-    .empty-state {
-      text-align: center;
-      padding: 60px 20px;
-      color: #6b7280;
-    }
-
+    /* EMPTY STATE — .empty-state from shared.css */
     .empty-state h3 {
-      margin-bottom: 10px;
-      color: #374151;
+      margin-bottom: 10px; /* page-specific: 10px vs shared 8px */
     }
 
     /* FOOTER */    .footer a {
@@ -542,13 +493,10 @@
         gap: 15px;
       }
 
-      .tabs {
-        overflow-x: auto;
-      }
-
+      /* .tabs already has overflow-x:auto from shared.css */
       .tab {
         white-space: nowrap;
-        padding: 12px 15px;
+        padding: 12px 15px; /* page-specific responsive: tighter padding */
       }
 
       .content {
