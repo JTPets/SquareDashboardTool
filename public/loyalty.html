@@ -57,27 +57,33 @@
       flex-wrap: wrap;
     }
     .controls input, .controls select, .controls button {
-      padding: 8px 14px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      font-size: 14px;
+      background: none; /* page-specific: outline-style button, not green */
+      padding: 8px 14px; /* page-specific: shared has 8px 16px */
+      border: 1px solid #d1d5db; /* page-specific: shared has none */
       min-height: 38px;
-    }
+      color: inherit; /* page-specific: dark text, not white */
+}
     .controls input { flex: 1; min-width: 200px; }
     .controls button {
       cursor: pointer;
       font-weight: 500;
     }
-    .btn-primary { background: #2563eb; color: white; border: none; }
-    .btn-primary:hover { background: #1d4ed8; }
-    .btn-success { background: #059669; color: white; border: none; }
-    .btn-success:hover { background: #047857; }
-    .btn-warning { background: #f59e0b; color: white; border: none; }
-    .btn-warning:hover { background: #d97706; }
-    .btn-danger { background: #dc2626; color: white; border: none; }
-    .btn-danger:hover { background: #b91c1c; }
-    .btn-secondary { background: #6b7280; color: white; border: none; }
-    .btn-secondary:hover { background: #4b5563; }
+    .btn-primary {
+    border: none;
+}
+    .btn-success {
+    background: #059669; /* page-specific: shared has #10b981 */
+    border: none;
+}
+    .btn-warning {
+    border: none;
+}
+    .btn-danger {
+    border: none;
+}
+    .btn-secondary {
+    border: none;
+}
 
     /* Tabs */
     .tabs {

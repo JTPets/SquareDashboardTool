@@ -47,21 +47,16 @@
     .bundle-status.inactive { background: #fee2e2; color: #991b1b; }
     .bundle-actions { display: flex; gap: 8px; }
     .btn {
-      padding: 6px 12px;
-      border: none;
-      border-radius: 4px;
-      font-size: 13px;
-      font-weight: 500;
-      cursor: pointer;
-    }
+      padding: 6px 12px; /* page-specific: shared has 10px 16px */
+      font-size: 13px; /* page-specific: shared has 14px */
+}
     .btn-edit { background: #dbeafe; color: #1d4ed8; }
     .btn-edit:hover { background: #bfdbfe; }
     .btn-delete { background: #fee2e2; color: #991b1b; }
     .btn-delete:hover { background: #fecaca; }
-    .btn-primary { background: #2563eb; color: white; }
-    .btn-primary:hover { background: #1d4ed8; }
-    .btn-success { background: #059669; color: white; }
-    .btn-success:hover { background: #047857; }
+    .btn-success {
+    background: #059669; /* page-specific: shared has #10b981 */
+}
     .btn-cancel { background: #6b7280; color: white; }
     .btn-cancel:hover { background: #4b5563; }
 
