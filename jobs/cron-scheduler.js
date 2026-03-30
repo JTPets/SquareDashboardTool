@@ -34,6 +34,7 @@
 // | 14 | Loyalty sync retry          | */15 * * * * (15 min) | Freq   | Must run frequently                |
 // | 15 | Catalog health              | 0 4 * * *  (4:00 AM)  | Batch  | Moved from 2 AM to avoid overlap   |
 // | 16 | Email heartbeat             | 0 6 * * *  (6:00 AM)  | Batch  | Moved from 8 AM to catch AM issues |
+// | 18 | Auto min/max adjustment     | 0 6 * * 0  (Sun 6AM)  | Batch  | BACKLOG-106 v2: before Mon ordering|
 
 const cron = require('node-cron');
 const logger = require('../utils/logger');
@@ -54,6 +55,7 @@ const { runScheduledLoyaltySyncRetry } = require('./loyalty-sync-retry-job');
 const { runScheduledHealthCheck } = require('./catalog-health-job');
 const { runScheduledHeartbeat } = require('./email-heartbeat-job');
 const { runScheduledPodCleanup } = require('./pod-cleanup-job');
+const { runScheduledAutoMinMax } = require('./auto-min-max-job');
 const syncQueue = require('../services/sync-queue');
 
 // Store cron task references for graceful shutdown
@@ -198,6 +200,15 @@ function initializeCronJobs() {
         timezone: 'America/Toronto'
     }));
     logger.info('Email heartbeat cron job scheduled', { schedule: heartbeatSchedule, timezone: 'America/Toronto' });
+
+    // 18. Auto min/max stock adjustment (BACKLOG-106 v2)
+    // Runs every Sunday at 6:00 AM — before Monday ordering begins
+    // Adjusts mins automatically; merchants review via /min-max-history.html
+    const autoMinMaxSchedule = process.env.AUTO_MIN_MAX_CRON || '0 6 * * 0';
+    cronTasks.push(cron.schedule(autoMinMaxSchedule, runScheduledAutoMinMax, {
+        timezone: 'America/Toronto'
+    }));
+    logger.info('Auto min/max cron job scheduled', { schedule: autoMinMaxSchedule, timezone: 'America/Toronto' });
 
     return cronTasks;
 }

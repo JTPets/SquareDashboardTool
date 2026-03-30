@@ -1088,6 +1088,8 @@ async function ensureSchema() {
         { table: 'variations', column: 'square_updated_at', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS square_updated_at TIMESTAMPTZ' },
         // BACKLOG-64: sold_out flag for variation_location_settings
         { table: 'variation_location_settings', column: 'sold_out', sql: 'ALTER TABLE variation_location_settings ADD COLUMN IF NOT EXISTS sold_out BOOLEAN DEFAULT FALSE' },
+        // BACKLOG-106 v2: merchant pin to prevent auto-adjustment of min stock
+        { table: 'variation_location_settings', column: 'min_stock_pinned', sql: 'ALTER TABLE variation_location_settings ADD COLUMN IF NOT EXISTS min_stock_pinned BOOLEAN DEFAULT FALSE' },
     ];
 
     // ==================== VARIATION EXPIRATION TABLE ====================

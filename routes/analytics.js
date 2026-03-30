@@ -6,7 +6,8 @@
  * - GET /api/reorder-suggestions        - Calculate reorder suggestions
  * - GET /api/min-max/recommendations    - Generate min stock recommendations (dry run)
  * - POST /api/min-max/apply             - Apply selected recommendations
- * - GET /api/min-max/history            - Audit log of applied changes (paginated)
+ * - GET /api/min-max/history            - Audit log of applied changes (paginated, filterable)
+ * - POST /api/min-max/pin               - Pin/unpin a variation from auto-adjustment
  */
 
 const express = require('express');
@@ -107,7 +108,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
 /**
  * GET /api/min-max/recommendations
  * Returns all current min-stock recommendations for the merchant (dry run — no changes applied).
- * Items with recommendedMin=null are warnings (e.g. possible supplier issue).
+ * Items with recommendedMin=null are warnings (e.g. possible supplier issue or skipped).
  */
 router.get('/min-max/recommendations',
     requireAuth, requireMerchant, validators.getRecommendations,
@@ -143,7 +144,8 @@ router.post('/min-max/apply',
 /**
  * GET /api/min-max/history
  * Paginated audit log of applied min-stock changes.
- * Query: limit (default 50, max 200), offset (default 0)
+ * Query: limit (default 50, max 200), offset (default 0),
+ *        startDate (ISO date), endDate (ISO date), rule (enum)
  */
 router.get('/min-max/history',
     requireAuth, requireMerchant, validators.getHistory,
@@ -151,30 +153,25 @@ router.get('/min-max/history',
         const merchantId = req.merchantContext.id;
         const limit = parseInt(req.query.limit) || 50;
         const offset = parseInt(req.query.offset) || 0;
+        const { startDate, endDate, rule } = req.query;
 
-        const [rowsResult, totalResult] = await Promise.all([
-            db.query(
-                `SELECT a.*, v.name AS variation_name, i.name AS item_name, v.sku
-                 FROM min_stock_audit a
-                 LEFT JOIN variations v ON v.id = a.variation_id AND v.merchant_id = a.merchant_id
-                 LEFT JOIN items i ON i.id = v.item_id AND i.merchant_id = a.merchant_id
-                 WHERE a.merchant_id = $1
-                 ORDER BY a.created_at DESC
-                 LIMIT $2 OFFSET $3`,
-                [merchantId, limit, offset]
-            ),
-            db.query(
-                'SELECT COUNT(*) AS total FROM min_stock_audit WHERE merchant_id = $1',
-                [merchantId]
-            )
-        ]);
+        const result = await autoMinMax.getHistory(merchantId, { startDate, endDate, rule, limit, offset });
+        sendPaginated(res, result);
+    })
+);
 
-        sendPaginated(res, {
-            items: rowsResult.rows,
-            total: parseInt(totalResult.rows[0].total),
-            limit,
-            offset
-        });
+/**
+ * POST /api/min-max/pin
+ * Pin or unpin a variation from weekly auto-adjustment.
+ * Body: { variationId, locationId, pinned: true|false }
+ */
+router.post('/min-max/pin',
+    requireAuth, requireMerchant, requireWriteAccess, validators.pinVariation,
+    asyncHandler(async (req, res) => {
+        const merchantId = req.merchantContext.id;
+        const { variationId, locationId, pinned } = req.body;
+        const result = await autoMinMax.pinVariation(merchantId, variationId, locationId, pinned);
+        sendSuccess(res, result);
     })
 );
 

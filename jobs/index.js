@@ -19,6 +19,7 @@ const loyaltySyncRetryJob = require('./loyalty-sync-retry-job');
 const catalogHealthJob = require('./catalog-health-job');
 const emailHeartbeatJob = require('./email-heartbeat-job');
 const podCleanupJob = require('./pod-cleanup-job');
+const autoMinMaxJob = require('./auto-min-max-job');
 const cronScheduler = require('./cron-scheduler');
 
 module.exports = {
@@ -82,6 +83,11 @@ module.exports = {
     // POD cleanup job (BUG-008)
     runPodCleanup: podCleanupJob.runPodCleanup,
     runScheduledPodCleanup: podCleanupJob.runScheduledPodCleanup,
+
+    // Auto min/max stock adjustment job (BACKLOG-106 v2)
+    runAutoMinMaxForMerchant: autoMinMaxJob.runAutoMinMaxForMerchant,
+    runAutoMinMaxForAllMerchants: autoMinMaxJob.runAutoMinMaxForAllMerchants,
+    runScheduledAutoMinMax: autoMinMaxJob.runScheduledAutoMinMax,
 
     // Cron scheduler
     initializeCronJobs: cronScheduler.initializeCronJobs,

@@ -92,7 +92,8 @@ const applyRecommendations = [
 
 /**
  * GET /api/min-max/history
- * Query: limit (1-200, default 50), offset (>= 0, default 0)
+ * Query: limit (1-200, default 50), offset (>= 0, default 0),
+ *        startDate (ISO date), endDate (ISO date), rule (enum)
  */
 const getHistory = [
     query('limit')
@@ -103,6 +104,37 @@ const getHistory = [
         .optional()
         .isInt({ min: 0 })
         .withMessage('offset must be >= 0'),
+    query('startDate')
+        .optional()
+        .isISO8601()
+        .withMessage('startDate must be a valid ISO 8601 date'),
+    query('endDate')
+        .optional()
+        .isISO8601()
+        .withMessage('endDate must be a valid ISO 8601 date'),
+    query('rule')
+        .optional()
+        .isIn(['OVERSTOCKED', 'SOLDOUT_FAST_MOVER', 'EXPIRING', 'MANUAL_APPLY', 'CRON_AUTO'])
+        .withMessage('rule must be one of: OVERSTOCKED, SOLDOUT_FAST_MOVER, EXPIRING, MANUAL_APPLY, CRON_AUTO'),
+    handleValidationErrors
+];
+
+/**
+ * POST /api/min-max/pin
+ * Body: { variationId, locationId, pinned }
+ */
+const pinVariation = [
+    body('variationId')
+        .trim()
+        .isLength({ min: 1, max: 255 })
+        .withMessage('variationId is required (1-255 chars)'),
+    body('locationId')
+        .trim()
+        .isLength({ min: 1, max: 255 })
+        .withMessage('locationId is required (1-255 chars)'),
+    body('pinned')
+        .isBoolean()
+        .withMessage('pinned must be true or false'),
     handleValidationErrors
 ];
 
@@ -111,5 +143,6 @@ module.exports = {
     getReorderSuggestions,
     getRecommendations,
     applyRecommendations,
-    getHistory
+    getHistory,
+    pinVariation
 };
