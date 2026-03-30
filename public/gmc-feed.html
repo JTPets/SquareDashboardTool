@@ -150,30 +150,13 @@
     .badge.yellow { background: #fef3c7; color: #92400e; }
     .badge.green { background: #d1fae5; color: #065f46; }
 
-    /* Table */
-    .table-container {
-      overflow-x: auto;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
-    }
-    th, td {
-      padding: 8px 10px;
-      text-align: left;
-      border-bottom: 1px solid #e5e7eb;
-    }
-    th {
-      background: #f9fafb;
-      font-weight: 600;
-      color: #374151;
-      position: sticky;
-      top: 0;
-      white-space: nowrap;
-      font-size: 11px;
-    }
-    tr:hover { background: #f9fafb; }
+    /* Table — overrides for shared table styles */
+    /* page-specific: compact 12px table font */
+    table { font-size: 12px; }
+    /* page-specific: compact cell padding */
+    th, td { padding: 8px 10px; }
+    /* page-specific: 11px header, colour, no uppercase, no letter-spacing */
+    th { color: #374151; font-size: 11px; text-transform: none; letter-spacing: 0; white-space: nowrap; }
     td.truncate {
       max-width: 180px;
       overflow: hidden;

@@ -389,34 +389,9 @@
       color: #dc2626;
     }
 
-    /* TABLE */
-    .table-container {
-      overflow-x: auto;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 14px;
-    }
-
-    th, td {
-      padding: 12px;
-      text-align: left;
-      border-bottom: 1px solid #e5e7eb;
-    }
-
-    th {
-      background: #f9fafb;
-      font-weight: 600;
-      color: #374151;
-      position: sticky;
-      top: 0;
-    }
-
-    tr:hover {
-      background: #f9fafb;
-    }
+    /* TABLE — overrides for shared table styles */
+    /* page-specific: colour #374151, no uppercase, no letter-spacing */
+    th { color: #374151; text-transform: none; letter-spacing: 0; }
 
     .badge {
       display: inline-block;

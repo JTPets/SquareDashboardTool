@@ -76,34 +76,13 @@
     .reorder-section-header:hover {
       background: #f3f4f6;
     }
-    .table-container {
-      overflow-x: auto;
-      max-height: 65vh;
-      min-height: 120px;
-      overflow-y: auto;
-      resize: vertical;
-    }
-    table {
-      width: 100%;
-      border-collapse: separate;
-      border-spacing: 0;
-      font-size: 14px;
-    }
-    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
-    thead {
-      position: sticky;
-      top: 0;
-      z-index: 100;
-    }
-    th {
-      background: #f9fafb;
-      font-weight: 600;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      white-space: nowrap;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
+    /* page-specific: resizable container with min-height */
+    .table-container { max-height: 65vh; min-height: 120px; overflow-y: auto; resize: vertical; }
+    /* page-specific: border-separate so border-radius works on rows */
+    table { border-collapse: separate; border-spacing: 0; }
+    /* page-specific: sticky thead row (not individual th); nowrap headers; shadow */
+    thead { position: sticky; top: 0; z-index: 100; }
+    th { position: static; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     tr:hover { background: #f9fafb; }
     tr.selected { background: #dbeafe; }
     tr.unchecked {
@@ -123,12 +102,7 @@
       opacity: 0.5;
     }
 
-    .product-name {
-      max-width: 250px;
-      white-space: normal;
-      font-weight: 500;
-      line-height: 1.3;
-    }
+    /* .product-name from shared.css */
     .product-image {
       width: 50px;
       height: 50px;
@@ -361,7 +335,7 @@
       color: #2563eb;
     }
 
-    .text-right { text-align: right; }
+    /* .text-right from shared.css */
     .text-center { text-align: center; }
     .loading {
       text-align: center;

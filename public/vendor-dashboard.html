@@ -80,27 +80,12 @@
     }
     .controls label { font-size: 13px; font-weight: 500; color: #6b7280; margin-left: auto; }
 
-    /* Table */
-    .table-container {
-      overflow-x: auto;
-    }
-    table {
-      width: 100%;
-      border-collapse: separate;
-      border-spacing: 0;
-      font-size: 14px;
-    }
-    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+    /* Table — overrides for shared table styles */
+    /* page-specific: border-separate so row borders are precise */
+    table { border-collapse: separate; border-spacing: 0; }
+    /* page-specific: sticky thead row (not individual th); nowrap headers; shadow */
     thead { position: sticky; top: 0; z-index: 100; }
-    th {
-      background: #f9fafb;
-      font-weight: 600;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      white-space: nowrap;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
+    th { position: static; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     tr.vendor-row { cursor: pointer; }
     tr.vendor-row:hover { background: #f9fafb; }
 

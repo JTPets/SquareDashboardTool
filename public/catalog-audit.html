@@ -173,26 +173,10 @@
     }
     .stat-value.alert { color: #ef4444; }
 
-    .table-container {
-      overflow-x: auto;
-      max-height: 55vh;
-      overflow-y: auto;
-    }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
-    th {
-      background: #f9fafb;
-      font-weight: 600;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      white-space: nowrap;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    tr:hover { background: #f9fafb; }
+    /* page-specific: scrollable table height */
+    .table-container { max-height: 55vh; overflow-y: auto; }
+    /* page-specific: higher z-index (dropdowns), nowrap headers, shadow */
+    th { z-index: 100; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 
     .product-image {
       width: 50px;
@@ -213,12 +197,7 @@
       font-size: 20px;
       border: 1px solid #e5e7eb;
     }
-    .product-name {
-      max-width: 250px;
-      white-space: normal;
-      font-weight: 500;
-      line-height: 1.3;
-    }
+    /* .product-name from shared.css */
     .variation-name {
       font-size: 12px;
       color: #6b7280;
@@ -226,7 +205,7 @@
       margin-top: 2px;
     }
     .sku { font-family: monospace; font-size: 12px; color: #6b7280; }
-    .text-right { text-align: right; }
+    /* .text-right from shared.css */
 
     /* Issue badges */
     .issue-badge {

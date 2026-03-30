@@ -87,24 +87,11 @@
     .stat-card.highlight .stat-value,
     .stat-card.highlight .stat-label { color: white; }
 
-    /* Plans Table */
-    table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-    th, td {
-      padding: 12px 15px;
-      text-align: left;
-      border-bottom: 1px solid #e5e7eb;
-    }
-    th {
-      background: #f9fafb;
-      font-weight: 600;
-      color: #374151;
-      font-size: 13px;
-      text-transform: uppercase;
-    }
-    tr:hover { background: #f9fafb; }
+    /* Plans Table — overrides for shared table styles */
+    /* page-specific: wider cell padding than shared 12px */
+    th, td { padding: 12px 15px; }
+    /* page-specific: no sticky header; colour #374151; 13px font */
+    th { position: static; color: #374151; font-size: 13px; letter-spacing: 0; }
 
     /* Status Badges */
     .badge {
