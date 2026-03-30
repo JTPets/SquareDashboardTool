@@ -189,52 +189,22 @@
     .alert-error { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
     .alert-success { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
 
-    /* Modal */
-    .modal-overlay {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0,0,0,0.7);
-      z-index: 1000;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .modal-overlay.active {
-      display: flex;
-    }
+    /* Modal — uses .modal-overlay + .modal as dialog (not overlay pattern) */
+    /* page-specific: .modal is the dialog box inside .modal-overlay, not overlay itself */
     .modal {
+      display: flex;
+      flex-direction: column;
+      position: static;
       background: white;
       border-radius: 8px;
       max-width: 90vw;
       max-height: 90vh;
       overflow: hidden;
-      display: flex;
-      flex-direction: column;
     }
-    .modal-header {
-      padding: 15px 20px;
-      border-bottom: 1px solid #e5e7eb;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .modal-header h2 {
-      font-size: 18px;
-      font-weight: 600;
-    }
-    .modal-close {
-      background: none;
-      border: none;
-      font-size: 24px;
-      cursor: pointer;
-      color: #6b7280;
-      line-height: 1;
-    }
-    .modal-close:hover { color: #111827; }
+    /* page-specific: tighter header padding (shared has 20px) */
+    .modal-header { padding: 15px 20px; }
+    .modal-header h2 { font-size: 18px; font-weight: 600; }
+    /* page-specific: image viewer body — centered flex layout */
     .modal-body {
       padding: 20px;
       overflow: auto;
@@ -247,11 +217,14 @@
       max-height: 70vh;
       border-radius: 4px;
     }
+    /* page-specific: caption footer — no button row, no background */
     .modal-footer {
       padding: 15px 20px;
       border-top: 1px solid #e5e7eb;
       font-size: 13px;
       color: #6b7280;
+      background: none;
+      justify-content: flex-start;
     }
 
     /* Loading */
