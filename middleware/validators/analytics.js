@@ -1,10 +1,11 @@
 /**
  * Analytics Route Validators
  *
- * Validates input for analytics endpoints (sales velocity, reorder suggestions)
+ * Validates input for analytics endpoints (sales velocity, reorder suggestions,
+ * and auto min/max stock recommendations)
  */
 
-const { query } = require('express-validator');
+const { query, body } = require('express-validator');
 const { handleValidationErrors } = require('./index');
 
 /**
@@ -59,7 +60,56 @@ const getReorderSuggestions = [
     handleValidationErrors
 ];
 
+/**
+ * GET /api/min-max/recommendations
+ * No required params — returns all current recommendations for the merchant.
+ */
+const getRecommendations = [
+    handleValidationErrors
+];
+
+/**
+ * POST /api/min-max/apply
+ * Body: { recommendations: [{ variationId, locationId, newMin }] }
+ */
+const applyRecommendations = [
+    body('recommendations')
+        .isArray({ min: 1 })
+        .withMessage('recommendations must be a non-empty array'),
+    body('recommendations.*.variationId')
+        .trim()
+        .isLength({ min: 1, max: 255 })
+        .withMessage('each recommendation must have a valid variationId (1-255 chars)'),
+    body('recommendations.*.locationId')
+        .trim()
+        .isLength({ min: 1, max: 255 })
+        .withMessage('each recommendation must have a valid locationId (1-255 chars)'),
+    body('recommendations.*.newMin')
+        .isInt({ min: 0 })
+        .withMessage('each recommendation must have a newMin >= 0'),
+    handleValidationErrors
+];
+
+/**
+ * GET /api/min-max/history
+ * Query: limit (1-200, default 50), offset (>= 0, default 0)
+ */
+const getHistory = [
+    query('limit')
+        .optional()
+        .isInt({ min: 1, max: 200 })
+        .withMessage('limit must be between 1 and 200'),
+    query('offset')
+        .optional()
+        .isInt({ min: 0 })
+        .withMessage('offset must be >= 0'),
+    handleValidationErrors
+];
+
 module.exports = {
     getVelocity,
-    getReorderSuggestions
+    getReorderSuggestions,
+    getRecommendations,
+    applyRecommendations,
+    getHistory
 };

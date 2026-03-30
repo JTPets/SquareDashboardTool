@@ -3122,6 +3122,45 @@ async function ensureSchema() {
         logger.error('Failed to apply loyalty variation unique constraint migration:', error.message);
     }
 
+    // ==================== MIN STOCK AUDIT TABLE ====================
+    // Audit trail for auto min/max stock recommendation applies (BACKLOG-106)
+    try {
+        const minStockAuditExists = await query(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables
+                WHERE table_name = 'min_stock_audit'
+            )
+        `);
+
+        if (!minStockAuditExists.rows[0].exists) {
+            logger.info('Creating min_stock_audit table...');
+            await query(`
+                CREATE TABLE IF NOT EXISTS min_stock_audit (
+                    id SERIAL PRIMARY KEY,
+                    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                    variation_id TEXT NOT NULL,
+                    location_id TEXT NOT NULL,
+                    previous_min INTEGER NOT NULL,
+                    new_min INTEGER NOT NULL,
+                    rule TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    velocity_91d NUMERIC(10,4),
+                    days_of_stock NUMERIC(10,1),
+                    quantity INTEGER,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await query(`
+                CREATE INDEX IF NOT EXISTS idx_min_stock_audit_merchant_created
+                ON min_stock_audit(merchant_id, created_at DESC)
+            `);
+            logger.info('Created min_stock_audit table with indexes');
+            appliedCount++;
+        }
+    } catch (error) {
+        logger.error('Failed to create min_stock_audit table:', error.message);
+    }
+
     if (appliedCount > 0) {
         logger.info(`Schema check complete: ${appliedCount} migrations applied`);
     } else {
