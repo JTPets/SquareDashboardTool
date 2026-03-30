@@ -183,17 +183,15 @@
     }
     .html-flag { color: #7c3aed; font-size: 11px; font-style: italic; }
 
-    /* Loading / error */
-    .loading { text-align: center; padding: 40px; color: #6b7280; }
+    /* Loading / error — .loading, @keyframes spin from shared.css */
+    /* page-specific: larger block-centered spinner with lighter border */
     .spinner {
-      border: 3px solid #f3f3f3;
-      border-top: 3px solid #2563eb;
-      border-radius: 50%;
+      display: block;
+      border-color: #f3f3f3;
+      border-top-color: #2563eb;
       width: 40px; height: 40px;
-      animation: spin 1s linear infinite;
       margin: 0 auto 15px;
     }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     .error-msg { text-align: center; padding: 40px; color: #dc2626; }
 
     @media (max-width: 768px) {

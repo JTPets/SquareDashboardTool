@@ -8,14 +8,7 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }    .container {
       max-width: 1800px; /* page-specific: shared has 1200px */
-}    .controls {
-      padding: 20px;
-      border-bottom: 1px solid #e5e7eb;
-      display: flex;
-      gap: 15px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
+}    /* .controls from shared.css */
     .controls label { font-size: 14px; font-weight: 500; color: #374151; }
     .controls select {
       padding: 8px 12px;
@@ -106,23 +99,15 @@
       color: #991b1b;
     }
 
-    .loading {
-      text-align: center;
-      padding: 40px;
-      color: #6b7280;
-    }
+    /* .loading, @keyframes spin from shared.css */
+    /* page-specific: larger block-centered spinner with lighter border */
     .spinner {
-      border: 3px solid #f3f3f3;
-      border-top: 3px solid #2563eb;
-      border-radius: 50%;
+      display: block;
+      border-color: #f3f3f3;
+      border-top-color: #2563eb;
       width: 40px;
       height: 40px;
-      animation: spin 1s linear infinite;
       margin: 0 auto 15px;
-    }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
     }
     .error {
       text-align: center;

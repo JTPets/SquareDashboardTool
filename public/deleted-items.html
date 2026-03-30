@@ -11,14 +11,7 @@
 }
     .header {
       background: #dc2626; /* page-specific: shared has #2563eb */
-}    .controls {
-      padding: 20px;
-      border-bottom: 1px solid #e5e7eb;
-      display: flex;
-      gap: 15px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
+}    /* .controls from shared.css */
     .controls label { font-size: 14px; font-weight: 500; color: #374151; }
     .controls select {
       padding: 8px 12px;
@@ -125,21 +118,10 @@
 
     /* .text-right from shared.css */
     .text-center { text-align: center; }
-    .loading {
-      text-align: center;
-      padding: 40px;
-      color: #6b7280;
-      font-size: 14px;
-    }
-    .empty-state {
-      text-align: center;
-      padding: 60px 20px;
-      color: #6b7280;
-    }
+    /* .loading, .empty-state from shared.css */
+    .loading { font-size: 14px; /* page-specific: explicit 14px */ }
     .empty-state h3 {
-      font-size: 18px;
-      margin-bottom: 10px;
-      color: #374151;
+      margin-bottom: 10px; /* page-specific: 10px vs shared 8px */
     }
 
     .footer {
