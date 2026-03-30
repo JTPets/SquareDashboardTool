@@ -1,24 +1,24 @@
 /**
  * Analytics Routes
  *
- * Handles sales velocity and reorder suggestions:
- * - Sales velocity data retrieval
- * - Reorder suggestions based on sales velocity and inventory levels
- *
- * Endpoints:
- * - GET /api/sales-velocity       - Get sales velocity data
- * - GET /api/reorder-suggestions  - Calculate reorder suggestions
+ * Handles sales velocity, reorder suggestions, and auto min/max recommendations:
+ * - GET /api/sales-velocity             - Get sales velocity data
+ * - GET /api/reorder-suggestions        - Calculate reorder suggestions
+ * - GET /api/min-max/recommendations    - Generate min stock recommendations (dry run)
+ * - POST /api/min-max/apply             - Apply selected recommendations
+ * - GET /api/min-max/history            - Audit log of applied changes (paginated)
  */
 
 const express = require('express');
 const router = express.Router();
 const db = require('../utils/database');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/analytics');
 const { getReorderSuggestions } = require('../services/catalog/reorder-service');
-const { sendSuccess, sendError } = require('../utils/response-helper');
+const autoMinMax = require('../services/inventory/auto-min-max-service');
+const { sendSuccess, sendError, sendPaginated } = require('../utils/response-helper');
 
 // ==================== SALES VELOCITY ENDPOINTS ====================
 
@@ -101,5 +101,81 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
 
     sendSuccess(res, result);
 }));
+
+// ==================== AUTO MIN/MAX RECOMMENDATIONS ====================
+
+/**
+ * GET /api/min-max/recommendations
+ * Returns all current min-stock recommendations for the merchant (dry run — no changes applied).
+ * Items with recommendedMin=null are warnings (e.g. possible supplier issue).
+ */
+router.get('/min-max/recommendations',
+    requireAuth, requireMerchant, validators.getRecommendations,
+    asyncHandler(async (req, res) => {
+        const recommendations = await autoMinMax.generateRecommendations(req.merchantContext.id);
+        sendSuccess(res, { count: recommendations.length, recommendations });
+    })
+);
+
+/**
+ * POST /api/min-max/apply
+ * Applies selected recommendations (all-or-nothing transaction).
+ * Body: { recommendations: [{ variationId, locationId, newMin }] }
+ * Skips entries where newMin is null (supplier-issue warnings).
+ */
+router.post('/min-max/apply',
+    requireAuth, requireMerchant, requireWriteAccess, validators.applyRecommendations,
+    asyncHandler(async (req, res) => {
+        const merchantId = req.merchantContext.id;
+        const incoming = req.body.recommendations;
+
+        // Filter out supplier-issue warnings (newMin=null) — those cannot be applied
+        const applicable = incoming.filter(r => r.newMin !== null && r.newMin !== undefined);
+        if (applicable.length === 0) {
+            return sendError(res, 'No applicable recommendations to apply', 400);
+        }
+
+        const result = await autoMinMax.applyAllRecommendations(merchantId, applicable);
+        sendSuccess(res, result);
+    })
+);
+
+/**
+ * GET /api/min-max/history
+ * Paginated audit log of applied min-stock changes.
+ * Query: limit (default 50, max 200), offset (default 0)
+ */
+router.get('/min-max/history',
+    requireAuth, requireMerchant, validators.getHistory,
+    asyncHandler(async (req, res) => {
+        const merchantId = req.merchantContext.id;
+        const limit = parseInt(req.query.limit) || 50;
+        const offset = parseInt(req.query.offset) || 0;
+
+        const [rowsResult, totalResult] = await Promise.all([
+            db.query(
+                `SELECT a.*, v.name AS variation_name, i.name AS item_name, v.sku
+                 FROM min_stock_audit a
+                 LEFT JOIN variations v ON v.id = a.variation_id AND v.merchant_id = a.merchant_id
+                 LEFT JOIN items i ON i.id = v.item_id AND i.merchant_id = a.merchant_id
+                 WHERE a.merchant_id = $1
+                 ORDER BY a.created_at DESC
+                 LIMIT $2 OFFSET $3`,
+                [merchantId, limit, offset]
+            ),
+            db.query(
+                'SELECT COUNT(*) AS total FROM min_stock_audit WHERE merchant_id = $1',
+                [merchantId]
+            )
+        ]);
+
+        sendPaginated(res, {
+            items: rowsResult.rows,
+            total: parseInt(totalResult.rows[0].total),
+            limit,
+            offset
+        });
+    })
+);
 
 module.exports = router;

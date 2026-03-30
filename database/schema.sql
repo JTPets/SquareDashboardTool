@@ -529,6 +529,27 @@ COMMENT ON TABLE variation_vendors IS 'Vendor pricing and codes for each variati
 COMMENT ON TABLE inventory_counts IS 'Current inventory levels synchronized from Square';
 COMMENT ON TABLE sales_velocity IS 'Sales velocity calculations for demand forecasting';
 COMMENT ON TABLE variation_location_settings IS 'Location-specific inventory settings';
+
+-- Min stock audit — tracks every applied auto min/max recommendation (BACKLOG-106)
+CREATE TABLE IF NOT EXISTS min_stock_audit (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    variation_id TEXT NOT NULL,
+    location_id TEXT NOT NULL,
+    previous_min INTEGER NOT NULL,
+    new_min INTEGER NOT NULL,
+    rule TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    velocity_91d NUMERIC(10,4),
+    days_of_stock NUMERIC(10,1),
+    quantity INTEGER,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_min_stock_audit_merchant_created
+    ON min_stock_audit(merchant_id, created_at DESC);
+
+COMMENT ON TABLE min_stock_audit IS 'Audit trail for auto min/max stock recommendation applies';
 COMMENT ON TABLE purchase_orders IS 'Purchase orders for inventory replenishment';
 COMMENT ON TABLE purchase_order_items IS 'Line items for purchase orders';
 

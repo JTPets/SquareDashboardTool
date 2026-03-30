@@ -30,6 +30,12 @@ jest.mock('../../middleware/auth', () => ({
         }
         next();
     },
+    requireWriteAccess: (req, res, next) => next(),
+}));
+
+jest.mock('../../services/inventory/auto-min-max-service', () => ({
+    generateRecommendations: jest.fn(),
+    applyAllRecommendations: jest.fn(),
 }));
 
 jest.mock('../../middleware/merchant', () => ({
@@ -61,6 +67,7 @@ const request = require('supertest');
 const express = require('express');
 const session = require('express-session');
 const db = require('../../utils/database');
+const autoMinMax = require('../../services/inventory/auto-min-max-service');
 const { getMerchantSettings } = require('../../services/merchant');
 const { calculateReorderQuantity } = require('../../services/catalog/reorder-math');
 
@@ -601,5 +608,183 @@ describe('GET /api/reorder-suggestions', () => {
         const res = await request(app).get('/api/reorder-suggestions');
 
         expect(res.status).toBe(500);
+    });
+});
+
+// ============================================================================
+// TESTS — GET /api/min-max/recommendations
+// ============================================================================
+
+describe('GET /api/min-max/recommendations', () => {
+    let app;
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        app = createTestApp();
+    });
+
+    it('returns recommendations from service', async () => {
+        autoMinMax.generateRecommendations.mockResolvedValueOnce([
+            { variationId: 'var1', locationId: 'loc1', recommendedMin: 1, rule: 'OVERSTOCKED' }
+        ]);
+
+        const res = await request(app).get('/api/min-max/recommendations');
+
+        expect(res.status).toBe(200);
+        expect(res.body.count).toBe(1);
+        expect(res.body.recommendations).toHaveLength(1);
+        expect(autoMinMax.generateRecommendations).toHaveBeenCalledWith(1);
+    });
+
+    it('returns empty array when no recommendations', async () => {
+        autoMinMax.generateRecommendations.mockResolvedValueOnce([]);
+
+        const res = await request(app).get('/api/min-max/recommendations');
+
+        expect(res.status).toBe(200);
+        expect(res.body.count).toBe(0);
+    });
+
+    it('returns 401 without auth', async () => {
+        app = createTestApp({ authenticated: false });
+        const res = await request(app).get('/api/min-max/recommendations');
+        expect(res.status).toBe(401);
+    });
+
+    it('returns 400 without merchant context', async () => {
+        app = createTestApp({ hasMerchant: false });
+        const res = await request(app).get('/api/min-max/recommendations');
+        expect(res.status).toBe(400);
+    });
+});
+
+// ============================================================================
+// TESTS — POST /api/min-max/apply
+// ============================================================================
+
+describe('POST /api/min-max/apply', () => {
+    let app;
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        app = createTestApp();
+    });
+
+    it('applies valid recommendations', async () => {
+        autoMinMax.applyAllRecommendations.mockResolvedValueOnce({ applied: 2, failed: 0, errors: [] });
+
+        const res = await request(app)
+            .post('/api/min-max/apply')
+            .send({ recommendations: [
+                { variationId: 'var1', locationId: 'loc1', newMin: 1 },
+                { variationId: 'var2', locationId: 'loc1', newMin: 0 },
+            ]});
+
+        expect(res.status).toBe(200);
+        expect(res.body.applied).toBe(2);
+        expect(autoMinMax.applyAllRecommendations).toHaveBeenCalledWith(1, expect.any(Array));
+    });
+
+    it('returns 400 when recommendations array is empty', async () => {
+        const res = await request(app)
+            .post('/api/min-max/apply')
+            .send({ recommendations: [] });
+
+        expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when recommendations is missing', async () => {
+        const res = await request(app)
+            .post('/api/min-max/apply')
+            .send({});
+
+        expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when newMin is negative', async () => {
+        const res = await request(app)
+            .post('/api/min-max/apply')
+            .send({ recommendations: [{ variationId: 'var1', locationId: 'loc1', newMin: -1 }] });
+
+        expect(res.status).toBe(400);
+    });
+
+    it('filters out null-newMin entries and returns 400 if none left', async () => {
+        // null newMin entries are supplier-issue warnings — cannot be applied
+        const res = await request(app)
+            .post('/api/min-max/apply')
+            .send({ recommendations: [{ variationId: 'var1', locationId: 'loc1', newMin: null }] });
+
+        expect(res.status).toBe(400);
+    });
+
+    it('returns 401 without auth', async () => {
+        app = createTestApp({ authenticated: false });
+        const res = await request(app).post('/api/min-max/apply').send({ recommendations: [] });
+        expect(res.status).toBe(401);
+    });
+});
+
+// ============================================================================
+// TESTS — GET /api/min-max/history
+// ============================================================================
+
+describe('GET /api/min-max/history', () => {
+    let app;
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        app = createTestApp();
+    });
+
+    it('returns paginated audit history', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [
+                { id: 1, variation_id: 'var1', location_id: 'loc1',
+                  previous_min: 2, new_min: 1, rule: 'OVERSTOCKED' }
+            ]})
+            .mockResolvedValueOnce({ rows: [{ total: '1' }] });
+
+        const res = await request(app).get('/api/min-max/history');
+
+        expect(res.status).toBe(200);
+        expect(res.body.items).toHaveLength(1);
+        expect(res.body.total).toBe(1);
+        expect(res.body.limit).toBe(50);
+        expect(res.body.offset).toBe(0);
+    });
+
+    it('accepts custom limit and offset', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({ rows: [{ total: '0' }] });
+
+        const res = await request(app).get('/api/min-max/history?limit=10&offset=20');
+
+        expect(res.status).toBe(200);
+        expect(res.body.limit).toBe(10);
+        expect(res.body.offset).toBe(20);
+    });
+
+    it('rejects limit > 200', async () => {
+        const res = await request(app).get('/api/min-max/history?limit=201');
+        expect(res.status).toBe(400);
+    });
+
+    it('rejects negative offset', async () => {
+        const res = await request(app).get('/api/min-max/history?offset=-1');
+        expect(res.status).toBe(400);
+    });
+
+    it('returns 401 without auth', async () => {
+        app = createTestApp({ authenticated: false });
+        const res = await request(app).get('/api/min-max/history');
+        expect(res.status).toBe(401);
+    });
+
+    it('returns 400 without merchant context', async () => {
+        app = createTestApp({ hasMerchant: false });
+        const res = await request(app).get('/api/min-max/history');
+        expect(res.status).toBe(400);
     });
 });
