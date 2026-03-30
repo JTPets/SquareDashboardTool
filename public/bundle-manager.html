@@ -4,46 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bundle Manager - Square Dashboard Addon</title>
+  <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-      background-color: #f5f5f5;
-      padding: 20px;
-      line-height: 1.4;
-    }
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-      overflow: hidden;
-    }
-    .header {
-      background: #2563eb;
-      color: white;
-      padding: 15px 20px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+    * { margin: 0; padding: 0; box-sizing: border-box; }    .header {
+      padding: 15px 20px; /* page-specific: shared has 20px */
       flex-wrap: wrap;
       gap: 12px;
-    }
-    .header h1 { font-size: 24px; font-weight: 600; }
-    .header-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
-    .back-button {
-      background: rgba(255,255,255,0.2);
-      color: white;
-      padding: 8px 12px;
-      border-radius: 6px;
-      text-decoration: none;
-      font-size: 13px;
+}    .back-button {
+      padding: 8px 12px; /* page-specific: shared has 8px 16px */
+      border-radius: 6px; /* page-specific: shared has 4px */
+      font-size: 13px; /* page-specific: shared has 14px */
       white-space: nowrap;
-    }
-    .back-button:hover { background: rgba(255,255,255,0.3); }
-
-    .content { padding: 20px; }
+}    .content { padding: 20px; }
 
     .bundle-list { margin-bottom: 20px; }
     .bundle-card {
@@ -235,7 +207,6 @@
       .component-add-row { flex-direction: column; }
     }
   </style>
-  <link rel="stylesheet" href="/css/shared.css">
 </head>
 <body>
   <div class="container">
