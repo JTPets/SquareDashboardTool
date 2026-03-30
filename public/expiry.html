@@ -55,12 +55,11 @@
       flex-wrap: wrap;
     }
     .controls select, .controls button {
-      padding: 8px 16px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      font-size: 14px;
+      background: none; /* page-specific: outline-style button, not green */
+      border: 1px solid #d1d5db; /* page-specific: shared has none */
       min-height: 40px;
-    }
+      color: inherit; /* page-specific: dark text, not white */
+}
     .controls button {
       background: #059669;
       color: white;
@@ -68,7 +67,6 @@
       cursor: pointer;
       font-weight: 500;
     }
-    .controls button:hover { background: #047857; }
     .sync-button { background: #dc2626 !important; margin-left: auto; }
     .sync-button:hover { background: #b91c1c !important; }
     .table-container {

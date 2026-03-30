@@ -231,22 +231,17 @@
       border-top: 1px solid #e5e7eb;
     }
     .btn {
-      padding: 8px 16px;
-      border-radius: 4px;
-      font-size: 13px;
-      font-weight: 500;
-      border: none;
-      cursor: pointer;
-      text-decoration: none;
-      display: inline-block;
+      padding: 8px 16px; /* page-specific: shared has 10px 16px */
+      font-size: 13px; /* page-specific: shared has 14px */
+      display: inline-block; /* page-specific: shared has inline-flex */
       line-height: 1.4;
-    }
-    .btn-primary { background: #1f2937; color: white; }
+}
+    .btn-primary {
+    background: #1f2937; /* page-specific: shared has #2563eb */
+}
     .btn-primary:hover { background: #111827; }
     .btn-blue { background: #2563eb; color: white; }
     .btn-blue:hover { background: #1d4ed8; }
-    .btn-secondary { background: #6b7280; color: white; }
-    .btn-secondary:hover { background: #4b5563; }
     .btn-outline { background: white; color: #374151; border: 1px solid #d1d5db; }
     .btn-outline:hover { background: #f3f4f6; }
     .btn-green { background: #059669; color: white; }

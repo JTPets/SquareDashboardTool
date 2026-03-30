@@ -22,21 +22,14 @@
 
     /* Buttons */
     .btn {
-      padding: 8px 16px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-weight: 500;
-      font-size: 13px;
-    }
-    .btn-primary { background: #2563eb; color: white; }
-    .btn-primary:hover { background: #1d4ed8; }
-    .btn-danger { background: #ef4444; color: white; }
+      padding: 8px 16px; /* page-specific: shared has 10px 16px */
+      font-size: 13px; /* page-specific: shared has 14px */
+}
+    .btn-danger {
+    background: #ef4444; /* page-specific: shared has #dc2626 */
+}
     .btn-danger:hover { background: #dc2626; }
-    .btn-secondary { background: #6b7280; color: white; }
-    .btn-secondary:hover { background: #4b5563; }
     .btn-sm { padding: 4px 10px; font-size: 12px; }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
     /* Tables */
     .staff-table {
