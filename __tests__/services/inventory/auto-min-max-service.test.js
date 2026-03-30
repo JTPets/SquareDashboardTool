@@ -16,7 +16,12 @@ jest.mock('../../../utils/database', () => ({
     transaction: jest.fn(),
 }));
 
+jest.mock('../../../utils/email-notifier', () => ({
+    sendAlert: jest.fn().mockResolvedValue(undefined),
+}));
+
 const db = require('../../../utils/database');
+const emailNotifier = require('../../../utils/email-notifier');
 const service = require('../../../services/inventory/auto-min-max-service');
 
 const MERCHANT_ID = 1;
@@ -59,6 +64,16 @@ function oldItemDate() {
 // Helper: item created < 91 days ago (too new)
 function newItemDate() {
     return new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+}
+
+// Helper: velocity last_sync fresh (1 day ago)
+function freshSyncDate() {
+    return new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString();
+}
+
+// Helper: velocity last_sync stale (8 days ago)
+function staleSyncDate() {
+    return new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
 }
 
 beforeEach(() => {
@@ -286,6 +301,37 @@ describe('generateRecommendations', () => {
             quantity: expect.any(Number),
         });
     });
+
+    // --- Guardrail 3: Null / zero velocity ---
+
+    test('Guardrail 3: null velocity item → not included in recommendations', async () => {
+        // Without this guard, dos=999999 would wrongly fire Rule 1 and reduce min
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ velocity_91d: null, current_min: '2', days_of_stock: '999999' })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(0);
+    });
+
+    test('Guardrail 3: zero velocity item → not included in recommendations', async () => {
+        // Without this guard, dos=999999 would wrongly fire Rule 1 and reduce min
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ velocity_91d: '0', current_min: '2', days_of_stock: '999999' })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(0);
+    });
+
+    test('Guardrail 3: zero velocity item with expiry tier still gets Rule 3 (min → 0)', async () => {
+        // Rule 3 is checked before the velocity guard — expiry overrides everything
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ velocity_91d: '0', current_min: '2', expiry_tier: 'AUTO25' })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].rule).toBe('EXPIRING');
+        expect(recs[0].recommendedMin).toBe(0);
+    });
 });
 
 // ==================== applyWeeklyAdjustments ====================
@@ -297,16 +343,20 @@ describe('applyWeeklyAdjustments', () => {
     });
 
     test('returns zero counts when nothing is applicable', async () => {
-        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query
+            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] }) // stale check
+            .mockResolvedValueOnce({ rows: [] }); // DATA_QUERY
         const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
         expect(result).toMatchObject({ reduced: 0, increased: 0 });
         expect(db.transaction).not.toHaveBeenCalled();
     });
 
     test('counts pinned items separately', async () => {
-        db.query.mockResolvedValueOnce({ rows: [
-            makeRow({ min_stock_pinned: true, days_of_stock: '95', current_min: '2' })
-        ]});
+        db.query
+            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] }) // stale check
+            .mockResolvedValueOnce({ rows: [
+                makeRow({ min_stock_pinned: true, days_of_stock: '95', current_min: '2' })
+            ]}); // DATA_QUERY
         const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
         expect(result.pinned).toBe(1);
         expect(result.reduced).toBe(0);
@@ -314,19 +364,24 @@ describe('applyWeeklyAdjustments', () => {
     });
 
     test('counts tooNew items separately', async () => {
-        db.query.mockResolvedValueOnce({ rows: [
-            makeRow({ item_created_at: newItemDate(), days_of_stock: '95', current_min: '2' })
-        ]});
+        db.query
+            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] }) // stale check
+            .mockResolvedValueOnce({ rows: [
+                makeRow({ item_created_at: newItemDate(), days_of_stock: '95', current_min: '2' })
+            ]}); // DATA_QUERY
         const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
         expect(result.tooNew).toBe(1);
         expect(result.reduced).toBe(0);
     });
 
     test('applies all applicable recs in one transaction and returns correct counts', async () => {
-        db.query.mockResolvedValueOnce({ rows: [
-            makeRow({ variation_id: 'var1', days_of_stock: '95', current_min: '2', velocity_91d: '0.5', quantity: '48' }),
-            makeRow({ variation_id: 'var2', quantity: '0', velocity_91d: '0.5', current_min: '0', days_of_stock: '0', last_sold_at: recentDate() }),
-        ]});
+        db.query
+            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] }) // stale check
+            .mockResolvedValueOnce({ rows: [
+                makeRow({ variation_id: 'var1', days_of_stock: '95', current_min: '2', velocity_91d: '0.5', quantity: '48' }),
+                makeRow({ variation_id: 'var2', quantity: '0', velocity_91d: '0.5', current_min: '0', days_of_stock: '0', last_sold_at: recentDate() }),
+            ]}) // DATA_QUERY
+            .mockResolvedValueOnce({ rows: [{ total: '100' }] }); // circuit breaker: 1/100 = 1% < 20%
 
         db.transaction.mockImplementationOnce(async (fn) => {
             const mockClient = {
@@ -339,6 +394,78 @@ describe('applyWeeklyAdjustments', () => {
         expect(db.transaction).toHaveBeenCalledTimes(1);
         expect(result.reduced).toBe(1);
         expect(result.increased).toBe(1);
+    });
+
+    // --- Guardrail 1: Stale velocity ---
+
+    test('Guardrail 1: stale velocity (8 days old) → aborted with reason', async () => {
+        db.query.mockResolvedValueOnce({ rows: [{ last_sync: staleSyncDate() }] });
+        const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
+        expect(result.aborted).toBe(true);
+        expect(result.reason).toMatch(/stale/i);
+        expect(emailNotifier.sendAlert).toHaveBeenCalledTimes(1);
+        expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    test('Guardrail 1: no velocity data at all (null last_sync) → aborted', async () => {
+        db.query.mockResolvedValueOnce({ rows: [{ last_sync: null }] });
+        const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
+        expect(result.aborted).toBe(true);
+        expect(result.reason).toMatch(/never/i);
+        expect(emailNotifier.sendAlert).toHaveBeenCalledTimes(1);
+    });
+
+    test('Guardrail 1: fresh velocity (1 day old) → not aborted', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] }) // stale check
+            .mockResolvedValueOnce({ rows: [] }); // DATA_QUERY — no recs
+        const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
+        expect(result.aborted).toBeUndefined();
+        expect(result.reduced).toBe(0);
+    });
+
+    // --- Guardrail 2: Circuit breaker ---
+
+    test('Guardrail 2: 25% reductions → aborted', async () => {
+        // 4 reductions out of 16 total = 25% > 20%
+        const overstockedRow = (id) => makeRow({
+            variation_id: id, days_of_stock: '120', current_min: '2', velocity_91d: '0.5', quantity: '60'
+        });
+        db.query
+            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] }) // stale check
+            .mockResolvedValueOnce({ rows: [
+                overstockedRow('v1'), overstockedRow('v2'),
+                overstockedRow('v3'), overstockedRow('v4'),
+            ]}) // DATA_QUERY — 4 overstocked reductions
+            .mockResolvedValueOnce({ rows: [{ total: '16' }] }); // circuit breaker: 4/16 = 25%
+
+        const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
+        expect(result.aborted).toBe(true);
+        expect(result.reason).toMatch(/circuit breaker/i);
+        expect(emailNotifier.sendAlert).toHaveBeenCalledTimes(1);
+        expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    test('Guardrail 2: 15% reductions → not aborted (proceeds)', async () => {
+        // 3 reductions out of 20 total = 15% < 20%
+        const overstockedRow = (id) => makeRow({
+            variation_id: id, days_of_stock: '120', current_min: '2', velocity_91d: '0.5', quantity: '60'
+        });
+        db.query
+            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] }) // stale check
+            .mockResolvedValueOnce({ rows: [
+                overstockedRow('v1'), overstockedRow('v2'), overstockedRow('v3'),
+            ]}) // DATA_QUERY — 3 overstocked reductions
+            .mockResolvedValueOnce({ rows: [{ total: '20' }] }); // circuit breaker: 3/20 = 15%
+
+        db.transaction.mockImplementationOnce(async (fn) => {
+            const mockClient = { query: jest.fn().mockResolvedValue({ rows: [{ stock_alert_min: 2 }] }) };
+            return fn(mockClient);
+        });
+
+        const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
+        expect(result.aborted).toBeUndefined();
+        expect(result.reduced).toBe(3);
     });
 });
 
