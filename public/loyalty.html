@@ -108,26 +108,8 @@
     .tab-content { display: none; padding: 20px; }
     .tab-content.active { display: block; }
 
-    /* Table styles */
-    .table-container {
-      overflow-x: auto;
-      max-height: 60vh;
-      overflow-y: auto;
-    }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
-    th {
-      background: #f9fafb;
-      font-weight: 600;
-      position: sticky;
-      top: 0;
-      z-index: 10;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    tr:hover { background: #f9fafb; }
-    .text-right { text-align: right; }
+    /* page-specific: scrollable table height */
+    .table-container { max-height: 60vh; overflow-y: auto; }
     .text-center { text-align: center; }
 
     /* Status badges */

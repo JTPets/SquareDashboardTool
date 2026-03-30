@@ -327,3 +327,52 @@ body {
 .controls button:hover {
   background: #047857;
 }
+
+/* =============================================================
+   Tables
+   Mode values derived from 14+ pages. Pages with different
+   font sizes, sticky z-index, max-height, or special column
+   layouts keep inline overrides with page-specific comments.
+   ============================================================= */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th, td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+th {
+  background: #f9fafb;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.table-container {
+  overflow-x: auto;
+}
+
+tr:hover {
+  background: #f9fafb;
+}
+
+.text-right {
+  text-align: right;
+}
+
+.product-name {
+  max-width: 250px;
+  white-space: normal;
+  font-weight: 500;
+  line-height: 1.3;
+}
