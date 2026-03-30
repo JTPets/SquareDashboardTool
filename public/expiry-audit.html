@@ -503,22 +503,6 @@
       100% { transform: rotate(360deg); }
     }
 
-    .modal {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0,0,0,0.5);
-      z-index: 1000;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .modal.active {
-      display: flex;
-    }
     .modal-content {
       background: white;
       border-radius: 16px;
@@ -535,28 +519,17 @@
       margin-bottom: 16px;
       color: #111827;
     }
-    .form-group {
-      margin-bottom: 16px;
-    }
-    .form-label {
-      display: block;
-      font-size: 14px;
-      font-weight: 500;
-      margin-bottom: 8px;
-      color: #374151;
-    }
+    /* page-specific: 8px bottom spacing (shared has 6px) */
+    .form-label { margin-bottom: 8px; }
+    /* page-specific: larger touch target (2px border, 16px font, blue focus) */
     .form-input {
-      width: 100%;
       padding: 12px;
       border: 2px solid #e5e7eb;
       border-radius: 8px;
       font-size: 16px;
       transition: border 0.2s;
     }
-    .form-input:focus {
-      outline: none;
-      border-color: #3b82f6;
-    }
+    .form-input:focus { border-color: #3b82f6; box-shadow: none; }
 
     .confirm-display {
       border-radius: 8px;

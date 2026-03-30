@@ -46,32 +46,11 @@
       padding: 30px;
     }
 
-    .form-group {
-      margin-bottom: 20px;
-    }
-    .form-label {
-      display: block;
-      font-size: 14px;
-      font-weight: 500;
-      color: #374151;
-      margin-bottom: 6px;
-    }
-    .form-input {
-      width: 100%;
-      padding: 12px 14px;
-      border: 1px solid #d1d5db;
-      border-radius: 6px;
-      font-size: 15px;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-    .form-input:focus {
-      outline: none;
-      border-color: #2563eb;
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-    }
-    .form-input::placeholder {
-      color: #9ca3af;
-    }
+    /* page-specific: auth form uses 20px spacing (shared has 16px) */
+    .form-group { margin-bottom: 20px; }
+    /* page-specific: 15px font for login readability (shared has 14px) */
+    .form-input { font-size: 15px; }
+    .form-input::placeholder { color: #9ca3af; }
 
     .btn-login {
       width: 100%;

@@ -187,24 +187,7 @@
       flex-wrap: wrap;
     }
 
-    /* Modal styles */
-    .modal {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.5);
-      z-index: 1000;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .modal.active {
-      display: flex;
-    }
-
+    /* Modal overrides — PO uses 2px borders and 25px padding (shared has 1px / 20px) */
     .modal-content {
       background: white;
       border-radius: 8px;
@@ -327,31 +310,22 @@
       background: #059669; /* page-specific: shared has #10b981 */
 }
 
-    .form-group {
-      margin-bottom: 15px;
-    }
-
+    /* Form overrides — PO modal uses tighter spacing and smaller labels */
+    .form-group { margin-bottom: 15px; } /* page-specific: 15px (shared has 16px) */
     .form-label {
       display: block;
-      font-size: 13px;
-      font-weight: 600;
+      font-size: 13px; /* page-specific: 13px (shared has 14px) */
+      font-weight: 600; /* page-specific: 600 (shared has 500) */
       color: #374151;
       margin-bottom: 6px;
     }
-
     .form-input {
       width: 100%;
-      padding: 8px 12px;
+      padding: 8px 12px; /* page-specific: tighter padding (shared has 12px 14px) */
       border: 1px solid #d1d5db;
       border-radius: 6px;
       font-size: 14px;
-      font-family: inherit;
-    }
-
-    .form-input:focus {
-      outline: none;
-      border-color: #2563eb;
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+      font-family: inherit; /* page-specific: explicit inherit for textarea */
     }
 
     .form-input:disabled {

@@ -8,7 +8,8 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }    .header {
       background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%); /* page-specific: shared has #2563eb */
-}    .header-subtitle { font-size: 14px; opacity: 0.9; margin-top: 4px; }    /* Alert Banners */
+}    .header-subtitle { font-size: 14px; opacity: 0.9; margin-top: 4px; }    /* Alert Banners — color variants from shared.css; base override for flex layout */
+    /* page-specific: flex row with icon gap; larger padding and radius (shared has 12px 16px / 6px) */
     .alert {
       padding: 15px 20px;
       border-radius: 8px;
@@ -16,26 +17,6 @@
       display: flex;
       align-items: center;
       gap: 12px;
-    }
-    .alert-warning {
-      background: #fef3c7;
-      border: 1px solid #f59e0b;
-      color: #92400e;
-    }
-    .alert-success {
-      background: #d1fae5;
-      border: 1px solid #059669;
-      color: #065f46;
-    }
-    .alert-error {
-      background: #fee2e2;
-      border: 1px solid #dc2626;
-      color: #991b1b;
-    }
-    .alert-info {
-      background: #dbeafe;
-      border: 1px solid #2563eb;
-      color: #1e40af;
     }
 
     /* Section Cards */
