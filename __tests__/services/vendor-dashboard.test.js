@@ -374,6 +374,63 @@ describe('Vendor Dashboard Service', () => {
             expect(vendorQuery).toContain('purchase_order_items');
             expect(vendorQuery).toContain('quantity_ordered');
         });
+
+        test('capped reorder_value differs from uncapped when stock_alert_max limits quantity', async () => {
+            mockDashboardQueries([{
+                id: 'V1', name: 'Vendor', schedule_type: null,
+                order_day: null, receive_day: null, lead_time_days: 3,
+                minimum_order_amount: 0, payment_method: null, payment_terms: null,
+                contact_email: null, order_method: null, notes: null,
+                default_supply_days: 30, total_items: 1, oos_count: 0,
+                reorder_count: 1, pending_po_value: 0, last_ordered_at: null
+            }], [
+                // velocity=2/day, 30+3+7=40 day threshold, available=5
+                // uncapped: ceil(2*40) - 5 = 75 units × 1000 = 75000
+                // capped: min(75, 20 - 5) = 15 units × 1000 = 15000
+                { vendor_id: 'V1', velocity: 2, available_qty: 5, case_pack: 1,
+                  reorder_multiple: 1, stock_alert_min: 0, stock_alert_max: 20,
+                  unit_cost: 1000, vendor_supply_days: 30, vendor_lead_time_days: 3,
+                  pending_po_qty: 0 }
+            ]);
+
+            const result = await getVendorDashboard(merchantId);
+
+            expect(result.vendors[0].reorder_value).toBe(15000);
+            expect(result.vendors[0].uncapped_reorder_value).toBe(75000);
+        });
+
+        test('capped and uncapped match when no stock_alert_max is set', async () => {
+            mockDashboardQueries([{
+                id: 'V1', name: 'Vendor', schedule_type: null,
+                order_day: null, receive_day: null, lead_time_days: 3,
+                minimum_order_amount: 0, payment_method: null, payment_terms: null,
+                contact_email: null, order_method: null, notes: null,
+                default_supply_days: 30, total_items: 1, oos_count: 0,
+                reorder_count: 1, pending_po_value: 0, last_ordered_at: null
+            }], [
+                { vendor_id: 'V1', velocity: 2, available_qty: 10, case_pack: 1,
+                  reorder_multiple: 1, stock_alert_min: 0, stock_alert_max: null,
+                  unit_cost: 500, vendor_supply_days: 30, vendor_lead_time_days: 3,
+                  pending_po_qty: 0 }
+            ]);
+
+            const result = await getVendorDashboard(merchantId);
+
+            expect(result.vendors[0].reorder_value).toBe(result.vendors[0].uncapped_reorder_value);
+        });
+
+        test('uncapped_reorder_value included in unassigned vendor row', async () => {
+            mockDashboardQueries([], [],
+                { total_items: 5, oos_count: 1, reorder_count: 2 },
+                1
+            );
+
+            const result = await getVendorDashboard(merchantId);
+
+            const unassigned = result.vendors.find(v => v.id === '__unassigned__');
+            expect(unassigned).toBeTruthy();
+            expect(unassigned.uncapped_reorder_value).toBe(0);
+        });
     });
 
     // ==================== UPDATE VENDOR SETTINGS ====================
