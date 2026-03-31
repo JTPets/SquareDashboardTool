@@ -52,7 +52,79 @@ const subscriptionRateLimit = configureSubscriptionRateLimit();
 const subscriptionBridge = require('../services/subscription-bridge');
 // LOGIC CHANGE: extracted promo code validation to shared service (BACKLOG-74)
 const { validatePromoCode } = require('../services/promo-validation');
+const featureRegistry = require('../config/feature-registry');
 const { sendSuccess, sendError } = require('../utils/response-helper');
+
+/**
+ * GET /api/public/pricing
+ * Return module and bundle pricing for the public pricing page.
+ * No authentication required.
+ */
+router.get('/public/pricing', (req, res) => {
+    const modules = featureRegistry.getPaidModules().map(m => ({
+        key: m.key,
+        name: m.name,
+        price_cents: m.price_cents,
+    }));
+
+    const bundles = Object.values(featureRegistry.bundles).map(b => ({
+        key: b.key,
+        name: b.name,
+        includes: b.includes,
+        price_cents: b.price_cents,
+    }));
+
+    sendSuccess(res, { modules, bundles });
+});
+
+/**
+ * GET /api/public/promo/check?code=XXX
+ * Lightweight public endpoint: checks whether a platform-owner promo code is
+ * currently active. Returns only whether the code exists — no pricing detail.
+ * Used by the pricing page to give feedback before the user reaches subscribe.html.
+ */
+router.get('/public/promo/check', promoRateLimit, asyncHandler(async (req, res) => {
+    const code = (req.query.code || '').trim();
+    if (!code) {
+        return sendError(res, 'code is required', 400, 'MISSING_CODE');
+    }
+
+    const result = await db.query(`
+        SELECT pc.code, pc.description, pc.discount_type, pc.discount_value,
+               pc.fixed_price_cents, pc.duration_months
+        FROM promo_codes pc
+        JOIN merchants m ON m.id = pc.merchant_id
+        WHERE UPPER(pc.code) = UPPER($1)
+          AND m.subscription_status = 'platform_owner'
+          AND pc.is_active = TRUE
+          AND (pc.valid_from IS NULL OR pc.valid_from <= NOW())
+          AND (pc.valid_until IS NULL OR pc.valid_until >= NOW())
+          AND (pc.max_uses IS NULL OR pc.times_used < pc.max_uses)
+    `, [code]);
+
+    if (result.rows.length === 0) {
+        return sendSuccess(res, { valid: false });
+    }
+
+    const promo = result.rows[0];
+    let discountDisplay;
+    if (promo.discount_type === 'fixed_price') {
+        discountDisplay = `$${(promo.fixed_price_cents / 100).toFixed(2)}/mo`;
+    } else if (promo.discount_type === 'percent') {
+        discountDisplay = `${promo.discount_value}% off`;
+    } else {
+        discountDisplay = `$${(promo.discount_value / 100).toFixed(2)} off`;
+    }
+
+    sendSuccess(res, {
+        valid: true,
+        code: promo.code,
+        description: promo.description,
+        discountType: promo.discount_type,
+        discountDisplay,
+        durationMonths: promo.duration_months || null,
+    });
+}));
 
 /**
  * GET /api/square/payment-config

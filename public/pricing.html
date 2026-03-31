@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pricing — Square Dashboard Tool</title>
+    <link rel="stylesheet" href="/css/shared.css">
+</head>
+<body style="padding: 0; background: #f8fafc;">
+
+    <div class="pricing-hero">
+        <h1>Simple, transparent pricing</h1>
+        <p>Add only the modules you need. Start with a free trial — no credit card required.</p>
+    </div>
+
+    <!-- Promo code -->
+    <div class="pricing-section" style="padding-bottom: 0;">
+        <div class="pricing-promo">
+            <h3>Have a promo code?</h3>
+            <div class="pricing-promo-row">
+                <input id="promo-input" class="pricing-promo-input" type="text"
+                       placeholder="e.g. BETA99" maxlength="50" autocomplete="off" spellcheck="false">
+                <button id="promo-check-btn" class="pricing-promo-btn">Apply</button>
+            </div>
+            <div id="promo-result" class="pricing-promo-result"></div>
+        </div>
+    </div>
+
+    <hr class="pricing-divider">
+
+    <!-- Module cards -->
+    <div class="pricing-section">
+        <div class="pricing-section-title">Individual Modules</div>
+        <div class="pricing-section-sub">Add exactly what your store needs, billed monthly.</div>
+        <div id="modules-grid" class="pricing-grid">
+            <div class="loading">Loading pricing&hellip;</div>
+        </div>
+    </div>
+
+    <hr class="pricing-divider">
+
+    <!-- Bundle cards -->
+    <div class="pricing-section">
+        <div class="pricing-section-title">Bundles</div>
+        <div class="pricing-section-sub">Get everything at a discounted rate.</div>
+        <div id="bundles-grid" class="pricing-grid">
+            <div class="loading">Loading pricing&hellip;</div>
+        </div>
+    </div>
+
+    <footer class="footer" style="margin-top: 40px;">
+        Already have an account? <a href="/login.html">Sign in</a>
+        &nbsp;&middot;&nbsp;
+        <a href="/subscribe.html">Start free trial</a>
+        &nbsp;&middot;&nbsp;
+        <a href="/support.html">Support</a>
+    </footer>
+
+    <!-- Utility scripts (required order per CLAUDE.md) -->
+    <script src="/js/utils/escape.js"></script>
+    <script src="/js/utils/format-currency.js"></script>
+    <!-- Page script -->
+    <script src="/js/pricing.js"></script>
+</body>
+</html>

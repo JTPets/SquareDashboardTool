@@ -773,3 +773,192 @@ tr:hover {
   font-size: 13px;
   color: #6b7280;
 }
+
+/* =============================================================
+   Pricing page (pricing.html)
+   Public page — no auth required.
+   ============================================================= */
+
+.pricing-hero {
+  text-align: center;
+  padding: 60px 20px 40px;
+  background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+  color: white;
+}
+
+.pricing-hero h1 {
+  font-size: 2.4rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.pricing-hero p {
+  font-size: 1.1rem;
+  opacity: 0.9;
+  max-width: 540px;
+  margin: 0 auto;
+}
+
+.pricing-section {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 48px 20px;
+}
+
+.pricing-section-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.pricing-section-sub {
+  font-size: 0.95rem;
+  color: #6b7280;
+  margin-bottom: 32px;
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 20px;
+}
+
+.pricing-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 24px 20px;
+  background: white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+
+.pricing-card-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.pricing-card-price {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #2563eb;
+  margin-bottom: 4px;
+}
+
+.pricing-card-price span {
+  font-size: 0.9rem;
+  font-weight: 400;
+  color: #6b7280;
+}
+
+.pricing-card-cta {
+  display: inline-block;
+  margin-top: 16px;
+  padding: 9px 18px;
+  background: #2563eb;
+  color: white;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+
+.pricing-card-cta:hover {
+  background: #1d4ed8;
+}
+
+/* Bundle card highlight */
+.pricing-card.bundle {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.pricing-card.bundle .pricing-card-name {
+  color: #1d4ed8;
+}
+
+.pricing-card.bundle .pricing-card-cta {
+  background: #1d4ed8;
+}
+
+.pricing-bundle-includes {
+  font-size: 0.8rem;
+  color: #4b5563;
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+/* Promo code section */
+.pricing-promo {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 28px;
+  max-width: 480px;
+  margin: 0 auto 48px;
+}
+
+.pricing-promo h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #111827;
+}
+
+.pricing-promo-row {
+  display: flex;
+  gap: 10px;
+}
+
+.pricing-promo-input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+}
+
+.pricing-promo-btn {
+  padding: 10px 20px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.pricing-promo-btn:hover {
+  background: #1d4ed8;
+}
+
+.pricing-promo-result {
+  margin-top: 12px;
+  font-size: 0.9rem;
+  min-height: 20px;
+}
+
+.pricing-promo-result.valid {
+  color: #065f46;
+}
+
+.pricing-promo-result.invalid {
+  color: #991b1b;
+}
+
+.pricing-divider {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 0;
+}
+
+@media (max-width: 600px) {
+  .pricing-hero h1 { font-size: 1.7rem; }
+  .pricing-grid { grid-template-columns: 1fr; }
+  .pricing-promo-row { flex-direction: column; }
+}

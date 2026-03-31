@@ -145,15 +145,15 @@ describe('validatePromoCode', () => {
         expect(result.finalPrice).toBe(0);
     });
 
-    it('should scope query to merchant_id', async () => {
+    it('should scope query to merchant_id with platform_owner fallback', async () => {
         db.query.mockResolvedValueOnce({ rows: [] });
 
         await validatePromoCode({ code: 'TEST', merchantId: 42 });
 
-        expect(db.query).toHaveBeenCalledWith(
-            expect.stringContaining('merchant_id = $2'),
-            ['TEST', 42]
-        );
+        const [sql, params] = db.query.mock.calls[0];
+        expect(sql).toMatch(/merchant_id = \$2/);
+        expect(sql).toMatch(/platform_owner/);
+        expect(params).toEqual(['TEST', 42]);
     });
 
     it('should handle percent discount with no priceCents (defaults to 0)', async () => {
@@ -188,5 +188,59 @@ describe('validatePromoCode', () => {
         });
 
         expect(result.valid).toBe(true);
+    });
+
+    it('should apply fixed_price discount type (flat rate replaces price)', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                id: 8, code: 'BETA99', discount_type: 'fixed_price',
+                discount_value: 0, fixed_price_cents: 99,
+                applies_to_plans: null, min_purchase_cents: null
+            }]
+        });
+
+        const result = await validatePromoCode({
+            code: 'BETA99', merchantId: 1, priceCents: 5999
+        });
+
+        expect(result.valid).toBe(true);
+        expect(result.finalPrice).toBe(99);
+        expect(result.discount).toBe(5900); // 5999 - 99
+    });
+
+    it('should set finalPrice to fixed_price_cents even when priceCents not provided', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                id: 9, code: 'BETA99', discount_type: 'fixed_price',
+                discount_value: 0, fixed_price_cents: 99,
+                applies_to_plans: null, min_purchase_cents: null
+            }]
+        });
+
+        const result = await validatePromoCode({
+            code: 'BETA99', merchantId: 1
+        });
+
+        expect(result.valid).toBe(true);
+        expect(result.finalPrice).toBe(99);
+        expect(result.discount).toBe(0); // max(0, 0 - 99) clamped to 0
+    });
+
+    it('should not let fixed_price discount go negative when flat rate > price', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                id: 10, code: 'CHEAP', discount_type: 'fixed_price',
+                discount_value: 0, fixed_price_cents: 9999,
+                applies_to_plans: null, min_purchase_cents: null
+            }]
+        });
+
+        const result = await validatePromoCode({
+            code: 'CHEAP', merchantId: 1, priceCents: 999
+        });
+
+        expect(result.valid).toBe(true);
+        expect(result.discount).toBe(0); // max(0, 999 - 9999) = 0
+        expect(result.finalPrice).toBe(9999);
     });
 });
