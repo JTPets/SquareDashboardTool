@@ -153,15 +153,23 @@
       : '<span class="pill pill-grey">' + count + '</span>';
   }
 
+  function renderUncappedHint(need, uncapped) {
+    if (uncapped > need) {
+      return '<div style="font-size:0.75rem;color:#9ca3af;margin-top:2px">Uncapped: ' + formatCurrency(uncapped) + '</div>';
+    }
+    return '';
+  }
+
   function renderPoProgress(v) {
     var min = v.minimum_order_amount;
     var need = v.reorder_value || 0;
+    var uncapped = v.uncapped_reorder_value || 0;
     var costed = v.costed_reorder_count || 0;
     var reorderCount = v.reorder_count || 0;
 
     // No minimum set
     if (!min || min === 0) {
-      if (need > 0) return '<span style="color:#6b7280">' + formatCurrency(need) + '</span>';
+      if (need > 0) return '<span style="color:#6b7280">' + formatCurrency(need) + '</span>' + renderUncappedHint(need, uncapped);
       if (reorderCount > 0) return '<span style="color:#9ca3af">' + reorderCount + ' items</span>';
       return '<span style="color:#9ca3af">No min</span>';
     }
@@ -181,6 +189,7 @@
     return '<div class="po-progress">' +
       '<div class="po-progress-text">' + partial + formatCurrency(need) + ' / ' + formatCurrency(min) + '</div>' +
       '<div class="po-progress-bar"><div class="po-progress-fill ' + (met ? 'met' : 'unmet') + '" style="width:' + pct + '%"></div></div>' +
+      renderUncappedHint(need, uncapped) +
     '</div>';
   }
 

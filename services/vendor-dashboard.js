@@ -71,6 +71,7 @@ function formatVendorRow(row, defaultSupplyDays) {
         oos_count: parseInt(row.oos_count) || 0,
         reorder_count: parseInt(row.reorder_count) || 0,
         reorder_value: parseInt(row.reorder_value) || 0,
+        uncapped_reorder_value: parseInt(row.uncapped_reorder_value) || 0,
         costed_reorder_count: parseInt(row.costed_reorder_count) || 0,
         pending_po_value: parseInt(row.pending_po_value) || 0,
         last_ordered_at: row.last_ordered_at || null,
@@ -161,12 +162,14 @@ async function computeReorderValues(merchantId, defaultSupplyDays, safetyDays) {
     `, [merchantId, defaultSupplyDays, safetyDays]);
 
     // Aggregate reorder value and costed count per vendor using shared formula
+    // Compute both capped (respects stockAlertMax) and uncapped totals
     const valuesByVendor = {};
+    const uncappedValuesByVendor = {};
     const countsByVendor = {};
 
     for (const item of result.rows) {
         const vendorId = item.vendor_id;
-        const qty = calculateReorderQuantity({
+        const reorderParams = {
             velocity: parseFloat(item.velocity),
             supplyDays: parseInt(item.vendor_supply_days),
             leadTimeDays: parseInt(item.vendor_lead_time_days),
@@ -176,16 +179,23 @@ async function computeReorderValues(merchantId, defaultSupplyDays, safetyDays) {
             stockAlertMin: parseInt(item.stock_alert_min) || 0,
             stockAlertMax: item.stock_alert_max != null ? parseInt(item.stock_alert_max) : null,
             currentStock: parseFloat(item.available_qty)
-        });
-        const pendingPoQty = parseInt(item.pending_po_qty) || 0;
-        const adjustedQty = Math.max(0, qty - pendingPoQty);
-        const value = adjustedQty * parseInt(item.unit_cost);
+        };
 
-        valuesByVendor[vendorId] = (valuesByVendor[vendorId] || 0) + value;
+        const cappedQty = calculateReorderQuantity(reorderParams);
+        const uncappedQty = calculateReorderQuantity({ ...reorderParams, stockAlertMax: null });
+
+        const pendingPoQty = parseInt(item.pending_po_qty) || 0;
+        const unitCost = parseInt(item.unit_cost);
+
+        const adjustedCapped = Math.max(0, cappedQty - pendingPoQty);
+        const adjustedUncapped = Math.max(0, uncappedQty - pendingPoQty);
+
+        valuesByVendor[vendorId] = (valuesByVendor[vendorId] || 0) + (adjustedCapped * unitCost);
+        uncappedValuesByVendor[vendorId] = (uncappedValuesByVendor[vendorId] || 0) + (adjustedUncapped * unitCost);
         countsByVendor[vendorId] = (countsByVendor[vendorId] || 0) + 1;
     }
 
-    return { valuesByVendor, countsByVendor };
+    return { valuesByVendor, uncappedValuesByVendor, countsByVendor };
 }
 
 /**
@@ -315,14 +325,15 @@ async function getVendorDashboard(merchantId) {
     `, [merchantId, defaultSupplyDays, safetyDays]);
 
     // --- Compute reorder values per vendor using shared formula ---
-    const { valuesByVendor, countsByVendor } = await computeReorderValues(
+    const { valuesByVendor, uncappedValuesByVendor, countsByVendor } = await computeReorderValues(
         merchantId, defaultSupplyDays, safetyDays
     );
 
-    // Merge reorder_value and costed_reorder_count into vendor rows
+    // Merge reorder_value, uncapped_reorder_value, and costed_reorder_count into vendor rows
     const vendorRows = result.rows.map(row => ({
         ...row,
         reorder_value: valuesByVendor[row.id] || 0,
+        uncapped_reorder_value: uncappedValuesByVendor[row.id] || 0,
         costed_reorder_count: countsByVendor[row.id] || 0
     }));
 
@@ -397,6 +408,7 @@ async function getVendorDashboard(merchantId) {
             oos_count: ua.oos_count,
             reorder_count: ua.reorder_count,
             reorder_value: 0,
+            uncapped_reorder_value: 0,
             costed_reorder_count: 0,
             pending_po_value: 0,
             last_ordered_at: null
