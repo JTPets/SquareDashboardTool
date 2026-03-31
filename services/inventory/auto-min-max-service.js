@@ -12,6 +12,11 @@
  * Eligibility (skip if any):
  *   - min_stock_pinned = TRUE (merchant override — never auto-adjust)
  *   - item created < 91 days ago (insufficient sales history)
+ *   - velocity_91d IS NULL or = 0 (no data — Rules 1 & 2 require reliable velocity)
+ *
+ * Weekly cron guardrails (applyWeeklyAdjustments only):
+ *   1. Stale velocity: abort if sales_velocity not updated in 7+ days
+ *   2. Circuit breaker: abort if reductions > 20% of all items with min > 0
  *
  * Note: sales_velocity has no last_sold_at column.
  * Recent-sales check uses loyalty_purchase_events.purchased_at (most recent non-refund sale).
@@ -20,6 +25,7 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
+const emailNotifier = require('../../utils/email-notifier');
 
 const EXPIRY_TIERS = new Set(['AUTO25', 'AUTO50', 'EXPIRED']);
 
@@ -99,11 +105,35 @@ async function generateRecommendations(merchantId) {
  * Apply all non-pinned, non-new recommendations automatically (weekly cron use).
  * Applies changes directly — no approval step.
  *
+ * Guardrail 1 — Stale velocity: aborts if sales_velocity not updated within 7 days.
+ * Guardrail 2 — Circuit breaker: aborts if reductions > 20% of items with min > 0.
+ *
  * @param {number} merchantId
- * @returns {Promise<{reduced: number, increased: number, skipped: number, pinned: number, tooNew: number}>}
+ * @returns {Promise<
+ *   {reduced: number, increased: number, skipped: number, pinned: number, tooNew: number} |
+ *   {aborted: true, reason: string}
+ * >}
  */
 async function applyWeeklyAdjustments(merchantId) {
     if (!merchantId) throw new Error('merchantId is required');
+
+    // Guardrail 1: abort if velocity data is stale (not updated in 7+ days)
+    const syncResult = await db.query(
+        'SELECT MAX(updated_at) AS last_sync FROM sales_velocity WHERE merchant_id = $1',
+        [merchantId]
+    );
+    const lastSync = syncResult.rows[0]?.last_sync ?? null;
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    if (!lastSync || new Date(lastSync) < sevenDaysAgo) {
+        const syncDisplay = lastSync ? new Date(lastSync).toISOString() : 'never';
+        const reason = `Velocity data stale — last sync ${syncDisplay}`;
+        logger.warn('Auto min/max aborted: stale velocity data', { merchantId, lastSync });
+        await emailNotifier.sendAlert(
+            'Auto Min/Max Aborted — Stale Velocity Data',
+            `${reason}\n\nMerchant ID: ${merchantId}\nReview at: /min-max-history.html`
+        );
+        return { aborted: true, reason };
+    }
 
     const recs = await generateRecommendations(merchantId);
 
@@ -112,6 +142,30 @@ async function applyWeeklyAdjustments(merchantId) {
     // Supplier-issue warnings (recommendedMin=null, no skipped flag) are also skipped
     const applicable = recs.filter(r => !r.skipped && r.recommendedMin !== null);
     const skipped = recs.length - applicable.length - pinned - tooNew;
+
+    // Guardrail 2: circuit breaker — abort if too many reductions
+    const reductions = applicable.filter(r => r.recommendedMin < r.currentMin);
+    if (reductions.length > 0) {
+        const totalResult = await db.query(
+            `SELECT COUNT(DISTINCT variation_id) AS total
+             FROM variation_location_settings
+             WHERE merchant_id = $1 AND stock_alert_min > 0`,
+            [merchantId]
+        );
+        const total = parseInt(totalResult.rows[0]?.total) || 0;
+        if (total > 0 && reductions.length / total > 0.20) {
+            const pct = Math.round(reductions.length / total * 100);
+            const reason = `Circuit breaker — ${pct}% of items would be reduced (${reductions.length}/${total})`;
+            logger.warn('Auto min/max aborted: circuit breaker triggered', {
+                merchantId, pct, reductions: reductions.length, total
+            });
+            await emailNotifier.sendAlert(
+                'Auto Min/Max Aborted — Circuit Breaker',
+                `${reason}\n\nMerchant ID: ${merchantId}\nReview recommendations at: /min-max-history.html`
+            );
+            return { aborted: true, reason };
+        }
+    }
 
     if (applicable.length === 0) {
         logger.info('No applicable min stock adjustments', { merchantId, pinned, tooNew });
@@ -287,19 +341,26 @@ function _evaluateRules(row, thirtyDaysAgo, ninetyOneDaysAgo) {
         return _buildRec(row, null, null, 'Item created less than 91 days ago — insufficient history', 'tooNew');
     }
 
-    const vel = parseFloat(row.velocity_91d) || 0;
-    const qty = parseInt(row.quantity) || 0;
-    // Use isNaN check — parseFloat(null)=NaN, parseFloat('0')=0 (must not use || here)
-    const rawDos = parseFloat(row.days_of_stock);
-    const dos = isNaN(rawDos) ? 999999 : rawDos;
     const min = parseInt(row.current_min) || 0;
 
     // Rule 3 (highest priority): active expiry discount → min = 0
+    // Checked before velocity guard — expiry applies regardless of velocity data
     if (row.expiry_tier && EXPIRY_TIERS.has(row.expiry_tier)) {
         if (min === 0) return null;
         return _buildRec(row, 0, 'EXPIRING',
             `Active expiry discount (${row.expiry_tier}) — do not reorder`);
     }
+
+    // Eligibility: skip null or zero velocity — insufficient data for Rules 1 & 2
+    // Zero velocity gives days_of_stock=999999 which would wrongly fire Rule 1
+    if (row.velocity_91d === null || row.velocity_91d === undefined) return null;
+    const vel = parseFloat(row.velocity_91d);
+    if (vel === 0) return null;
+
+    const qty = parseInt(row.quantity) || 0;
+    // Use isNaN check — parseFloat(null)=NaN, parseFloat('0')=0 (must not use || here)
+    const rawDos = parseFloat(row.days_of_stock);
+    const dos = isNaN(rawDos) ? 999999 : rawDos;
 
     // Rule 1: overstocked slow mover → min - 1
     if (dos > 90 && min > 0) {

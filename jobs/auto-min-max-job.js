@@ -18,18 +18,28 @@ const autoMinMax = require('../services/inventory/auto-min-max-service');
 
 /**
  * Run auto min/max adjustments for a single merchant.
+ * If the service aborts due to a guardrail (stale data, circuit breaker),
+ * logs the reason. The service already sends the guardrail alert email.
  *
  * @param {number} merchantId
  * @param {string} businessName
- * @returns {Promise<{reduced, increased, skipped, pinned, tooNew}>}
+ * @returns {Promise<{reduced, increased, skipped, pinned, tooNew}|{aborted: true, reason: string}>}
  */
 async function runAutoMinMaxForMerchant(merchantId, businessName) {
     const result = await autoMinMax.applyWeeklyAdjustments(merchantId);
-    logger.info('Auto min/max adjustments complete for merchant', {
-        merchantId,
-        businessName,
-        ...result
-    });
+    if (result.aborted) {
+        logger.warn('Auto min/max aborted for merchant', {
+            merchantId,
+            businessName,
+            reason: result.reason
+        });
+    } else {
+        logger.info('Auto min/max adjustments complete for merchant', {
+            merchantId,
+            businessName,
+            ...result
+        });
+    }
     return result;
 }
 
@@ -87,6 +97,7 @@ async function runScheduledAutoMinMax() {
 
         for (const r of results) {
             if (r.error) continue;
+            if (r.aborted) continue; // guardrail alert already sent by service
             if (r.reduced === 0 && r.increased === 0) continue;
 
             const subject = `Min Stock Auto-Adjustment: ${r.reduced} reduced, ${r.increased} increased — ${r.businessName}`;
