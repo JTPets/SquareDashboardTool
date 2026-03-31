@@ -31,7 +31,7 @@ jest.mock('../../../config/constants', () => ({
     RETRY: { MAX_ATTEMPTS: 3, BASE_DELAY_MS: 1000, MAX_DELAY_MS: 30000 },
 }));
 
-jest.mock('node-fetch', () => jest.fn(), { virtual: true });
+jest.mock('node-fetch', () => jest.fn());
 
 const db = require('../../../utils/database');
 const { decryptToken, isEncryptedToken, encryptToken } = require('../../../utils/token-encryption');
@@ -97,6 +97,14 @@ describe('Square Client Service', () => {
 
     // ==================== makeSquareRequest ====================
     describe('makeSquareRequest', () => {
+        beforeEach(() => {
+            jest.useFakeTimers();
+        });
+
+        afterEach(() => {
+            jest.useRealTimers();
+        });
+
         test('throws if accessToken is missing', async () => {
             await expect(squareClient.makeSquareRequest('/v2/locations', {}))
                 .rejects.toThrow('accessToken is required');
@@ -136,6 +144,7 @@ describe('Square Client Service', () => {
 
             await expect(squareClient.makeSquareRequest('/v2/test', { accessToken: 'bad' }))
                 .rejects.toThrow('Square API authentication failed');
+            expect(fetch).toHaveBeenCalledTimes(1);
         });
 
         test('does not retry 400 errors', async () => {
@@ -175,7 +184,9 @@ describe('Square Client Service', () => {
                     json: () => Promise.resolve({ success: true }),
                 });
 
-            const data = await squareClient.makeSquareRequest('/v2/test', { accessToken: 'tok' });
+            const promise = squareClient.makeSquareRequest('/v2/test', { accessToken: 'tok' });
+            await jest.runAllTimersAsync();
+            const data = await promise;
             expect(data.success).toBe(true);
             expect(fetch).toHaveBeenCalledTimes(2);
         });
@@ -192,7 +203,9 @@ describe('Square Client Service', () => {
                     json: () => Promise.resolve({ ok: true }),
                 });
 
-            const data = await squareClient.makeSquareRequest('/v2/test', { accessToken: 'tok' });
+            const promise = squareClient.makeSquareRequest('/v2/test', { accessToken: 'tok' });
+            await jest.runAllTimersAsync();
+            const data = await promise;
             expect(data.ok).toBe(true);
             expect(fetch).toHaveBeenCalledTimes(2);
         });
@@ -204,8 +217,11 @@ describe('Square Client Service', () => {
                 json: () => Promise.resolve({ errors: [{ code: 'INTERNAL_SERVER_ERROR' }] }),
             });
 
-            await expect(squareClient.makeSquareRequest('/v2/test', { accessToken: 'tok' }))
-                .rejects.toThrow('Square API error: 500');
+            const promise = squareClient.makeSquareRequest('/v2/test', { accessToken: 'tok' });
+            // Attach rejection handler before advancing timers to avoid unhandled rejection
+            const assertion = expect(promise).rejects.toThrow('Square API error: 500');
+            await jest.runAllTimersAsync();
+            await assertion;
             expect(fetch).toHaveBeenCalledTimes(3); // MAX_RETRIES
         });
 
@@ -219,7 +235,9 @@ describe('Square Client Service', () => {
                     json: () => Promise.resolve({ recovered: true }),
                 });
 
-            const data = await squareClient.makeSquareRequest('/v2/test', { accessToken: 'tok' });
+            const promise = squareClient.makeSquareRequest('/v2/test', { accessToken: 'tok' });
+            await jest.runAllTimersAsync();
+            const data = await promise;
             expect(data.recovered).toBe(true);
         });
 

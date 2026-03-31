@@ -122,7 +122,9 @@ async function makeSquareRequest(endpoint, options = {}) {
 
                 // Handle auth errors - don't retry
                 if (response.status === 401) {
-                    throw new Error('Square API authentication failed. Check your access token.');
+                    const err = new Error('Square API authentication failed. Check your access token.');
+                    err.nonRetryable = true;
+                    throw err;
                 }
 
                 // Check for non-retryable errors (idempotency conflicts, version conflicts, validation errors)
