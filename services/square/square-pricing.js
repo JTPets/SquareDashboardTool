@@ -18,6 +18,7 @@ const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { getMerchantToken, makeSquareRequest, sleep, generateIdempotencyKey } = require('./square-client');
 const { ensureVendorsExist } = require('./square-vendors');
+const { enableItemAtAllLocations } = require('./square-diagnostics');
 const { SYNC: { CATALOG_BATCH_SIZE, INTER_BATCH_DELAY_MS } } = require('../../config/constants');
 
 /**
@@ -231,6 +232,7 @@ async function updateVariationCost(variationId, vendorId, newCostCents, currency
     // safely reference it. Previously was scoped inside try, causing undefined reference
     // if error occurred before the retrieve call completed.
     let currentVariationData = null;
+    let hasAutoHealed = false;
 
     for (let attempt = 1; attempt <= COST_UPDATE_MAX_RETRIES; attempt++) {
         try {
@@ -367,15 +369,25 @@ async function updateVariationCost(variationId, vendorId, newCostCents, currency
             const isLocationMismatch = hasStructuredLocationMismatch || hasMessageLocationMismatch;
 
             if (isLocationMismatch) {
-                const parentItemId = currentVariationData?.item_id || null;
-                logger.warn('Parent item not enabled at location - location mismatch', {
-                    variationId,
-                    parentItemId,
-                    merchantId,
-                    error: error.message
-                });
+                let itemId = currentVariationData?.item_id || null;
+                if (!itemId) {
+                    const row = await db.query(
+                        'SELECT item_id FROM variations WHERE id = $1 AND merchant_id = $2',
+                        [variationId, merchantId]
+                    );
+                    itemId = row.rows[0]?.item_id || null;
+                }
+
+                if (!hasAutoHealed && itemId) {
+                    await enableItemAtAllLocations(itemId, merchantId);
+                    hasAutoHealed = true;
+                    logger.info('Auto-healed parent item location mismatch', { variationId, itemId, merchantId });
+                    continue;
+                }
+
+                // Auto-heal already attempted or no item_id found — annotate and throw
                 error.code = 'ITEM_NOT_AT_LOCATION';
-                error.parentItemId = parentItemId;
+                error.parentItemId = itemId;
             }
 
             // Non-retryable error or max retries reached
