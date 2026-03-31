@@ -689,12 +689,17 @@ tr:hover {
   /* Brand */
   --color-primary: #2563eb;
   --color-primary-hover: #1d4ed8;
+  --color-accent-purple: #7c3aed;
+  --color-accent-purple-hover: #6d28d9;
+  --color-accent-green: #059669;
+  --color-accent-green-hover: #047857;
 
   /* Semantic */
   --color-success: #10b981;
   --color-success-hover: #047857;
   --color-danger: #dc2626;
   --color-danger-hover: #b91c1c;
+  --color-danger-light: #ef4444;
   --color-warning: #f59e0b;
   --color-warning-hover: #d97706;
   --color-info: #3b82f6;
@@ -708,6 +713,8 @@ tr:hover {
   --color-warning-text: #92400e;
   --color-info-bg: #dbeafe;
   --color-info-text: #1e40af;
+  --color-purple-bg: #f3e8ff;
+  --color-purple-text: #6b21a8;
 
   /* Neutrals */
   --color-text: #111827;
@@ -720,6 +727,7 @@ tr:hover {
   --color-bg-light: #f9fafb;
   --color-bg-hover: #f3f4f6;
   --color-bg-dark: #1f2937;
+  --color-bg-dark-card: #374151;
 }
 
 /* =============================================================
@@ -745,8 +753,8 @@ tr:hover {
 }
 
 .stat-label {
-  font-size: 13px;
-  color: var(--color-text-muted);
+  font-size: 12px;
+  color: var(--color-text-faint);
   margin-top: 4px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -1009,6 +1017,355 @@ tr:hover {
 .tab.active .badge {
   background: var(--color-info-bg);
   color: var(--color-primary-hover);
+}
+
+/* =============================================================
+   Container Width Variants
+   Use instead of per-page max-width overrides.
+   ============================================================= */
+
+.container-narrow  { max-width: 900px; }
+.container-wide    { max-width: 1400px; }
+.container-xl      { max-width: 1600px; }
+.container-xxl     { max-width: 1800px; }
+
+/* =============================================================
+   Header Gradient Variants
+   Colored header backgrounds. Base .header is blue (#2563eb).
+   ============================================================= */
+
+.header-purple {
+  background: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
+}
+
+.header-green {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+}
+
+.header-dark {
+  background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+}
+
+.header-danger {
+  background: linear-gradient(135deg, #dc2626 0%, #f59e0b 100%);
+}
+
+/* =============================================================
+   Button Variants
+   Mobile-first touch targets for driver/route/audit pages.
+   ============================================================= */
+
+.btn-mobile {
+  flex: 1;
+  min-width: 80px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 15px;
+  justify-content: center;
+  gap: 8px;
+  transition: transform 0.1s, background 0.2s;
+}
+
+.btn-mobile:active {
+  transform: scale(0.98);
+}
+
+/* =============================================================
+   Card
+   White card with shadow, used for content sections.
+   Used by logs, purchase-orders, and similar pages.
+   ============================================================= */
+
+.card {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  padding: 25px;
+  margin-bottom: 25px;
+}
+
+.card h2 {
+  font-size: 20px;
+  margin-bottom: 20px;
+  color: var(--color-bg-dark);
+  border-bottom: 2px solid var(--color-border);
+  padding-bottom: 10px;
+}
+
+/* =============================================================
+   Progress Bar
+   Horizontal progress indicator. Color via modifier classes.
+   ============================================================= */
+
+.progress-bar {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s;
+  background: var(--color-primary);
+}
+
+.progress-fill-success { background: var(--color-success); }
+.progress-fill-warning { background: #fbbf24; }
+.progress-fill-danger  { background: var(--color-danger); }
+
+/* =============================================================
+   Form Rows
+   Side-by-side form groups.
+   ============================================================= */
+
+.form-row {
+  display: flex;
+  gap: 15px;
+}
+
+.form-row .form-group {
+  flex: 1;
+}
+
+/* =============================================================
+   Text Utilities
+   ============================================================= */
+
+.text-center { text-align: center; }
+
+/* =============================================================
+   Delivery Stop Cards
+   Shared by driver.html and delivery-route.html.
+   Page-specific accent colors (stop-number bg, current border)
+   override locally.
+   ============================================================= */
+
+.stop-list {
+  padding: 15px;
+}
+
+.stop-card {
+  background: white;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.stop-card.completed { opacity: 0.6; }
+.stop-card.skipped   { border-left: 4px solid var(--color-warning); }
+
+.stop-header {
+  display: flex;
+  align-items: center;
+  padding: 15px;
+  background: var(--color-bg-light);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.stop-number {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 16px;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.stop-card.completed .stop-number { background: var(--color-success); }
+.stop-card.skipped .stop-number   { background: var(--color-warning); }
+
+.stop-customer     { flex: 1; }
+.stop-customer h3  { font-size: 16px; font-weight: 600; color: var(--color-text); }
+
+.stop-status {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-weight: 500;
+}
+
+.status-active    { background: var(--color-info-bg);    color: var(--color-primary-hover); }
+.status-completed { background: var(--color-success-bg); color: var(--color-success-text); }
+.status-skipped   { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.status-delivered { background: var(--color-success-bg); color: var(--color-success-text); }
+
+.stop-body { padding: 15px; }
+
+.stop-address {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  padding: 12px;
+  background: var(--color-bg-hover);
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.stop-address:hover    { background: var(--color-border); }
+.stop-address .icon    { font-size: 20px; flex-shrink: 0; }
+.stop-address .text    { flex: 1; font-size: 15px; color: var(--color-text-secondary); }
+.stop-address .arrow   { color: var(--color-text-faint); font-size: 20px; }
+
+.stop-phone {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--color-bg-hover);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  text-decoration: none;
+  color: var(--color-text-secondary);
+}
+
+.stop-phone:hover { background: var(--color-border); }
+.stop-phone .icon { font-size: 18px; }
+
+.stop-notes {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: var(--color-warning-text);
+}
+
+.stop-notes strong { display: block; margin-bottom: 4px; }
+
+.stop-customer-notes {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: var(--color-info-text);
+}
+
+.stop-customer-notes strong { display: block; margin-bottom: 4px; }
+
+.stop-order-items {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.order-items-toggle {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #166534;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.toggle-arrow         { transition: transform 0.2s; }
+.toggle-arrow.open    { transform: rotate(180deg); }
+
+.order-items-list {
+  margin-top: 12px;
+  border-top: 1px solid #bbf7d0;
+  padding-top: 12px;
+  display: none;
+}
+
+.order-items-list.visible { display: block; }
+
+.order-item {
+  padding: 8px 0;
+  border-bottom: 1px solid #dcfce7;
+}
+
+.order-item:last-child { border-bottom: none; }
+
+.item-qty {
+  display: inline-block;
+  background: #166534;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 12px;
+  margin-right: 8px;
+}
+
+.item-name {
+  font-weight: 500;
+  color: #14532d;
+}
+
+.item-modifiers {
+  margin-top: 4px;
+  padding-left: 40px;
+}
+
+.modifier {
+  display: block;
+  font-size: 12px;
+  color: #15803d;
+}
+
+.stop-pod {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--color-success-bg);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: var(--color-success-text);
+}
+
+.stop-pod img {
+  width: 50px;
+  height: 50px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.stop-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* =============================================================
+   Modal Dialog Variant
+   Pattern B: .modal as dialog box inside .modal-overlay.
+   Used by driver.html, delivery-route.html.
+   ============================================================= */
+
+.modal-dialog {
+  display: block;
+  position: static;
+  background: white;
+  border-radius: 12px;
+  max-width: 400px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 0;
 }
 
 /* =============================================================

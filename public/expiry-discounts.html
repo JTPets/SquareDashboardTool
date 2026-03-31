@@ -6,8 +6,8 @@
   <title>Expiry Discount Manager - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-      max-width: 1600px; /* page-specific: shared has 1200px */
-}
+    /* Page-specific: wider than shared 1200px */
+    .container { max-width: 1600px; }
     .header {
       background: linear-gradient(135deg, #dc2626 0%, #f59e0b 100%); /* page-specific: shared has #2563eb */
 }    /* Tier summary cards */
@@ -106,7 +106,7 @@
 
     /* page-specific: scrollable table height */
     .table-container { max-height: 60vh; overflow-y: auto; }
-    .text-center { text-align: center; }
+    /* .text-center from shared.css */
 
     /* Tier badges */
     .tier-badge {

@@ -6,8 +6,8 @@
   <title>Reorder Suggestions - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-      max-width: 1800px; /* page-specific: shared has 1200px */
-}
+    /* Page-specific: wider than shared 1200px */
+    .container { max-width: 1800px; }
     .header {
       padding: 15px 20px; /* page-specific: shared has 20px */
       flex-wrap: wrap;
@@ -328,8 +328,7 @@
     }
 
     /* .text-right from shared.css */
-    .text-center { text-align: center; }
-    /* .loading, .empty-state from shared.css */
+    /* .text-center, .loading, .empty-state from shared.css */
     .loading { font-size: 14px; /* page-specific: explicit 14px */ }
     .empty-state h3 {
       margin-bottom: 10px; /* page-specific: 10px vs shared 8px */

@@ -43,17 +43,9 @@
       font-size: 14px;
       margin-bottom: 8px;
     }
-    .progress-bar {
-      height: 8px;
-      background: rgba(255,255,255,0.2);
-      border-radius: 4px;
-      overflow: hidden;
-    }
+    /* Page-specific: yellow progress fill (shared has blue) */
     .progress-fill {
-      height: 100%;
       background: #fbbf24;
-      border-radius: 4px;
-      transition: width 0.3s;
     }
 
     /* Route Stats */
@@ -72,247 +64,17 @@
       gap: 4px;
     }
 
-    /* Stop List */
-    .stop-list {
-      padding: 15px;
-    }
-    .stop-card {
-      background: white;
-      border-radius: 12px;
-      margin-bottom: 12px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-      overflow: hidden;
-    }
-    .stop-card.completed {
-      opacity: 0.6;
-    }
+    /* Page-specific: green current stop (shared has blue) */
     .stop-card.current {
       border: 2px solid #059669;
       box-shadow: 0 4px 12px rgba(5, 150, 105, 0.2);
     }
-    .stop-card.skipped {
-      border-left: 4px solid #f59e0b;
-    }
-
-    .stop-header {
-      display: flex;
-      align-items: center;
-      padding: 15px;
-      background: #f9fafb;
-      border-bottom: 1px solid #e5e7eb;
-    }
+    /* Page-specific: green stop number (shared has blue) */
     .stop-number {
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
       background: #059669;
-      color: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 600;
-      font-size: 16px;
-      margin-right: 12px;
-      flex-shrink: 0;
-    }
-    .stop-card.completed .stop-number {
-      background: #10b981;
-    }
-    .stop-card.skipped .stop-number {
-      background: #f59e0b;
-    }
-    .stop-customer {
-      flex: 1;
-    }
-    .stop-customer h3 {
-      font-size: 16px;
-      font-weight: 600;
-      color: #111827;
-    }
-    .stop-status {
-      font-size: 12px;
-      padding: 3px 10px;
-      border-radius: 12px;
-      font-weight: 500;
-    }
-    .status-active { background: #dbeafe; color: #1d4ed8; }
-    .status-completed { background: #d1fae5; color: #065f46; }
-    .status-skipped { background: #fef3c7; color: #92400e; }
-    .status-delivered { background: #d1fae5; color: #065f46; }
-
-    .stop-body {
-      padding: 15px;
     }
 
-    /* Address with map link */
-    .stop-address {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      margin-bottom: 12px;
-      cursor: pointer;
-      padding: 12px;
-      background: #f3f4f6;
-      border-radius: 8px;
-      transition: background 0.2s;
-    }
-    .stop-address:hover {
-      background: #e5e7eb;
-    }
-    .stop-address .icon {
-      font-size: 20px;
-      flex-shrink: 0;
-    }
-    .stop-address .text {
-      flex: 1;
-      font-size: 15px;
-      color: #374151;
-    }
-    .stop-address .arrow {
-      color: #9ca3af;
-      font-size: 20px;
-    }
-
-    /* Phone link */
-    .stop-phone {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
-      background: #f3f4f6;
-      border-radius: 8px;
-      margin-bottom: 12px;
-      text-decoration: none;
-      color: #374151;
-    }
-    .stop-phone:hover {
-      background: #e5e7eb;
-    }
-    .stop-phone .icon {
-      font-size: 18px;
-    }
-
-    /* Order Notes */
-    .stop-notes {
-      background: #fffbeb;
-      border: 1px solid #fde68a;
-      border-radius: 8px;
-      padding: 12px;
-      margin-bottom: 12px;
-      font-size: 14px;
-      color: #92400e;
-    }
-    .stop-notes strong {
-      display: block;
-      margin-bottom: 4px;
-    }
-
-    /* Customer Notes */
-    .stop-customer-notes {
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      border-radius: 8px;
-      padding: 12px;
-      margin-bottom: 12px;
-      font-size: 14px;
-      color: #1e40af;
-    }
-    .stop-customer-notes strong {
-      display: block;
-      margin-bottom: 4px;
-    }
-
-    /* Order Items */
-    .stop-order-items {
-      background: #f0fdf4;
-      border: 1px solid #bbf7d0;
-      border-radius: 8px;
-      padding: 12px;
-      margin-bottom: 12px;
-    }
-    .order-items-toggle {
-      width: 100%;
-      background: none;
-      border: none;
-      padding: 0;
-      font-size: 14px;
-      font-weight: 600;
-      color: #166534;
-      cursor: pointer;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .toggle-arrow {
-      transition: transform 0.2s;
-    }
-    .toggle-arrow.open {
-      transform: rotate(180deg);
-    }
-    .order-items-list {
-      margin-top: 12px;
-      border-top: 1px solid #bbf7d0;
-      padding-top: 12px;
-      display: none;
-    }
-    .order-items-list.visible { display: block; }
-    .order-item {
-      padding: 8px 0;
-      border-bottom: 1px solid #dcfce7;
-    }
-    .order-item:last-child {
-      border-bottom: none;
-    }
-    .item-qty {
-      display: inline-block;
-      background: #166534;
-      color: white;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-weight: 600;
-      font-size: 12px;
-      margin-right: 8px;
-    }
-    .item-name {
-      font-weight: 500;
-      color: #14532d;
-    }
-    .item-modifiers {
-      margin-top: 4px;
-      padding-left: 40px;
-    }
-    .modifier {
-      display: block;
-      font-size: 12px;
-      color: #15803d;
-    }
-
-    /* POD Section */
-    .stop-pod {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
-      background: #d1fae5;
-      border-radius: 8px;
-      margin-bottom: 12px;
-      font-size: 14px;
-      color: #065f46;
-    }
-    .stop-pod img {
-      width: 50px;
-      height: 50px;
-      object-fit: cover;
-      border-radius: 4px;
-    }
-
-    /* Actions */
-    .stop-actions {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    /* Page-specific: mobile-first btn — flex:1, larger, rounded, centered */
+    /* Page-specific: uses .btn-mobile pattern, kept for backward compat */
     .btn {
       flex: 1;
       min-width: 100px;
