@@ -39,6 +39,7 @@
 | BACKLOG-84 | Vendor performance scoring — fill rate, timeliness, price stability, credit notes | WORK-ITEMS | M |
 | BACKLOG-85 | Market basket analysis — product affinities for shelf placement and bundle suggestions | WORK-ITEMS | L |
 | BACKLOG-95 | Multi-location expiry/count scoping — tables lack `location_id`, pre-franchise | Session 2026-03-23 | L |
+| BACKLOG-110 | Webhook-triggered PO receive prompt — flag open POs when inventory increases for items on order | WORK-ITEMS | M |
 | BACKLOG-107 | Reorder suggestions system audit — 810-line service, silent exclusion bugs found. Map files, trace SQL+JS filters, document all return-null paths, module breakdown map, security check, test gaps. Output `docs/REORDER-AUDIT.md` | Session 2026-03-31 | S |
 | BACKLOG-108 | Stale draft PO warning on reorder page — old DRAFT POs silently suppress items. New `GET /api/purchase-orders/stale-drafts` + red banner + consider "Pending PO" badge | Session 2026-03-31 | M |
 | BACKLOG-109 | Merchant-configurable auto min/max settings — all thresholds hardcoded. New `merchant_min_max_settings` table, `GET/PUT /api/min-max/settings`, `reorder_intelligence` feature gate for auto-apply | Session 2026-03-31 | M |
