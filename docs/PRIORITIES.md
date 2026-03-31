@@ -39,6 +39,7 @@
 | BACKLOG-84 | Vendor performance scoring — fill rate, timeliness, price stability, credit notes | WORK-ITEMS | M |
 | BACKLOG-85 | Market basket analysis — product affinities for shelf placement and bundle suggestions | WORK-ITEMS | L |
 | BACKLOG-95 | Multi-location expiry/count scoping — tables lack `location_id`, pre-franchise | Session 2026-03-23 | L |
+| BACKLOG-110 | Webhook-triggered PO receive prompt — flag open POs when inventory increases for items on order | WORK-ITEMS | M |
 
 ### Data Integrity
 
