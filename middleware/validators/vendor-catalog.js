@@ -328,6 +328,17 @@ const confirmLinks = [
     handleValidationErrors
 ];
 
+/**
+ * POST /api/vendor-catalog/deduplicate
+ */
+const deduplicate = [
+    body('dry_run')
+        .optional()
+        .isBoolean()
+        .withMessage('dry_run must be a boolean'),
+    handleValidationErrors
+];
+
 module.exports = {
     getVendors,
     importCatalog,
@@ -340,5 +351,6 @@ module.exports = {
     createItems,
     confirmLinks,
     pushPriceChanges,
-    updateVendorSettings
+    updateVendorSettings,
+    deduplicate
 };

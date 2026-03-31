@@ -810,8 +810,9 @@ CREATE TABLE IF NOT EXISTS vendor_catalog_items (
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     -- Multi-tenant support
     merchant_id INTEGER NOT NULL REFERENCES merchants(id),
-    -- Ensure unique vendor item per vendor per batch (allows updates)
-    UNIQUE(vendor_id, vendor_item_number, import_batch_id)
+    -- One row per product per vendor per merchant — re-import UPSERTs in place
+    CONSTRAINT vendor_catalog_items_merchant_vendor_item_unique
+        UNIQUE (merchant_id, vendor_id, vendor_item_number)
 );
 
 -- Create indexes for efficient lookups
@@ -822,6 +823,7 @@ CREATE INDEX IF NOT EXISTS idx_vendor_catalog_matched ON vendor_catalog_items(ma
 CREATE INDEX IF NOT EXISTS idx_vendor_catalog_batch ON vendor_catalog_items(import_batch_id);
 CREATE INDEX IF NOT EXISTS idx_vendor_catalog_imported ON vendor_catalog_items(imported_at DESC);
 CREATE INDEX IF NOT EXISTS idx_vendor_catalog_items_merchant ON vendor_catalog_items(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_catalog_dedup ON vendor_catalog_items(merchant_id, vendor_id, vendor_item_number);
 
 -- Comments for documentation
 COMMENT ON TABLE vendor_catalog_items IS 'Imported vendor product catalogs for lookup and margin tracking';

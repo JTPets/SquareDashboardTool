@@ -1137,6 +1137,84 @@ describe('previewFile', () => {
 });
 
 // ============================================================================
+// DEDUPLICATION  (BACKLOG-112)
+// ============================================================================
+
+describe('deduplicateVendorCatalog', () => {
+    it('throws without merchantId', async () => {
+        await expect(catalogService.deduplicateVendorCatalog(null))
+            .rejects.toThrow('merchantId is required');
+    });
+
+    it('dry_run=true returns counts without deleting', async () => {
+        // COUNT query: 3 extra rows across 2 products
+        db.query.mockResolvedValueOnce({
+            rows: [{ extra_rows: '3', dup_products: '2' }]
+        });
+
+        const result = await catalogService.deduplicateVendorCatalog(1, true);
+
+        expect(result).toEqual({ found: 3, products: 2, removed: 0 });
+        // Only one query fired — no DELETE
+        expect(db.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('dry_run defaults to true when omitted', async () => {
+        db.query.mockResolvedValueOnce({ rows: [{ extra_rows: '1', dup_products: '1' }] });
+
+        const result = await catalogService.deduplicateVendorCatalog(1);
+
+        expect(result.removed).toBe(0);
+        expect(db.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns { found:0, products:0, removed:0 } when no duplicates exist', async () => {
+        db.query.mockResolvedValueOnce({ rows: [{ extra_rows: '0', dup_products: '0' }] });
+
+        const result = await catalogService.deduplicateVendorCatalog(1, false);
+
+        expect(result).toEqual({ found: 0, products: 0, removed: 0 });
+        // No keeper query or DELETE needed
+        expect(db.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('dry_run=false finds keepers, updates batch ids, then deletes extras', async () => {
+        // COUNT query
+        db.query.mockResolvedValueOnce({ rows: [{ extra_rows: '4', dup_products: '2' }] });
+        // Keeper query
+        db.query.mockResolvedValueOnce({
+            rows: [
+                { keeper_id: 10, latest_batch_id: 'BATCH-NEW' },
+                { keeper_id: 20, latest_batch_id: 'BATCH-NEW' }
+            ]
+        });
+        // Two UPDATE calls (one per keeper)
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValueOnce({ rows: [] });
+        // DELETE
+        db.query.mockResolvedValueOnce({ rows: [{ id: 11 }, { id: 12 }, { id: 21 }, { id: 22 }] });
+
+        const result = await catalogService.deduplicateVendorCatalog(1, false);
+
+        expect(result.found).toBe(4);
+        expect(result.products).toBe(2);
+        expect(result.removed).toBe(4);
+
+        // Last query should be the DELETE
+        const lastCall = db.query.mock.calls[db.query.mock.calls.length - 1];
+        expect(lastCall[0]).toMatch(/DELETE FROM vendor_catalog_items/);
+    });
+
+    it('passes merchantId to all queries', async () => {
+        db.query.mockResolvedValueOnce({ rows: [{ extra_rows: '0', dup_products: '0' }] });
+
+        await catalogService.deduplicateVendorCatalog(42, true);
+
+        expect(db.query.mock.calls[0][1]).toContain(42);
+    });
+});
+
+// ============================================================================
 // BATCH ID GENERATION
 // ============================================================================
 

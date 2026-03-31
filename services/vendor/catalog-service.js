@@ -693,7 +693,7 @@ async function importItems(items, batchId, options = {}) {
                     upc, cost_cents, price_cents, margin_percent,
                     matched_variation_id, match_method, import_batch_id, import_name, updated_at
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, CURRENT_TIMESTAMP)
-                ON CONFLICT (vendor_id, vendor_item_number, import_batch_id)
+                ON CONFLICT (merchant_id, vendor_id, vendor_item_number)
                 DO UPDATE SET
                     brand = EXCLUDED.brand,
                     product_name = EXCLUDED.product_name,
@@ -701,8 +701,19 @@ async function importItems(items, batchId, options = {}) {
                     cost_cents = EXCLUDED.cost_cents,
                     price_cents = EXCLUDED.price_cents,
                     margin_percent = EXCLUDED.margin_percent,
-                    matched_variation_id = EXCLUDED.matched_variation_id,
-                    match_method = EXCLUDED.match_method,
+                    -- Preserve an existing catalog match — don't overwrite a confirmed
+                    -- link with a NULL or stale re-import result (BACKLOG-112).
+                    matched_variation_id = CASE
+                        WHEN vendor_catalog_items.matched_variation_id IS NOT NULL
+                        THEN vendor_catalog_items.matched_variation_id
+                        ELSE EXCLUDED.matched_variation_id
+                    END,
+                    match_method = CASE
+                        WHEN vendor_catalog_items.matched_variation_id IS NOT NULL
+                        THEN vendor_catalog_items.match_method
+                        ELSE EXCLUDED.match_method
+                    END,
+                    import_batch_id = EXCLUDED.import_batch_id,
                     import_name = EXCLUDED.import_name,
                     updated_at = CURRENT_TIMESTAMP
             `, [
@@ -1124,7 +1135,10 @@ async function lookupByUPC(upc, merchantId) {
     const result = await db.query(`
         SELECT
             vci.*,
-            v.name as vendor_display_name
+            v.name as vendor_display_name,
+            -- Phase 3 (BACKLOG-112): cross-vendor visibility flags
+            COUNT(*) OVER ()                                             AS alt_vendor_count,
+            vci.cost_cents = MIN(vci.cost_cents) OVER ()                AS is_cheapest
         FROM vendor_catalog_items vci
         LEFT JOIN vendors v ON vci.vendor_id = v.id AND v.merchant_id = $1
         WHERE vci.upc = $2 AND vci.merchant_id = $1
@@ -1152,7 +1166,21 @@ async function getStats(merchantId) {
             COUNT(DISTINCT import_batch_id) as batch_count,
             AVG(margin_percent) as avg_margin,
             MIN(imported_at) as earliest_import,
-            MAX(imported_at) as latest_import
+            MAX(imported_at) as latest_import,
+            -- Phase 3 (BACKLOG-112): products where 2+ vendors carry the same UPC
+            (
+                SELECT COUNT(DISTINCT upc)
+                FROM vendor_catalog_items vci2
+                WHERE vci2.merchant_id = $1
+                  AND vci2.upc IS NOT NULL
+                  AND vci2.upc <> ''
+                  AND EXISTS (
+                      SELECT 1 FROM vendor_catalog_items vci3
+                      WHERE vci3.merchant_id = $1
+                        AND vci3.upc = vci2.upc
+                        AND vci3.vendor_id <> vci2.vendor_id
+                  )
+            ) AS cross_vendor_products
         FROM vendor_catalog_items
         WHERE merchant_id = $1
     `, [merchantId]);
@@ -1448,6 +1476,93 @@ async function importWithMappings(data, fileType, options = {}) {
 // EXPORTS
 // ============================================================================
 
+// ============================================================================
+// DEDUPLICATION  (BACKLOG-112)
+// ============================================================================
+
+/**
+ * Find and optionally remove duplicate vendor catalog rows.
+ *
+ * Duplicates arise when the same product (vendor_id + vendor_item_number) was
+ * imported multiple times under different batch IDs before the unique constraint
+ * was tightened to (merchant_id, vendor_id, vendor_item_number).
+ *
+ * Strategy: for each duplicate group keep the row that already has a catalog
+ * match (matched_variation_id IS NOT NULL), breaking ties by highest id (newest).
+ * The surviving row gets the newest import_batch_id from the group so it stays
+ * associated with the most-recent import.
+ *
+ * @param {number} merchantId
+ * @param {boolean} [dryRun=true] - When true, return counts without deleting
+ * @returns {Promise<{found: number, products: number, removed: number}>}
+ */
+async function deduplicateVendorCatalog(merchantId, dryRun = true) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for deduplicateVendorCatalog');
+    }
+
+    // Count duplicates
+    const dupResult = await db.query(`
+        SELECT
+            COUNT(*) - COUNT(DISTINCT (vendor_id, vendor_item_number)) AS extra_rows,
+            COUNT(DISTINCT CASE WHEN cnt > 1 THEN (vendor_id, vendor_item_number) END) AS dup_products
+        FROM (
+            SELECT vendor_id, vendor_item_number, COUNT(*) AS cnt
+            FROM vendor_catalog_items
+            WHERE merchant_id = $1
+            GROUP BY vendor_id, vendor_item_number
+        ) sub
+    `, [merchantId]);
+
+    const found = parseInt(dupResult.rows[0].extra_rows, 10) || 0;
+    const products = parseInt(dupResult.rows[0].dup_products, 10) || 0;
+
+    if (dryRun || found === 0) {
+        return { found, products, removed: 0 };
+    }
+
+    // Identify keeper IDs (prefer matched, then newest) and latest batch per group
+    const keeperResult = await db.query(`
+        SELECT DISTINCT ON (vendor_id, vendor_item_number)
+            id                AS keeper_id,
+            FIRST_VALUE(import_batch_id) OVER (
+                PARTITION BY vendor_id, vendor_item_number
+                ORDER BY imported_at DESC, id DESC
+            )                 AS latest_batch_id
+        FROM vendor_catalog_items
+        WHERE merchant_id = $1
+        ORDER BY vendor_id, vendor_item_number,
+                 (matched_variation_id IS NOT NULL) DESC,
+                 id DESC
+    `, [merchantId]);
+
+    const keeperIds = keeperResult.rows.map(r => r.keeper_id);
+    const batchUpdates = keeperResult.rows.filter(r => r.latest_batch_id);
+
+    // Update keepers to carry the newest batch id
+    for (const row of batchUpdates) {
+        await db.query(`
+            UPDATE vendor_catalog_items
+            SET    import_batch_id = $1, updated_at = NOW()
+            WHERE  id = $2
+              AND  import_batch_id IS DISTINCT FROM $1
+        `, [row.latest_batch_id, row.keeper_id]);
+    }
+
+    // Delete all non-keeper rows for this merchant
+    const deleteResult = await db.query(`
+        DELETE FROM vendor_catalog_items
+        WHERE merchant_id = $1
+          AND id <> ALL($2::int[])
+        RETURNING id
+    `, [merchantId, keeperIds]);
+
+    const removed = deleteResult.rows.length;
+    logger.info('vendor_catalog dedup completed', { merchantId, found, products, removed });
+
+    return { found, products, removed };
+}
+
 module.exports = {
     // Import functions
     importVendorCatalog,
@@ -1465,6 +1580,9 @@ module.exports = {
     unarchiveImportBatch,
     deleteImportBatch,
     regeneratePriceReport,
+
+    // Deduplication
+    deduplicateVendorCatalog,
 
     // Utilities (for testing)
     generateBatchId,
