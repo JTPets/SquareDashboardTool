@@ -99,6 +99,7 @@ const modules = {
             'vendor-dashboard',
             'vendor-catalog',
             'sales-velocity',
+            'min-max-history',
         ],
         price_cents: 1499,
         free: false,
