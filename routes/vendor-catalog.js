@@ -26,6 +26,7 @@
  * - DELETE /api/vendor-catalog/batches/:batchId          - Delete batch
  * - GET    /api/vendor-catalog/stats                     - Get statistics
  * - POST   /api/vendor-catalog/push-price-changes        - Push prices to Square
+ * - POST   /api/vendor-catalog/deduplicate               - Identify/remove duplicate rows (dry-run safe)
  */
 
 const express = require('express');
@@ -547,6 +548,36 @@ router.post('/vendor-catalog/confirm-links', requireAuth, requireMerchant, valid
     }
 
     sendSuccess(res, { created, failed: errors.length, errors });
+}));
+
+/**
+ * POST /api/vendor-catalog/deduplicate
+ * Identify and optionally remove duplicate vendor catalog rows (BACKLOG-112).
+ *
+ * Duplicates accumulate when the same product is imported under different batch
+ * IDs. This endpoint collapses them: keeps the matched row (or newest if none
+ * matched), updates it to carry the latest import_batch_id, and deletes the rest.
+ *
+ * Body: { dry_run: true }   → return counts, no changes
+ *       { dry_run: false }  → apply cleanup and return counts
+ */
+router.post('/vendor-catalog/deduplicate', requireAuth, requireMerchant, validators.deduplicate, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const dryRun = req.body.dry_run !== false; // default to dry_run=true for safety
+
+    const result = await vendorCatalog.deduplicateVendorCatalog(merchantId, dryRun);
+
+    logger.info('vendor-catalog deduplicate', { merchantId, dryRun, ...result });
+
+    sendSuccess(res, {
+        dry_run: dryRun,
+        found: result.found,
+        products: result.products,
+        removed: result.removed,
+        message: dryRun
+            ? `Found ${result.found} duplicate rows across ${result.products} products. Run with dry_run: false to remove them.`
+            : `Removed ${result.removed} duplicate rows across ${result.products} products.`
+    });
 }));
 
 /**

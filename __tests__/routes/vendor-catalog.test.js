@@ -18,6 +18,7 @@
  * - GET    /api/vendor-catalog/batches/:batchId/report
  * - GET    /api/vendor-catalog/stats
  * - POST   /api/vendor-catalog/push-price-changes
+ * - POST   /api/vendor-catalog/deduplicate
  */
 
 // ============================================================================
@@ -48,6 +49,7 @@ const mockVendorCatalog = {
     deleteImportBatch: jest.fn(),
     regeneratePriceReport: jest.fn(),
     getStats: jest.fn(),
+    deduplicateVendorCatalog: jest.fn(),
 };
 jest.mock('../../services/vendor', () => mockVendorCatalog);
 
@@ -873,6 +875,106 @@ describe('Vendor Catalog Routes', () => {
 
             const insertCall = db.query.mock.calls[0];
             expect(insertCall[0]).toContain('ON CONFLICT');
+        });
+    });
+
+    // ============================================================================
+    // BACKLOG-112: Deduplicate vendor catalog
+    // ============================================================================
+
+    describe('POST /api/vendor-catalog/deduplicate (BACKLOG-112)', () => {
+
+        it('defaults to dry_run=true and returns counts without deleting', async () => {
+            mockVendorCatalog.deduplicateVendorCatalog.mockResolvedValueOnce({
+                found: 3,
+                products: 2,
+                removed: 0,
+            });
+
+            const res = await request(app)
+                .post('/api/vendor-catalog/deduplicate')
+                .send({});
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.dry_run).toBe(true);
+            expect(res.body.found).toBe(3);
+            expect(res.body.products).toBe(2);
+            expect(res.body.removed).toBe(0);
+            expect(mockVendorCatalog.deduplicateVendorCatalog).toHaveBeenCalledWith(1, true);
+        });
+
+        it('dry_run=false calls service and returns removed count', async () => {
+            mockVendorCatalog.deduplicateVendorCatalog.mockResolvedValueOnce({
+                found: 5,
+                products: 3,
+                removed: 2,
+            });
+
+            const res = await request(app)
+                .post('/api/vendor-catalog/deduplicate')
+                .send({ dry_run: false });
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.dry_run).toBe(false);
+            expect(res.body.removed).toBe(2);
+            expect(mockVendorCatalog.deduplicateVendorCatalog).toHaveBeenCalledWith(1, false);
+        });
+
+        it('dry_run=true does not delete', async () => {
+            mockVendorCatalog.deduplicateVendorCatalog.mockResolvedValueOnce({
+                found: 0,
+                products: 0,
+                removed: 0,
+            });
+
+            const res = await request(app)
+                .post('/api/vendor-catalog/deduplicate')
+                .send({ dry_run: true });
+
+            expect(res.status).toBe(200);
+            expect(res.body.dry_run).toBe(true);
+            expect(mockVendorCatalog.deduplicateVendorCatalog).toHaveBeenCalledWith(1, true);
+        });
+
+        it('returns 400 for non-boolean dry_run', async () => {
+            const res = await request(app)
+                .post('/api/vendor-catalog/deduplicate')
+                .send({ dry_run: 'yes' });
+
+            expect(res.status).toBe(400);
+        });
+
+        it('returns 401 for unauthenticated request', async () => {
+            app = createTestApp({ authenticated: false });
+            const res = await request(app)
+                .post('/api/vendor-catalog/deduplicate')
+                .send({});
+
+            expect(res.status).toBe(401);
+        });
+
+        it('returns 400 for missing merchant context', async () => {
+            app = createTestApp({ hasMerchant: false });
+            const res = await request(app)
+                .post('/api/vendor-catalog/deduplicate')
+                .send({});
+
+            expect(res.status).toBe(400);
+        });
+
+        it('passes correct merchantId from context', async () => {
+            app = createTestApp({ merchantId: 42 });
+            mockVendorCatalog.deduplicateVendorCatalog.mockResolvedValueOnce({
+                found: 0, products: 0, removed: 0,
+            });
+
+            await request(app)
+                .post('/api/vendor-catalog/deduplicate')
+                .send({});
+
+            expect(mockVendorCatalog.deduplicateVendorCatalog).toHaveBeenCalledWith(42, true);
         });
     });
 });

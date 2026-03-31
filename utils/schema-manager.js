@@ -1189,7 +1189,9 @@ async function ensureSchema() {
                 is_archived BOOLEAN DEFAULT FALSE,
                 imported_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW(),
-                UNIQUE(vendor_id, vendor_item_number, import_batch_id)
+                -- One row per product per vendor per merchant (migration 015)
+                CONSTRAINT vendor_catalog_items_merchant_vendor_item_unique
+                    UNIQUE (merchant_id, vendor_id, vendor_item_number)
             )
         `);
         await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_vendor ON vendor_catalog_items(vendor_id)');
@@ -1199,6 +1201,7 @@ async function ensureSchema() {
         await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_batch ON vendor_catalog_items(import_batch_id)');
         await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_imported ON vendor_catalog_items(imported_at DESC)');
         await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_archived ON vendor_catalog_items(is_archived) WHERE is_archived = TRUE');
+        await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_dedup ON vendor_catalog_items(merchant_id, vendor_id, vendor_item_number)');
         logger.info('Created vendor_catalog_items table with indexes');
         appliedCount++;
     } else {
@@ -1231,6 +1234,36 @@ async function ensureSchema() {
             await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_archived ON vendor_catalog_items(is_archived) WHERE is_archived = TRUE');
         } catch (err) {
             // Index may already exist
+        }
+
+        // BACKLOG-112: migrate old per-batch unique constraint to per-product constraint.
+        // The migration SQL file (015_vendor_catalog_dedup.sql) handles deduplication and
+        // constraint swap atomically. Schema-manager adds the new constraint idempotently
+        // for installs that run schema-manager without running the migration file directly.
+        try {
+            const newConstraintCheck = await query(`
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE table_name = 'vendor_catalog_items'
+                  AND constraint_name = 'vendor_catalog_items_merchant_vendor_item_unique'
+            `);
+            if (newConstraintCheck.rows.length === 0) {
+                // Can only add if no duplicate data remains — migration file handles cleanup first.
+                // If migration file was not run yet, this will fail safely; run the migration file.
+                await query(`
+                    ALTER TABLE vendor_catalog_items
+                    ADD CONSTRAINT vendor_catalog_items_merchant_vendor_item_unique
+                    UNIQUE (merchant_id, vendor_id, vendor_item_number)
+                `);
+                await query(`
+                    ALTER TABLE vendor_catalog_items
+                    DROP CONSTRAINT IF EXISTS vendor_catalog_items_vendor_id_vendor_item_number_import_batc_key
+                `);
+                await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_dedup ON vendor_catalog_items(merchant_id, vendor_id, vendor_item_number)');
+                logger.info('vendor_catalog_items: migrated to per-product unique constraint (BACKLOG-112)');
+                appliedCount++;
+            }
+        } catch (err) {
+            logger.warn('vendor_catalog_items constraint migration skipped (run 015_vendor_catalog_dedup.sql to deduplicate first)', { error: err.message });
         }
     }
 
