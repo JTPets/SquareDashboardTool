@@ -6,15 +6,8 @@
   <title>Vendor Catalog Import - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    /* BASE STYLES */
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }    /* CONTAINER */
-    .container {
-      max-width: 1400px; /* page-specific: shared has 1200px */
-}
+    /* Page-specific: wider than shared 1200px */
+    .container { max-width: 1400px; }
 
     /* HEADER */
     .header {
@@ -37,13 +30,7 @@
       min-width: 120px; /* page-specific: wider than shared 100px */
     }
 
-    .stat-label {
-      font-size: 12px;
-      color: #9ca3af;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-top: 4px;
-    }
+    /* .stat-label from shared.css */
 
     /* TABS — .tabs, .tab:hover, .tab-content, .tab-content.active from shared.css */
     .tabs {

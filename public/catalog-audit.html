@@ -6,27 +6,11 @@
   <title>Catalog Audit - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }    .container {
-      max-width: 1800px; /* page-specific: shared has 1200px */
-}    /* .controls from shared.css */
-    .controls input[type="text"] {
-      flex: 1;
-      min-width: 250px;
-      padding: 8px 12px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-    .controls select {
-      padding: 8px 12px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      font-size: 14px;
-      background: white;
-    }
-    .controls button.secondary {
-      background: #6b7280;
-    }
+    /* Page-specific: wider container */
+    .container { max-width: 1800px; }
+    /* Page-specific: min-width 250px (shared has 200px) */
+    .controls input[type="text"] { min-width: 250px; }
+    .controls button.secondary { background: #6b7280; }
     .controls button.secondary:hover { background: #4b5563; }
     .dropdown { position: relative; display: inline-block; }
     .dropdown-menu {
@@ -56,14 +40,6 @@
     }
     .dropdown-menu button:hover { background: #f3f4f6; }
     .dropdown-menu button:not(:last-child) { border-bottom: 1px solid #e5e7eb; }
-    .info-badge {
-      background: #dbeafe;
-      color: #1e40af;
-      padding: 8px 12px;
-      border-radius: 4px;
-      font-size: 13px;
-      margin-left: auto;
-    }
 
     /* Audit Summary Cards */
     .audit-summary {
@@ -98,15 +74,9 @@
       border-color: #2563eb;
       background: #eff6ff;
     }
-    .audit-card.good {
-      border-left: 4px solid #10b981;
-    }
-    .audit-card.warning {
-      border-left: 4px solid #f59e0b;
-    }
-    .audit-card.critical {
-      border-left: 4px solid #ef4444;
-    }
+    .audit-card.good { border-left: 4px solid #10b981; }
+    .audit-card.warning { border-left: 4px solid #f59e0b; }
+    .audit-card.critical { border-left: 4px solid #ef4444; }
     .audit-card .card-header {
       display: flex;
       justify-content: space-between;
@@ -120,26 +90,14 @@
       letter-spacing: 0.5px;
       font-weight: 600;
     }
-    .audit-card .card-value {
-      font-size: 28px;
-      font-weight: 700;
-      color: #111827;
-    }
-    .audit-card .card-percent {
-      font-size: 12px;
-      color: #6b7280;
-    }
-    .audit-card .card-note {
-      font-size: 10px;
-      color: #9ca3af;
-      font-style: italic;
-      margin-top: 4px;
-    }
+    .audit-card .card-value { font-size: 28px; font-weight: 700; color: #111827; }
+    .audit-card .card-percent { font-size: 12px; color: #6b7280; }
+    .audit-card .card-note { font-size: 10px; color: #9ca3af; font-style: italic; margin-top: 4px; }
     .audit-card.critical .card-value { color: #dc2626; }
     .audit-card.warning .card-value { color: #d97706; }
     .audit-card.good .card-value { color: #059669; }
 
-    /* Stats Row */
+    /* Page-specific: dark-bg stat row with grid layout (not shared .stats-bar flex) */
     .stats {
       padding: 20px;
       display: grid;
@@ -148,57 +106,16 @@
       background: #1f2937;
       border-bottom: 1px solid #e5e7eb;
     }
-    .stat-card {
-      text-align: center;
-    }
-    .stat-label {
-      font-size: 11px;
-      color: #9ca3af;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      font-weight: 600;
-    }
-    .stat-value {
-      font-size: 24px;
-      font-weight: 700;
-      color: #10b981;
-      margin-top: 5px;
-    }
+    /* Page-specific: 11px font, #9ca3af color, font-weight 600 (shared has 13px, #6b7280, normal) */
+    .stat-label { font-size: 11px; color: #9ca3af; font-weight: 600; }
+    /* Page-specific: 24px green stat-value, 5px margin (shared has 28px, #111827, 4px) */
+    .stat-value { font-size: 24px; color: #10b981; margin-top: 5px; }
     .stat-value.alert { color: #ef4444; }
 
-    /* page-specific: scrollable table height */
+    /* Page-specific: scrollable table height */
     .table-container { max-height: 55vh; overflow-y: auto; }
-    /* page-specific: higher z-index (dropdowns), nowrap headers, shadow */
+    /* Page-specific: higher z-index (dropdowns), nowrap headers, shadow */
     th { z-index: 100; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-
-    .product-image {
-      width: 50px;
-      height: 50px;
-      object-fit: cover;
-      border-radius: 4px;
-      border: 1px solid #e5e7eb;
-    }
-    .no-image {
-      width: 50px;
-      height: 50px;
-      background: #f3f4f6;
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #9ca3af;
-      font-size: 20px;
-      border: 1px solid #e5e7eb;
-    }
-    /* .product-name from shared.css */
-    .variation-name {
-      font-size: 12px;
-      color: #6b7280;
-      font-weight: 400;
-      margin-top: 2px;
-    }
-    .sku { font-family: monospace; font-size: 12px; color: #6b7280; }
-    /* .text-right from shared.css */
 
     /* Issue badges */
     .issue-badge {
@@ -210,22 +127,10 @@
       margin: 2px;
       white-space: nowrap;
     }
-    .issue-badge.critical {
-      background: #fee2e2;
-      color: #991b1b;
-    }
-    .issue-badge.warning {
-      background: #fef3c7;
-      color: #92400e;
-    }
-    .issue-badge.info {
-      background: #dbeafe;
-      color: #1e40af;
-    }
-    .issue-badge.ok {
-      background: #d1fae5;
-      color: #065f46;
-    }
+    .issue-badge.critical { background: #fee2e2; color: #991b1b; }
+    .issue-badge.warning { background: #fef3c7; color: #92400e; }
+    .issue-badge.info { background: #dbeafe; color: #1e40af; }
+    .issue-badge.ok { background: #d1fae5; color: #065f46; }
 
     .issue-count {
       display: inline-block;
@@ -239,28 +144,9 @@
     .issue-count.low { background: #dbeafe; color: #1e40af; }
     .issue-count.none { background: #d1fae5; color: #065f46; }
 
-    .issues-cell {
-      max-width: 300px;
-    }
+    .issues-cell { max-width: 300px; }
 
-    .sortable {
-      cursor: pointer;
-      user-select: none;
-      position: relative;
-      padding-right: 20px;
-    }
-    .sortable:hover { background: #e5e7eb; }
-    .sort-indicator {
-      position: absolute;
-      right: 5px;
-      font-size: 10px;
-      color: #6b7280;
-    }
-    .sort-indicator.asc::after { content: '\25B2'; color: #2563eb; }
-    .sort-indicator.desc::after { content: '\25BC'; color: #2563eb; }
-
-    /* .loading, @keyframes spin from shared.css */
-    /* page-specific: larger block-centered spinner with lighter border */
+    /* Page-specific: larger block-centered spinner with lighter border */
     .spinner {
       display: block;
       border-color: #f3f3f3;
@@ -269,16 +155,10 @@
       height: 40px;
       margin: 0 auto 15px;
     }
-    .error {
-      text-align: center;
-      padding: 40px;
-      color: #dc2626;
-    }
+    .error { text-align: center; padding: 40px; color: #dc2626; }
 
     /* Export button */
-    .export-btn {
-      background: #6366f1;
-    }
+    .export-btn { background: #6366f1; }
     .export-btn:hover { background: #4f46e5; }
 
     @media (max-width: 768px) {

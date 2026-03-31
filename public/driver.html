@@ -6,20 +6,13 @@
   <title>Driver Route</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-      background-color: #f5f5f5;
-      line-height: 1.4;
-      min-height: 100vh;
-      padding: 0;
-}
+    /* Page-specific: full-screen layout, no padding */
+    body { min-height: 100vh; padding: 0; }
 
-    /* Header */
+    /* Page-specific: block header, green gradient, sticky, compact padding */
     .header {
-      display: block; /* page-specific: header is not flex (full-screen layout) */
+      display: block;
       background: linear-gradient(135deg, #059669 0%, #047857 100%);
-      color: white;
       padding: 15px 20px;
       position: sticky;
       top: 0;
@@ -31,7 +24,8 @@
       align-items: center;
       margin-bottom: 12px;
     }
-    .header h1 { font-size: 20px; font-weight: 600; }
+    /* Page-specific: smaller h1 */
+    .header h1 { font-size: 20px; }
     .merchant-name {
       font-size: 12px;
       opacity: 0.8;
@@ -318,35 +312,27 @@
       gap: 10px;
       flex-wrap: wrap;
     }
+    /* Page-specific: mobile-first btn — flex:1, larger, rounded, centered */
     .btn {
       flex: 1;
       min-width: 100px;
       padding: 14px 16px;
-      border: none;
       border-radius: 8px;
-      cursor: pointer;
       font-weight: 600;
       font-size: 15px;
-      display: flex;
-      align-items: center;
       justify-content: center;
       gap: 8px;
       transition: transform 0.1s, background 0.2s;
     }
-    .btn:active {
-      transform: scale(0.98);
-    }
-    .btn-primary { background: #059669; color: white; }
+    .btn:active { transform: scale(0.98); }
+    /* Page-specific: green primary (shared has blue) */
+    .btn-primary { background: #059669; }
     .btn-primary:hover { background: #047857; }
-    .btn-success { background: #10b981; color: white; }
+    /* Page-specific: .btn-success hover is darker green */
     .btn-success:hover { background: #059669; }
-    .btn-warning { background: #f59e0b; color: white; }
-    .btn-warning:hover { background: #d97706; }
-    .btn-secondary { background: #6b7280; color: white; }
-    .btn-secondary:hover { background: #4b5563; }
+    /* Page-specific: purple finish button */
     .btn-finish { background: #7c3aed; color: white; }
     .btn-finish:hover { background: #6d28d9; }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
     /* Finish Route Section */
     .finish-section {
@@ -387,7 +373,7 @@
       color: #6b7280;
     }
 
-    /* Empty State — .empty-state from shared.css */
+    /* Page-specific: h2 empty state (shared only styles h3) */
     .empty-state h2 {
       font-size: 20px;
       margin-bottom: 10px;
@@ -428,9 +414,9 @@
       border-bottom: none;
     }
 
-    /* POD Modal — uses .modal-overlay + .modal as dialog (not overlay pattern) */
-    .modal-overlay { background: rgba(0,0,0,0.8); } /* page-specific: darker overlay (shared has 0.7) */
-    /* page-specific: .modal is the dialog box inside .modal-overlay, not overlay itself */
+    /* Page-specific: darker overlay (shared has 0.7) */
+    .modal-overlay { background: rgba(0,0,0,0.8); }
+    /* Page-specific: .modal is the dialog box inside .modal-overlay, not overlay itself */
     .modal {
       display: block;
       position: static;
@@ -442,7 +428,8 @@
       overflow-y: auto;
       padding: 0;
     }
-    .modal-close { font-size: 28px; } /* page-specific: larger close icon (shared has 24px) */
+    /* Page-specific: larger close icon (shared has 24px) */
+    .modal-close { font-size: 28px; }
 
     .pod-preview {
       width: 100%;
@@ -486,42 +473,17 @@
       margin-bottom: 10px;
     }
 
-    .modal-footer {
-      padding: 15px 20px;
-      border-top: 1px solid #e5e7eb;
-      display: flex;
-      gap: 10px;
-    }
     .modal-footer .btn { flex: 1; }
 
-    /* Loading Overlay */
-    .loading-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(255,255,255,0.9);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 2000;
-      display: none;
-    }
-    .loading-overlay.active { display: flex; }
-    .loading-spinner {
-      text-align: center;
-    }
+    /* Page-specific: larger spinner with 4px border, green top */
+    .loading-spinner { text-align: center; }
     .loading-spinner .spinner {
       width: 40px;
       height: 40px;
-      border: 4px solid #e5e7eb;
+      border-width: 4px;
       border-top-color: #059669;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
       margin: 0 auto 10px;
     }
-    /* @keyframes spin from shared.css */
   </style>
 </head>
 <body>

@@ -10,28 +10,24 @@
   <link rel="stylesheet" href="/css/shared.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    /* Page-specific: slightly different bg (#f5f5f7 vs shared #f5f5f5), no side padding, overscroll containment */
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
       background-color: #f5f5f7;
-      
-      line-height: 1.4;
       overscroll-behavior-y: contain;
       padding: 0 0 20px 0;
-}
+    }
 
+    /* Page-specific: block layout, gradient bg, sticky positioning */
     .header {
-      display: block; /* page-specific: header is not flex (full-screen layout) */
+      display: block;
       background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-      color: white;
-      padding: 20px;
       box-shadow: 0 2px 10px rgba(0,0,0,0.1);
       position: sticky;
       top: 0;
       z-index: 100;
     }
+    /* Page-specific: margin-bottom not in shared .header h1 */
     .header h1 {
-      font-size: 24px;
-      font-weight: 600;
       margin-bottom: 8px;
     }
     .header p {
@@ -44,24 +40,23 @@
       justify-content: space-around;
       gap: 10px;
     }
+    /* Page-specific: transparent bg for dark header, smaller padding, glassmorphism */
     .stat-card {
       background: rgba(255,255,255,0.2);
-      border-radius: 8px;
+      border: none;
       padding: 10px;
-      text-align: center;
       flex: 1;
       backdrop-filter: blur(10px);
     }
+    /* Page-specific: smaller font (24px vs shared 28px), block display */
     .stat-value {
       font-size: 24px;
-      font-weight: 700;
       display: block;
     }
+    /* Page-specific: smaller font (11px vs shared 13px), opacity for dark header */
     .stat-label {
       font-size: 11px;
       opacity: 0.9;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
     }
 
     .toolbar {
@@ -72,17 +67,15 @@
       gap: 10px;
       flex-wrap: wrap;
     }
+    /* Page-specific: mobile-first large touch targets, flex layout, rounded corners */
     .btn {
       flex: 1;
       min-width: 80px;
       padding: 14px;
-      border: none;
       border-radius: 10px;
       font-size: 15px;
       font-weight: 600;
-      cursor: pointer;
       display: flex;
-      align-items: center;
       justify-content: center;
       gap: 5px;
       transition: transform 0.1s;
@@ -90,17 +83,14 @@
     .btn:active {
       transform: scale(0.98);
     }
+    /* Page-specific: lighter blue (#3b82f6 vs shared #2563eb) */
     .btn-primary {
       background: #3b82f6;
-      color: white;
     }
+    /* Page-specific: light-gray bg instead of shared dark-gray */
     .btn-secondary {
       background: #f3f4f6;
       color: #374151;
-    }
-    .btn-success {
-      background: #10b981;
-      color: white;
     }
 
     .filter-tabs {
@@ -247,15 +237,12 @@
       border-radius: 8px;
       border: 2px solid #e5e7eb;
     }
+    /* Page-specific: larger 80px image placeholder, gradient bg, thicker border */
     .no-image {
       width: 80px;
       height: 80px;
       background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
       border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #9ca3af;
       font-size: 32px;
       border: 2px solid #e5e7eb;
     }
@@ -404,12 +391,11 @@
       gap: 6px;
       margin-top: 10px;
     }
+    /* Page-specific: tighter padding, smaller radius/font, uppercase */
     .badge {
-      display: inline-block;
       padding: 4px 8px;
       border-radius: 6px;
       font-size: 11px;
-      font-weight: 600;
       text-transform: uppercase;
     }
     .badge-category {
@@ -474,8 +460,8 @@
       font-size: 20px; /* page-specific: larger than shared 18px */
       margin-bottom: 10px; /* page-specific: 10px vs shared 8px */
     }
+    /* Page-specific: line-height 1.6 not in shared .empty-state p */
     .empty-state p {
-      font-size: 14px;
       line-height: 1.6;
     }
 

@@ -6,10 +6,13 @@
   <title>Subscription Management - Admin</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }    .header {
-      background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%); /* page-specific: shared has #2563eb */
-}    .header-subtitle { font-size: 14px; opacity: 0.9; margin-top: 4px; }    /* Alert Banners — color variants from shared.css; base override for flex layout */
-    /* page-specific: flex row with icon gap; larger padding and radius (shared has 12px 16px / 6px) */
+    /* Page-specific: purple branding (shared has #2563eb) */
+    .header {
+      background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
+    }
+    .header-subtitle { font-size: 14px; opacity: 0.9; margin-top: 4px; }
+
+    /* Page-specific: flex row with icon gap; larger padding/radius than shared (12px 16px / 6px) */
     .alert {
       padding: 15px 20px;
       border-radius: 8px;
@@ -19,22 +22,9 @@
       gap: 12px;
     }
 
-    /* Section Cards */
-    .section {
-      margin-bottom: 30px;
-    }
+    /* Page-specific: .section-header uses 2px border (shared has 1px) */
     .section-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 15px;
-      padding-bottom: 10px;
       border-bottom: 2px solid #e5e7eb;
-    }
-    .section-title {
-      font-size: 18px;
-      font-weight: 600;
-      color: #111827;
     }
 
     /* Stats Grid */
@@ -44,23 +34,11 @@
       gap: 15px;
       margin-bottom: 25px;
     }
-    .stat-card {
-      background: #f9fafb;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      padding: 20px;
-      text-align: center;
-    }
+    /* Page-specific: larger stat-value 32px (shared has 28px) */
     .stat-value {
       font-size: 32px;
-      font-weight: 700;
-      color: #111827;
     }
-    .stat-label {
-      font-size: 13px;
-      color: #6b7280;
-      margin-top: 4px;
-    }
+    /* Page-specific: purple highlight variant */
     .stat-card.highlight {
       background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
       color: white;
@@ -68,53 +46,34 @@
     .stat-card.highlight .stat-value,
     .stat-card.highlight .stat-label { color: white; }
 
-    /* Plans Table — overrides for shared table styles */
-    /* page-specific: wider cell padding than shared 12px */
+    /* Page-specific: wider cell padding than shared 12px */
     th, td { padding: 12px 15px; }
-    /* page-specific: no sticky header; colour #374151; 13px font */
+    /* Page-specific: no sticky header; colour #374151; 13px font */
     th { position: static; color: #374151; font-size: 13px; letter-spacing: 0; }
 
-    /* Status Badges */
-    .badge {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: 600;
-    }
-    .badge-success { background: #d1fae5; color: #065f46; }
-    .badge-warning { background: #fef3c7; color: #92400e; }
-    .badge-error { background: #fee2e2; color: #991b1b; }
-    .badge-info { background: #dbeafe; color: #1e40af; }
-    .badge-gray { background: #f3f4f6; color: #6b7280; }
-
-    /* Buttons */
+    /* Page-specific: button overrides for purple theme */
     .btn {
-      padding: 10px 18px; /* page-specific: shared has 10px 16px */
-      border-radius: 6px; /* page-specific: shared has 4px */
-      gap: 8px; /* page-specific: shared has 6px */
-      transition: all 0.2s; /* page-specific: shared has background 0.2s */
-}
+      padding: 10px 18px; /* Page-specific: shared has 10px 16px */
+      border-radius: 6px; /* Page-specific: shared has 4px */
+      gap: 8px; /* Page-specific: shared has 6px */
+      transition: all 0.2s; /* Page-specific: shared has background 0.2s */
+    }
     .btn-primary {
-      background: #7c3aed; /* page-specific: shared has #2563eb */
-}
+      background: #7c3aed; /* Page-specific: shared has #2563eb */
+    }
     .btn-primary:hover { background: #6d28d9; }
     .btn-success {
-      background: #059669; /* page-specific: shared has #10b981 */
-}
-    .btn-sm {
-      padding: 6px 12px;
-      font-size: 13px;
+      background: #059669; /* Page-specific: shared has #10b981 */
     }
 
-    /* Loading Spinner — .loading, @keyframes spin from shared.css */
+    /* Page-specific: purple spinner */
     .spinner {
-      border-top-color: #7c3aed; /* page-specific: purple spinner */
+      border-top-color: #7c3aed;
     }
 
-    /* Empty State — .empty-state, .empty-state h3 from shared.css */
+    /* Page-specific: less vertical padding than shared 60px */
     .empty-state {
-      padding: 40px; /* page-specific: less vertical padding than shared 60px */
+      padding: 40px;
     }
 
     /* Configuration Card */

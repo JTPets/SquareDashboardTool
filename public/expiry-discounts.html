@@ -6,7 +6,6 @@
   <title>Expiry Discount Manager - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }    .container {
       max-width: 1600px; /* page-specific: shared has 1200px */
 }
     .header {
@@ -269,33 +268,8 @@
     .btn-resolve-keep { background: #6b7280; color: white; }
     .btn-resolve-keep:hover { background: #4b5563; }
 
-    /* Alert box */
-    .alert {
-      padding: 12px 20px;
-      border-radius: 4px;
-      margin-bottom: 15px;
-      font-size: 14px;
-    }
-    .alert-info {
-      background: #dbeafe;
-      color: #1e40af;
-      border: 1px solid #93c5fd;
-    }
-    .alert-success {
-      background: #d1fae5;
-      color: #065f46;
-      border: 1px solid #6ee7b7;
-    }
-    .alert-warning {
-      background: #fef3c7;
-      color: #92400e;
-      border: 1px solid #fcd34d;
-    }
-    .alert-danger {
-      background: #fee2e2;
-      color: #991b1b;
-      border: 1px solid #fca5a5;
-    }
+    /* Page-specific: .alert-danger alias (shared uses .alert-error) */
+    .alert-danger { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
   </style>
 </head>
 <body>

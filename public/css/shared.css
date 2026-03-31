@@ -626,6 +626,11 @@ tr:hover {
   color: #374151;
 }
 
+.empty-state p {
+  font-size: 14px;
+  color: #9ca3af;
+}
+
 /* =============================================================
    Loading & Spinner
    Pages with extra properties (font-size, font-style) add them
@@ -667,6 +672,343 @@ tr:hover {
   gap: 15px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+/* =============================================================
+   CSS Custom Properties
+   Canonical color palette used across all pages.
+   ============================================================= */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  /* Brand */
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+
+  /* Semantic */
+  --color-success: #10b981;
+  --color-success-hover: #047857;
+  --color-danger: #dc2626;
+  --color-danger-hover: #b91c1c;
+  --color-warning: #f59e0b;
+  --color-warning-hover: #d97706;
+  --color-info: #3b82f6;
+
+  /* Semantic backgrounds (badges, alerts) */
+  --color-success-bg: #d1fae5;
+  --color-success-text: #065f46;
+  --color-danger-bg: #fee2e2;
+  --color-danger-text: #991b1b;
+  --color-warning-bg: #fef3c7;
+  --color-warning-text: #92400e;
+  --color-info-bg: #dbeafe;
+  --color-info-text: #1e40af;
+
+  /* Neutrals */
+  --color-text: #111827;
+  --color-text-secondary: #374151;
+  --color-text-muted: #6b7280;
+  --color-text-faint: #9ca3af;
+  --color-border: #e5e7eb;
+  --color-border-input: #d1d5db;
+  --color-bg-page: #f5f5f5;
+  --color-bg-light: #f9fafb;
+  --color-bg-hover: #f3f4f6;
+  --color-bg-dark: #1f2937;
+}
+
+/* =============================================================
+   Stat Cards
+   White-background stat cards used in grid/row layouts.
+   Pages using dark-bg stat rows (.stats-bar) use the Stats Bar
+   section above. Pages with custom stat colors (loyalty, gmc)
+   override .stat-value color locally.
+   ============================================================= */
+
+.stat-card {
+  background: var(--color-bg-light);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.stat-label {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* =============================================================
+   Badges & Tags
+   Pill-shaped badges for status indicators and labels.
+   Page-specific badge variants (tier badges, velocity badges)
+   remain inline with page-specific comments.
+   ============================================================= */
+
+.badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge-success { background: var(--color-success-bg); color: var(--color-success-text); }
+.badge-warning { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.badge-error   { background: var(--color-danger-bg);  color: var(--color-danger-text); }
+.badge-info    { background: var(--color-info-bg);     color: var(--color-info-text); }
+.badge-gray    { background: var(--color-bg-hover);    color: var(--color-text-muted); }
+
+.status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* =============================================================
+   Search & Filters
+   Controls bar input/select/label styling and filter groups.
+   The .controls container itself is defined in "Controls bar".
+   ============================================================= */
+
+.controls input[type="text"] {
+  flex: 1;
+  min-width: 200px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border-input);
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.controls select {
+  padding: 8px 12px;
+  border: 1px solid var(--color-border-input);
+  border-radius: 4px;
+  font-size: 14px;
+  background: white;
+}
+
+.controls label {
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.filter-group {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* =============================================================
+   Pagination
+   Bottom bar with page info and prev/next buttons.
+   ============================================================= */
+
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 20px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-light);
+}
+
+.pagination-info {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.pagination-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.pagination-btn {
+  padding: 8px 14px;
+  border: 1px solid var(--color-border-input);
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+}
+
+.pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* =============================================================
+   Sections
+   Content sections with header/title/description.
+   Used in settings, admin, delivery-settings, staff pages.
+   ============================================================= */
+
+.section {
+  margin-bottom: 30px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.section-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.section-desc {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+}
+
+/* =============================================================
+   Product Elements
+   Shared catalog display elements: variation name, SKU,
+   product images. Used by inventory, catalog-audit,
+   sales-velocity, expiry, reorder, deleted-items pages.
+   ============================================================= */
+
+.variation-name {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+.sku {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.product-image {
+  width: 50px;
+  height: 50px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+}
+
+.no-image {
+  width: 50px;
+  height: 50px;
+  background: var(--color-bg-hover);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-faint);
+  font-size: 20px;
+  border: 1px solid var(--color-border);
+}
+
+/* =============================================================
+   Info Badge
+   Inline informational label used in controls bars.
+   ============================================================= */
+
+.info-badge {
+  background: var(--color-info-bg);
+  color: var(--color-info-text);
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  margin-left: auto;
+}
+
+/* =============================================================
+   Sortable Columns
+   Table header sorting indicators.
+   ============================================================= */
+
+.sortable {
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  padding-right: 20px;
+}
+
+.sortable:hover {
+  background: var(--color-border);
+}
+
+.sort-indicator {
+  position: absolute;
+  right: 5px;
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+.sort-indicator.asc::after { content: '\25B2'; color: var(--color-primary); }
+.sort-indicator.desc::after { content: '\25BC'; color: var(--color-primary); }
+
+/* =============================================================
+   Loading Overlay
+   Full-screen overlay with centered spinner for async operations.
+   ============================================================= */
+
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.loading-overlay.active {
+  display: flex;
+}
+
+/* =============================================================
+   Tab Badge
+   Badge inside tab buttons for item counts.
+   ============================================================= */
+
+.tab .badge {
+  background: var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: 6px;
+}
+
+.tab.active .badge {
+  background: var(--color-info-bg);
+  color: var(--color-primary-hover);
 }
 
 /* =============================================================

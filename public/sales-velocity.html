@@ -6,31 +6,20 @@
   <title>Sales Velocity Reports - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }    .container {
+    .container {
       max-width: 1800px; /* page-specific: shared has 1200px */
-}    /* .controls from shared.css */
+    }
     .controls label { font-size: 14px; font-weight: 500; color: #374151; }
+    /* Page-specific: min-height (not in shared .controls select) */
     .controls select {
-      padding: 8px 12px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      font-size: 14px;
       min-height: 40px;
-      background: white;
     }
     .controls button:disabled {
       background: #9ca3af;
       cursor: not-allowed;
     }
-    .info-badge {
-      background: #dbeafe;
-      color: #1e40af;
-      padding: 8px 12px;
-      border-radius: 4px;
-      font-size: 13px;
-      margin-left: auto;
-    }
 
+    /* Page-specific: grid stats layout (not shared .stats-bar flex) */
     .stats {
       padding: 20px;
       display: grid;
@@ -39,23 +28,20 @@
       background: #f9fafb;
       border-bottom: 1px solid #e5e7eb;
     }
+    /* Page-specific: white bg, 15px padding, 6px radius (shared has #f9fafb, 20px, 8px) */
     .stat-card {
       background: white;
       padding: 15px;
       border-radius: 6px;
-      border: 1px solid #e5e7eb;
     }
+    /* Page-specific: 12px font, font-weight 600 (shared has 13px, normal) */
     .stat-label {
       font-size: 12px;
-      color: #6b7280;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
       font-weight: 600;
     }
+    /* Page-specific: 24px font, 5px margin (shared has 28px, 4px) */
     .stat-value {
       font-size: 24px;
-      font-weight: 700;
-      color: #111827;
       margin-top: 5px;
     }
     .stat-subtext {
@@ -68,14 +54,6 @@
     .table-container { max-height: 60vh; overflow-y: auto; }
     /* page-specific: prevent header wrapping */
     th { white-space: nowrap; }
-    .variation-name {
-      font-size: 12px;
-      color: #6b7280;
-      font-weight: 400;
-      margin-top: 2px;
-    }
-    .sku { font-family: monospace; font-size: 12px; color: #6b7280; }
-    /* .text-right from shared.css */
     .text-center { text-align: center; }
 
     .velocity-badge {
@@ -99,7 +77,6 @@
       color: #991b1b;
     }
 
-    /* .loading, @keyframes spin from shared.css */
     /* page-specific: larger block-centered spinner with lighter border */
     .spinner {
       display: block;

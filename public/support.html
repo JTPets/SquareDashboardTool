@@ -6,31 +6,17 @@
   <title>Support - Square Dashboard Addon Tool</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    /* BASE STYLES */
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    /* Page-specific: taller line-height */
+    body { line-height: 1.6; }
 
-    body {
-      line-height: 1.6; /* page-specific: shared has 1.4 */
-}
+    /* Page-specific: narrower than shared 1200px */
+    .container { max-width: 900px; }
 
-    /* CONTAINER */
-    .container {
-      max-width: 900px; /* page-specific: shared has 1200px */
-}
+    /* Page-specific: centered header */
+    .header { text-align: center; }
 
-    /* HEADER */
-    .header {
-      text-align: center;
-}
-
-    .header h1 {
-      font-size: 28px; /* page-specific: shared has 24px */
-      margin-bottom: 8px;
-}
+    /* Page-specific: larger heading */
+    .header h1 { font-size: 28px; margin-bottom: 8px; }
 
     .header p {
       font-size: 15px;
@@ -56,9 +42,7 @@
       padding: 0 30px 30px;
     }
 
-    .section {
-      margin-bottom: 30px;
-    }
+    /* .section from shared.css */
 
     .section h2 {
       color: #1f2937;
@@ -178,16 +162,9 @@
       color: #4b5563;
     }
 
-    /* FOOTER */    .footer a {
-      color: #6b7280;
-      text-decoration: none;
-      margin: 0 8px;
-    }
-
-    .footer a:hover {
-      color: #374151;
-      text-decoration: underline;
-    }
+    /* Page-specific: footer link colors and spacing */
+    .footer a { color: #6b7280; text-decoration: none; margin: 0 8px; }
+    .footer a:hover { color: #374151; text-decoration: underline; }
 
     /* RESPONSIVE */
     @media (max-width: 600px) {

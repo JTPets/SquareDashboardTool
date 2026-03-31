@@ -6,16 +6,19 @@
   <title>Cart Activity - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }    .header {
-      background: #1f2937; /* page-specific: shared has #2563eb */
+    /* Page-specific: dark header (shared has #2563eb) */
+    .header {
+      background: #1f2937;
       flex-wrap: wrap;
       gap: 10px;
-}    .header-actions {
+    }
+    .header-actions {
       flex-wrap: wrap;
-}
+    }
+    /* Page-specific: translucent buttons for dark header */
     .btn-secondary {
-    background: rgba(255,255,255,0.2); /* page-specific: shared has #6b7280 */
-}
+      background: rgba(255,255,255,0.2);
+    }
     .btn-secondary:hover { background: rgba(255,255,255,0.3); }
 
     /* Stats Cards */
@@ -27,22 +30,16 @@
       background: #f9fafb;
       border-bottom: 1px solid #e5e7eb;
     }
+    /* Page-specific: white bg, 15px padding (shared has #f9fafb, 20px) */
     .stat-card {
       background: white;
-      border-radius: 8px;
       padding: 15px;
-      border: 1px solid #e5e7eb;
     }
+    /* Page-specific: font-weight 600 (shared has 700) */
     .stat-card .stat-value {
-      font-size: 28px;
       font-weight: 600;
-      color: #111827;
     }
-    .stat-card .stat-label {
-      font-size: 13px;
-      color: #6b7280;
-      margin-top: 4px;
-    }
+    /* Page-specific: colored stat variants */
     .stat-card.pending .stat-value { color: #f59e0b; }
     .stat-card.converted .stat-value { color: #10b981; }
     .stat-card.abandoned .stat-value { color: #ef4444; }
@@ -57,9 +54,8 @@
       flex-wrap: wrap;
       align-items: center;
     }
+    /* Page-specific: .filter-group gap 8px (shared has 10px) */
     .filter-group {
-      display: flex;
-      align-items: center;
       gap: 8px;
     }
     .filter-label {
@@ -79,12 +75,12 @@
       border-color: #2563eb;
     }
 
-    /* Content */
+    /* Page-specific: content padding 20px (shared has 30px) */
     .content {
       padding: 20px;
     }
 
-    /* Cart Table */
+    /* Cart Table — page-specific: uses .cart-table class, different styling from shared table */
     .cart-table {
       width: 100%;
       border-collapse: collapse;
@@ -110,14 +106,7 @@
       background: #f9fafb;
     }
 
-    /* Status Badges */
-    .status-badge {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: 500;
-    }
+    /* Page-specific: status color variants */
     .status-pending { background: #fef3c7; color: #92400e; }
     .status-converted { background: #d1fae5; color: #065f46; }
     .status-abandoned { background: #fee2e2; color: #991b1b; }
@@ -145,42 +134,6 @@
     .cart-value {
       font-weight: 600;
       color: #059669;
-    }
-
-    /* .empty-state, .empty-state h3, .loading from shared.css */
-
-    /* Pagination */
-    .pagination {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 15px 20px;
-      border-top: 1px solid #e5e7eb;
-      background: #f9fafb;
-    }
-    .pagination-info {
-      font-size: 13px;
-      color: #6b7280;
-    }
-    .pagination-buttons {
-      display: flex;
-      gap: 8px;
-    }
-    .pagination-btn {
-      padding: 8px 14px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      background: white;
-      cursor: pointer;
-      font-size: 13px;
-      color: #374151;
-    }
-    .pagination-btn:hover:not(:disabled) {
-      background: #f3f4f6;
-    }
-    .pagination-btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
     }
 
     /* Responsive */

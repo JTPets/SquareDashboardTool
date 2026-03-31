@@ -6,7 +6,7 @@
   <title>Vendor Dashboard - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }    .container {
+    .container {
       max-width: 1800px; /* page-specific: shared has 1200px */
 }
     .header {
@@ -31,16 +31,13 @@
 
     /* Summary cards — .stats-bar, .stat, .stat-number from shared.css */
     .stat-number.alert { color: #ef4444; }
-    .stat-label { font-size: 12px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+    /* Page-specific: smaller font, lighter color than shared stat-label (13px/#6b7280) */
+    .stat-label { font-size: 12px; color: #9ca3af; }
 
-    /* Filter bar */
+    /* Filter bar — .controls from shared.css */
     .controls {
-      padding: 15px 20px;
-      border-bottom: 1px solid #e5e7eb;
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      flex-wrap: wrap;
+      padding: 15px 20px; /* Page-specific: tighter padding than shared 20px */
+      gap: 10px; /* Page-specific: tighter gap than shared 15px */
     }
     .filter-btn {
       padding: 8px 16px;
@@ -58,16 +55,13 @@
       border-color: #2563eb;
     }
     .filter-btn:hover:not(.active) { background: #f3f4f6; }
+    /* Page-specific: min-height and auto-margin beyond shared .controls select */
     .controls select {
-      padding: 8px 12px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      font-size: 14px;
       min-height: 38px;
-      background: white;
       margin-left: auto;
     }
-    .controls label { font-size: 13px; font-weight: 500; color: #6b7280; margin-left: auto; }
+    /* Page-specific: smaller font, muted color, auto-margin vs shared .controls label */
+    .controls label { font-size: 13px; color: #6b7280; margin-left: auto; }
 
     /* Table — overrides for shared table styles */
     /* page-specific: border-separate so row borders are precise */
@@ -83,12 +77,10 @@
     .vendor-items { font-size: 12px; color: #6b7280; }
 
     /* Status badges */
+    /* Page-specific: smaller padding/font than shared badge (4px 10px/12px), plus uppercase */
     .badge {
-      display: inline-block;
       padding: 3px 10px;
-      border-radius: 12px;
       font-size: 11px;
-      font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.3px;
       white-space: nowrap;
@@ -234,7 +226,8 @@
     @media (max-width: 768px) {
       .edit-grid { grid-template-columns: 1fr; }
     }
-    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    /* Page-specific: vendor edit form uses flex column layout (shared has margin-bottom: 16px only) */
+    .form-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 0; }
     .form-group label { font-size: 12px; font-weight: 600; color: #374151; }
     .form-group input,
     .form-group select,

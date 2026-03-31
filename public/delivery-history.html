@@ -7,16 +7,17 @@
   <link rel="stylesheet" href="/css/delivery.css">
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }    .container {
+    .container {
       max-width: 1400px; /* page-specific: shared has 1200px */
-}
+    }
     .header {
       background: #1f2937; /* page-specific: shared has #2563eb */
       flex-wrap: wrap;
       gap: 10px;
-}    .header-actions {
+    }
+    .header-actions {
       flex-wrap: wrap;
-}
+    }
     .btn-secondary.header-btn { background: rgba(255,255,255,0.2); }
     .btn-secondary.header-btn:hover { background: rgba(255,255,255,0.3); }
 
@@ -30,9 +31,8 @@
       flex-wrap: wrap;
       align-items: center;
     }
+    /* Page-specific: gap 8px (shared .filter-group has 10px) */
     .filter-group {
-      display: flex;
-      align-items: center;
       gap: 8px;
     }
     .filter-group label {
@@ -52,31 +52,30 @@
       box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
     }
 
-    /* Stats Bar */
+    /* Page-specific: white bg horizontal stats (shared .stats-bar has dark bg, justify-content: space-around) */
     .stats-bar {
-      display: flex;
-      gap: 20px;
-      padding: 15px 20px;
       background: white;
-      border-bottom: 1px solid #e5e7eb;
-      flex-wrap: wrap;
+      justify-content: flex-start;
     }
+    /* Page-specific: horizontal stat with flex row (shared .stat has text-align center, min-width) */
     .stat {
       display: flex;
       align-items: center;
       gap: 8px;
     }
+    /* Page-specific: 24px / 600 weight (shared .stat-value has 28px / 700) */
     .stat-value {
       font-size: 24px;
       font-weight: 600;
-      color: #111827;
     }
+    /* Page-specific: no text-transform/letter-spacing/margin-top (shared has uppercase, 0.5px, 4px) */
     .stat-label {
-      font-size: 13px;
-      color: #6b7280;
+      text-transform: none;
+      letter-spacing: 0;
+      margin-top: 0;
     }
 
-    /* Content */
+    /* Page-specific: content padding 20px (shared has 30px) */
     .content {
       padding: 20px;
     }
@@ -167,14 +166,9 @@
       transform: scale(1.1);
     }
 
-    /* Empty State — .empty-state, .empty-state h3 from shared.css */
-
-    /* Alert */
+    /* Page-specific: different alert colors than shared (border shades, text colors) */
     .alert {
-      padding: 12px 16px;
-      border-radius: 4px;
-      margin-bottom: 16px;
-      font-size: 14px;
+      border-radius: 4px; /* Page-specific: shared has 6px */
     }
     .alert-error { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
     .alert-success { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
@@ -193,10 +187,8 @@
     }
     /* page-specific: tighter header padding (shared has 20px) */
     .modal-header { padding: 15px 20px; }
-    .modal-header h2 { font-size: 18px; font-weight: 600; }
     /* page-specific: image viewer body — centered flex layout */
     .modal-body {
-      padding: 20px;
       overflow: auto;
       display: flex;
       align-items: center;
@@ -210,14 +202,11 @@
     /* page-specific: caption footer — no button row, no background */
     .modal-footer {
       padding: 15px 20px;
-      border-top: 1px solid #e5e7eb;
       font-size: 13px;
       color: #6b7280;
       background: none;
       justify-content: flex-start;
     }
-
-    /* Loading — .loading from shared.css */
 
     /* Responsive */
     @media (max-width: 768px) {

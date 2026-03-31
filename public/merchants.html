@@ -6,22 +6,23 @@
   <title>Manage Square Accounts - Square Dashboard Tool</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    /* BASE STYLES */
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
-    }    /* CONTAINER */
-    .container {
-      max-width: 900px; /* page-specific: shared has 1200px */
-}
+    }
 
-    /* HEADER */
+    /* Page-specific: narrower container (shared has 1200px) */
+    .container {
+      max-width: 900px;
+    }
+
+    /* Page-specific: tighter header padding and wrapping */
     .header {
-      padding: 15px 20px; /* page-specific: shared has 20px */
+      padding: 15px 20px;
       flex-wrap: wrap;
       gap: 12px;
-}
+    }
 
     .header-content h1 {
       font-size: 24px;
@@ -35,10 +36,11 @@
       opacity: 0.9;
     }
 
+    /* Page-specific: tighter gap (shared has 10px) */
     .header-actions {
       flex-wrap: wrap;
-      gap: 8px; /* page-specific: shared has 10px */
-}
+      gap: 8px;
+    }
 
     @media (max-width: 700px) {
       .header {
@@ -63,32 +65,28 @@
       }
     }
 
+    /* Page-specific: merchants btn has rounder corners and wider gap */
     .btn {
       padding: 10px 18px;
       border-radius: 6px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 500;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
       gap: 8px;
       transition: all 0.2s;
-      border: none;
     }
 
+    /* Page-specific: green primary button (shared has #2563eb) */
     .btn-primary {
-      background: #059669; /* page-specific: shared has #2563eb */
-}
+      background: #059669;
+    }
 
     .btn-primary:hover {
       background: #047857;
     }
 
+    /* Page-specific: translucent secondary button for dark header (shared has #6b7280) */
     .btn-secondary {
-      background: rgba(255,255,255,0.15); /* page-specific: shared has #6b7280 */
+      background: rgba(255,255,255,0.15);
       border: 1px solid rgba(255,255,255,0.3);
-}
+    }
 
     .btn-secondary:hover {
       background: rgba(255,255,255,0.25);
@@ -104,7 +102,6 @@
       background: #f3f4f6;
     }
 
-    /* CONTENT */    /* MERCHANT CARDS */
     .merchants-list {
       display: flex;
       flex-direction: column;
@@ -121,6 +118,7 @@
       align-items: center;
       flex-wrap: wrap;
       gap: 16px;
+      position: relative;
     }
 
     .merchant-card.active {
@@ -140,10 +138,6 @@
       font-weight: 600;
       padding: 2px 8px;
       border-radius: 0 0 4px 4px;
-    }
-
-    .merchant-card {
-      position: relative;
     }
 
     .merchant-info {
@@ -171,8 +165,8 @@
       margin-top: 8px;
     }
 
+    /* Page-specific: merchants status-badge uses 20px pill radius (shared has 12px) */
     .status-badge {
-      padding: 4px 10px;
       border-radius: 20px;
       font-size: 11px;
       font-weight: 600;
@@ -215,7 +209,6 @@
       flex-wrap: wrap;
     }
 
-    /* EMPTY STATE — .empty-state from shared.css */
     .empty-state-icon {
       font-size: 64px;
       margin-bottom: 16px;
@@ -227,15 +220,14 @@
       margin-bottom: 8px;
     }
 
+    /* Page-specific: wider empty-state paragraph with extra bottom margin */
     .empty-state p {
-      color: #6b7280;
       margin-bottom: 24px;
       max-width: 400px;
       margin-left: auto;
       margin-right: auto;
     }
 
-    /* REFERRAL SECTION */
     .referral-section {
       margin-top: 40px;
       padding: 24px;
@@ -321,13 +313,7 @@
       background: #1d4ed8;
     }
 
-    /* LOADING */
-    .loading {
-      text-align: center;
-      padding: 40px;
-      color: #6b7280;
-    }
-
+    /* Page-specific: inline spinner appended to loading text */
     .loading::after {
       content: '';
       display: inline-block;
@@ -341,26 +327,12 @@
       vertical-align: middle;
     }
 
-    /* @keyframes spin from shared.css */
-
-    /* MODAL */
-    .modal-overlay {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0,0,0,0.5);
-      z-index: 1000;
-      align-items: center;
-      justify-content: center;
-    }
-
+    /* Page-specific: merchants uses .modal-overlay.show (shared uses .active) */
     .modal-overlay.show {
       display: flex;
     }
 
+    /* Page-specific: merchants modal is dialog content inside overlay (Pattern B) */
     .modal {
       background: white;
       border-radius: 12px;
@@ -369,6 +341,7 @@
       width: 90%;
       max-height: 90vh;
       overflow-y: auto;
+      position: static;
     }
 
     .modal h3 {
@@ -389,7 +362,7 @@
       justify-content: flex-end;
     }
 
-    /* FOOTER */    .footer a {
+    .footer a {
       color: #2563eb;
       text-decoration: none;
     }
@@ -398,7 +371,6 @@
       text-decoration: underline;
     }
 
-    /* RESPONSIVE */
     @media (max-width: 600px) {
       body {
         padding: 10px;

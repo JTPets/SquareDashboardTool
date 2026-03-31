@@ -7,18 +7,14 @@
   <link rel="stylesheet" href="/css/shared.css">
   <link rel="stylesheet" href="/css/delivery.css">
   <style>
-    /* Page-specific styles for delivery settings */    .container {
+    .container {
       max-width: 800px; /* page-specific: shared has 1200px */
-}    /* Settings sections */
-    .section { margin-bottom: 30px; }
-    .section-header { margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #e5e7eb; }
-    .section-title { font-size: 18px; font-weight: 600; color: #111827; }
-    .section-desc { font-size: 13px; color: #6b7280; margin-top: 4px; }
+    }
 
-    /* Form overrides — settings uses wider spacing and focus ring */
+    /* Page-specific: wider form spacing (shared .form-group has 16px) */
     .form-group { margin-bottom: 20px; }
     .form-label small { font-weight: 400; color: #6b7280; font-size: 12px; }
-    .form-input { padding: 10px 12px; } /* page-specific: 10px padding (shared has 12px) */
+    .form-input { padding: 10px 12px; } /* page-specific: 10px padding (shared has 12px 14px) */
     .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
     .checkbox-group { display: flex; align-items: center; gap: 10px; }
     .checkbox-group input[type="checkbox"] { width: 18px; height: 18px; }
@@ -32,7 +28,7 @@
     .geocode-status.pending { background: #fef3c7; color: #92400e; }
     .geocode-status.error { background: #fee2e2; color: #991b1b; }
 
-    /* Button overrides — settings uses wider padding */
+    /* Page-specific: wider button padding (shared has 10px 16px) */
     .btn { padding: 10px 20px; }
     .btn-primary:disabled { background: #9ca3af; cursor: not-allowed; }
     .form-actions {
@@ -40,12 +36,13 @@
       padding-top: 20px; border-top: 1px solid #e5e7eb;
     }
 
-    /* Alert overrides — settings adds borders */
+    /* Page-specific: alert overrides — different padding/margin, dot-notation variants */
     .alert { padding: 15px; margin-bottom: 20px; }
     .alert.success { border: 1px solid #6ee7b7; }
     .alert.error { border: 1px solid #fca5a5; }
     .alert.info { background: #dbeafe; border: 1px solid #93c5fd; color: #1e40af; }
 
+    /* Page-specific: flex-centered loading (shared has text-align center) */
     .loading { display: flex; align-items: center; justify-content: center; }
 
     @media (max-width: 768px) {

@@ -63,10 +63,14 @@
       }
     }
 
+    /* Page-specific: wider container with different margin/padding */
     .container {
       max-width: 1400px;
       margin: 30px auto;
       padding: 0 20px;
+      background: none;
+      box-shadow: none;
+      border-radius: 0;
     }
 
     .card {
@@ -108,13 +112,10 @@
       border-bottom: 1px solid #f3f4f6;
     }
 
-    .po-table tr:hover {
-      background: #f9fafb;
-    }
+    /* tr:hover from shared.css — scoped to .po-table for specificity */
 
+    /* Page-specific: PO status-badge uses 4px radius (shared has 12px) */
     .status-badge {
-      display: inline-block;
-      padding: 4px 10px;
       border-radius: 4px;
       font-weight: 600;
       font-size: 11px;
@@ -161,9 +162,7 @@
       margin-bottom: 10px; /* page-specific: 10px vs shared 8px */
     }
 
-    .text-right {
-      text-align: right;
-    }
+    /* .text-right from shared.css */
 
     .text-nowrap {
       white-space: nowrap;
@@ -186,25 +185,18 @@
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
     }
 
+    /* Page-specific: PO modal uses 2px borders and 25px padding (shared has 1px / 20px) */
     .modal-header {
       padding: 20px 25px;
       border-bottom: 2px solid #e5e7eb;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
     }
 
     .modal-header h2 {
       font-size: 20px;
-      margin: 0;
     }
 
+    /* Page-specific: PO modal-close has explicit sizing and hover bg */
     .modal-close {
-      background: none;
-      border: none;
-      font-size: 24px;
-      cursor: pointer;
-      color: #6b7280;
       padding: 0;
       width: 32px;
       height: 32px;
@@ -285,13 +277,10 @@
       border-top: 2px solid #e5e7eb;
     }
 
+    /* Page-specific: PO modal-footer uses 2px border and 25px padding */
     .modal-footer {
       padding: 20px 25px;
       border-top: 2px solid #e5e7eb;
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      background: #f9fafb;
     }
 
     .btn-success {
