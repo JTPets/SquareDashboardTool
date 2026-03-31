@@ -2,8 +2,8 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
-**Last Validated**: 2026-03-25
-**Total Open Items**: ~44
+**Last Validated**: 2026-03-31
+**Total Open Items**: ~51
 
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
@@ -302,6 +302,10 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 | BACKLOG-92 | Category performance audit for dead stock and shrink management — identify underperforming categories or subcategories by combining sales velocity, margin, and inventory age. Example: canned cat food section is out of room. Tool surfaces slow movers (low velocity), low margin items, and items with high days-on-shelf. Actions: mark for clearance (triggers expiry discount system at a custom tier), flag as "do not reorder" (adds friction to PO generation for these items), or discontinue (remove from next vendor order). Builds on existing sales velocity, margin data, and expiry automation. Critical for space-constrained stores optimizing shelf allocation. | New service + routes, `services/expiry/`, `services/purchase-orders/` | M | 2026-03-20 |
 | BACKLOG-93 | Emergency expiry flag by UPC scan — staff finds a product on the shelf that's close to or already expired. Scan the barcode, system pulls up the item, staff enters the expiry date and immediately flags it for discount tier evaluation. Item enters the expiry automation pipeline (25%/50%/pull) right away instead of waiting for the next daily cron. Use case: "I just found this on the floor and it expires in 3 days, sticker it now." Mobile-friendly single-scan workflow, similar to cycle count's "Mark as Counted" flow but for expiry. Builds on existing `variation_expiration` table and `applyDiscounts()` in `discount-service.js`. | `services/expiry/`, `routes/`, `public/js/` | M | 2026-03-20 |
 | BACKLOG-95 | Multi-location expiry and cycle count scoping — `variation_expiration`, `variation_discount_status`, and cycle count tables are global (no `location_id`). Fine for single-store. Pre-franchise: local DB becomes source of truth for operational data (expiry, counts); Square stays source of truth for catalog (items, prices, inventory). Migration: backfill local from Square attributes → verify → cutover → remove Square custom attributes. Affects expiry cron, discount automation, cycle count batch generation. | `services/expiry/`, `services/inventory/`, `database/schema.sql` | L | 2026-03-23 |
+| BACKLOG-107 | Reorder suggestions system audit — `reorder-service.js` is 810 lines (>300 limit). Just found a below-minimum item silently dropped by pending PO logic. Full audit: map all files, trace every SQL JOIN/WHERE condition and every JS filter in `processSuggestionRows`, document all silent exclusion points (return null paths), produce module breakdown map for planned extraction, security check, bug registry, test gap analysis. Output: `docs/REORDER-AUDIT.md`. | `services/catalog/reorder-service.js`, `reorder-math.js`, `routes/analytics.js`, `public/reorder.html`, `public/js/reorder.js` | S | 2026-03-31 |
+| BACKLOG-108 | Stale draft PO warning on reorder page — DRAFT POs older than 3 days silently suppress items from reorder suggestions (pending PO deducts from suggested qty). Merchants forget open drafts and wonder why items aren't appearing. New endpoint `GET /api/purchase-orders/stale-drafts`. Red warning banner at top of reorder page listing stale drafts with View/Cancel links. Consider: items on draft POs show with "Pending PO" badge instead of being fully hidden. | `routes/purchase-orders.js`, `services/catalog/reorder-service.js`, `public/js/reorder.js`, `public/css/shared.css` | M | 2026-03-31 |
+| BACKLOG-109 | Merchant-configurable auto min/max settings — all thresholds currently hardcoded (overstock_threshold_days, soldout_min_velocity, circuit_breaker_pct, stale_velocity_days, etc.). New `merchant_min_max_settings` table with per-merchant config; fallback to hardcoded defaults when no row exists. API: `GET/PUT /api/min-max/settings`. Feature gate: read-only recommendations always free, auto-apply gated behind `reorder_intelligence` feature flag. | `services/inventory/auto-min-max-service.js`, new table + migration, `config/feature-registry.js`, new route | M | 2026-03-31 |
+| CSS-5 | CSS shared components unification — extract `.stats-bar`, `.stat-card`, `.tabs`, `.empty-state`, `.loading`, `.spinner`, `.controls` from inline `<style>` blocks across all HTML pages into `public/css/shared.css`. Affects ~12–22 pages per component. Remove matching selectors from each page; keep only genuine page-specific overrides with comments. Report before/after inline CSS line count per page. | `public/css/shared.css`, all `public/*.html` | M | 2026-03-31 |
 
 ### Multi-Tenant Gaps
 
@@ -331,6 +335,8 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 | BACKLOG-61 | GMC v1beta → v1 migration — Google Merchant API v1beta discontinued Feb 28 2026. Product upserts failing with 409 ABORTED. Backup script running. Services still use v1beta endpoints. | M | 2026-03-09 |
 | BACKLOG-99 | PO inventory push — when receiving a PO, push the received quantities to Square inventory as an adjustment so Square stock levels stay in sync without a manual sync. | M | 2026-03-25 |
 | BACKLOG-102 | Vendor dashboard header order total uses uncapped reorder quantities; reorder page uses capped. Fix: vendor dashboard aggregation must apply max-stock caps when computing the header total. Show capped total as the primary value (actual order cost). Add secondary uncapped total as a visual hint for minimum-order planning. Root cause traced: $626.95 (dashboard) vs $556.60 (reorder page) — $70.35 delta is exactly the wholesale cost of XL Bistro 30lb capped at max stock. Bug is in dashboard aggregation only; reorder page total is correct. | S | 2026-03-25 |
+| BACKLOG-104 | GMC product schema completeness audit — compare `buildMerchantApiProduct()` and `buildGmcProduct()` in `services/gmc/merchant-service.js` against the full Google Merchant API v1 `productInputs` field list. Known gaps from earlier audit: `identifierExists` (boolean), `adult` (boolean), `isBundle` (boolean), shipping weight, tax info, custom labels, sale price, `imageLink` undefined when no image. Output: `docs/GMC-SCHEMA-AUDIT.md`. Prerequisite for BACKLOG-61. | `services/gmc/merchant-service.js` | S | 2026-03-31 |
+| BACKLOG-105 | GMC product sync 401 investigation — `upsertProduct()` returns PERMISSION_DENIED_ACCOUNTS. `testConnection()` succeeds. Token confirmed correct scope and account. Remaining hypothesis: OAuth consent screen in "Testing" mode (never confirmed). Next step: check publishing status at GCP console and re-auth if needed. **Shelved** — TSV feed still works as backup. | `services/gmc/`, `utils/google-auth.js` | S | 2026-03-31 |
 
 ### Code TODOs in Source
 
@@ -359,9 +365,9 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 |------|-------|
 | Critical | 0 |
 | High | 4 |
-| Medium | ~31 |
-| Low | ~8 |
+| Medium | ~35 |
+| Low | ~10 |
 | Nice to Have | 4 |
-| **Total** | **~44** |
+| **Total** | **~51** |
 
-**Validation delta**: ~95 → ~65 → ~49 → ~44 → ~37 → ~34 → ~31 → ~53 → ~49 → ~50 → ~44 items. **95+ items purged** across ten validations. 2026-03-25: BACKLOG-12/29/73/97/98/101 fixed, AUDIT-4.5.1/5.2.1/2.3.1/5.8.1 fixed, L-2 fixed, O-4 confirmed. BACKLOG-99 discovered. Net −6.
+**Validation delta**: ~95 → ~65 → ~49 → ~44 → ~37 → ~34 → ~31 → ~53 → ~49 → ~50 → ~44 → ~51 items. **95+ items purged** across ten validations. 2026-03-25: BACKLOG-12/29/73/97/98/101 fixed, AUDIT-4.5.1/5.2.1/2.3.1/5.8.1 fixed, L-2 fixed, O-4 confirmed. BACKLOG-99 discovered. Net −6. 2026-03-31: BACKLOG-107/108/109/104/105/CSS-5 added (reorder audit, stale PO UX, min/max config, GMC schema audit, GMC 401 shelved, CSS components). Net +7.
