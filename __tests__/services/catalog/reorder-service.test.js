@@ -228,6 +228,28 @@ describe('processSuggestionRows', () => {
         expect(result).toEqual([]);
     });
 
+    it('should keep below-minimum items even when pending PO fully covers calculated order qty', () => {
+        // Regression: stock=2, min=3, max=4 → finalQty capped at (max-stock)=2.
+        // If pending PO has 2 units, adjustedQty=0. Item must still appear because stock is below min NOW.
+        calculateReorderQuantity.mockReturnValue(2);
+        const row = makeRow({
+            current_stock: '2',
+            committed_quantity: '0',
+            available_quantity: '2',
+            stock_alert_min: '3',
+            stock_alert_max: '4',
+            daily_avg_quantity: '0.2857',
+            days_until_stockout: '7',
+            below_minimum: true,
+            pending_po_quantity: '2'  // exactly covers the calculated order qty
+        });
+        const result = processSuggestionRows([row], defaultConfig);
+        expect(result).toHaveLength(1);
+        expect(result[0].priority).toBe('HIGH');
+        expect(result[0].final_suggested_qty).toBe(0);
+        expect(result[0].pending_po_quantity).toBe(2);
+    });
+
     it('should calculate gross margin correctly', () => {
         const row = makeRow({
             current_stock: '0',

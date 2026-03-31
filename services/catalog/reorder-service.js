@@ -388,7 +388,9 @@ function processSuggestionRows(rows, { supplyDaysNum, safetyDays, priorityConfig
             const adjustedQty = Math.max(0, finalQty - pendingPoQty);
             const orderCost = (adjustedQty * unitCost) / 100;
 
-            if (adjustedQty <= 0) {
+            // Always surface below-minimum items even when a pending PO covers the order
+            // quantity. Stock is below threshold right now and the PO may not arrive for days.
+            if (adjustedQty <= 0 && !row.below_minimum) {
                 return null;
             }
 
