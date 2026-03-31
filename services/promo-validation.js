@@ -5,12 +5,24 @@
  * endpoint and the subscription create endpoint.
  *
  * Extracted from routes/subscriptions.js (BACKLOG-74).
+ *
+ * Supported discount_type values:
+ *   'percent'     — discount_value is a percentage (e.g. 20 = 20% off)
+ *   'fixed'       — discount_value is cents off (e.g. 500 = $5.00 off)
+ *   'fixed_price' — fixed_price_cents is the flat monthly rate (e.g. 99 = $0.99/mo)
+ *
+ * Platform-owner fallback: codes owned by the platform_owner merchant are
+ * visible to all merchants (used for site-wide beta promos).
  */
 
 const db = require('../utils/database');
 
 /**
  * Validate a promo code and calculate discount.
+ *
+ * Looks up the code in promo_codes, checking:
+ *   1. The merchant's own codes (merchant_id = merchantId)
+ *   2. Platform-owner codes (subscription_status = 'platform_owner')
  *
  * @param {Object} params
  * @param {string} params.code - Promo code to validate
@@ -25,13 +37,14 @@ async function validatePromoCode({ code, merchantId, plan, priceCents }) {
     }
 
     const result = await db.query(`
-        SELECT * FROM promo_codes
-        WHERE UPPER(code) = UPPER($1)
-          AND merchant_id = $2
-          AND is_active = TRUE
-          AND (valid_from IS NULL OR valid_from <= NOW())
-          AND (valid_until IS NULL OR valid_until >= NOW())
-          AND (max_uses IS NULL OR times_used < max_uses)
+        SELECT pc.* FROM promo_codes pc
+        JOIN merchants m ON m.id = pc.merchant_id
+        WHERE UPPER(pc.code) = UPPER($1)
+          AND (pc.merchant_id = $2 OR m.subscription_status = 'platform_owner')
+          AND pc.is_active = TRUE
+          AND (pc.valid_from IS NULL OR pc.valid_from <= NOW())
+          AND (pc.valid_until IS NULL OR pc.valid_until >= NOW())
+          AND (pc.max_uses IS NULL OR pc.times_used < pc.max_uses)
     `, [code.trim(), merchantId]);
 
     if (result.rows.length === 0) {
@@ -57,18 +70,25 @@ async function validatePromoCode({ code, merchantId, plan, priceCents }) {
 
     // Calculate discount
     let discountCents = 0;
-    if (promo.discount_type === 'percent') {
+    let finalPrice = priceCents || 0;
+
+    if (promo.discount_type === 'fixed_price') {
+        // fixed_price: subscriber pays a flat rate instead of the normal price
+        const flatRate = promo.fixed_price_cents || 0;
+        discountCents = Math.max(0, (priceCents || 0) - flatRate);
+        finalPrice = flatRate;
+    } else if (promo.discount_type === 'percent') {
         discountCents = Math.floor((priceCents || 0) * promo.discount_value / 100);
+        finalPrice = (priceCents || 0) - discountCents;
     } else {
+        // 'fixed' — cents off
         discountCents = promo.discount_value;
+        // Don't let discount exceed price
+        if (priceCents && discountCents > priceCents) {
+            discountCents = priceCents;
+        }
+        finalPrice = (priceCents || 0) - discountCents;
     }
-
-    // Don't let discount exceed price
-    if (priceCents && discountCents > priceCents) {
-        discountCents = priceCents;
-    }
-
-    const finalPrice = (priceCents || 0) - discountCents;
 
     return {
         valid: true,

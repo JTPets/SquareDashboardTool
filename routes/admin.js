@@ -11,6 +11,7 @@
  *   GET  /api/admin/settings                           - List all platform settings
  *   PUT  /api/admin/settings/:key                      - Update a platform setting
  *   POST /api/admin/test-email                          - Test email configuration
+ *   POST /api/admin/promo-codes                        - Create a platform-owner promo code
  */
 
 const express = require('express');
@@ -159,6 +160,58 @@ router.post('/test-email', requireAuth, requireAdmin, validators.testEmail, asyn
         logger.error('Test email failed', { error: error.message });
         return sendError(res, error.message, 400, 'EMAIL_SEND_FAILED');
     }
+}));
+
+/**
+ * POST /api/admin/promo-codes
+ * Create a promo code scoped to the platform-owner merchant.
+ * Platform-owner codes are visible to all merchants during promo validation.
+ */
+router.post('/promo-codes', requireAuth, requireAdmin, validators.createPromoCode, asyncHandler(async (req, res) => {
+    const {
+        code, discount_type, discount_value, fixed_price_cents, duration_months,
+        max_uses, valid_until, description, notes
+    } = req.body;
+
+    // Resolve the platform_owner merchant — codes are stored under that merchant
+    const ownerResult = await db.query(`
+        SELECT id FROM merchants WHERE subscription_status = 'platform_owner' LIMIT 1
+    `);
+    if (ownerResult.rows.length === 0) {
+        return sendError(res, 'No platform_owner merchant configured', 500, 'NO_PLATFORM_OWNER');
+    }
+    const platformMerchantId = ownerResult.rows[0].id;
+
+    // discount_value is required for non-fixed_price types
+    const resolvedDiscountValue = discount_type === 'fixed_price' ? 0 : Number(discount_value);
+
+    const result = await db.query(`
+        INSERT INTO promo_codes
+            (merchant_id, code, description, discount_type, discount_value,
+             fixed_price_cents, duration_months, max_uses, valid_until, is_active,
+             created_by, created_at, updated_at)
+        VALUES ($1, UPPER($2), $3, $4, $5, $6, $7, $8, $9, TRUE, $10, NOW(), NOW())
+        RETURNING *
+    `, [
+        platformMerchantId,
+        code,
+        description || null,
+        discount_type,
+        resolvedDiscountValue,
+        fixed_price_cents || null,
+        duration_months || null,
+        max_uses || null,
+        valid_until || null,
+        `admin:${req.session.user.id}`
+    ]);
+
+    logger.info('Platform promo code created by admin', {
+        code: result.rows[0].code,
+        discount_type,
+        adminUserId: req.session.user.id
+    });
+
+    sendSuccess(res, { promo: result.rows[0] });
 }));
 
 module.exports = router;

@@ -444,7 +444,10 @@ describe('GET /api/reorder-suggestions', () => {
         expect(res.body.suggestions[0].final_suggested_qty).toBe(10); // 20 - 10 pending
     });
 
-    it('should skip items fully covered by pending POs', async () => {
+    it('should keep below-minimum items even when pending PO fully covers the order qty', async () => {
+        // Regression: items with below_minimum=true must surface even when
+        // adjustedQty (suggested - pending) <= 0. Stock is below the alert
+        // threshold right now and the PO may not arrive for days.
         const row = {
             variation_id: 'var_1', item_name: 'Item', variation_name: 'Var',
             sku: 'SKU003', images: null, item_images: null, category_name: 'Food',
@@ -468,7 +471,10 @@ describe('GET /api/reorder-suggestions', () => {
         const res = await request(app).get('/api/reorder-suggestions');
 
         expect(res.status).toBe(200);
-        expect(res.body.count).toBe(0); // Filtered out — pending covers need
+        // Item surfaces because stock is below minimum — qty=0 signals PO is already incoming
+        expect(res.body.count).toBe(1);
+        expect(res.body.suggestions[0].final_suggested_qty).toBe(0);
+        expect(res.body.suggestions[0].pending_po_quantity).toBe(30);
     });
 
     it('should sort by priority then days_until_stockout', async () => {

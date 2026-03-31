@@ -1136,6 +1136,8 @@ CREATE TABLE IF NOT EXISTS promo_codes (
     description TEXT,
     discount_type TEXT NOT NULL DEFAULT 'percent',
     discount_value INTEGER NOT NULL,
+    fixed_price_cents INTEGER,
+    duration_months INTEGER,
     max_uses INTEGER,
     times_used INTEGER DEFAULT 0,
     min_purchase_cents INTEGER DEFAULT 0,

@@ -63,6 +63,7 @@ const modules = {
             'catalog-audit',
             'staff',
             'accept-invite',
+            'pricing',
         ],
         price_cents: 0,
         free: true,
