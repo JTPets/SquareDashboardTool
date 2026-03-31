@@ -6,17 +6,15 @@
   <title>Upgrade Subscription - SqTools</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-
+    /* Page-specific: gradient bg, centered layout */
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
       background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
       min-height: 100vh;
-      padding: 20px;
       line-height: 1.6;
     }
 
-    .container { max-width: 700px; margin: 0 auto; }
+    /* Page-specific: narrow container, no card style */
+    .container { max-width: 700px; background: none; box-shadow: none; }
 
     .back-link {
       display: inline-block;
@@ -27,11 +25,8 @@
     }
     .back-link:hover { color: white; }
 
-    .header {
-      text-align: center;
-      color: white;
-      padding: 30px 20px;
-    }
+    /* Page-specific: centered white-text header */
+    .header { text-align: center; background: none; display: block; padding: 30px 20px; }
     .header h1 { font-size: 28px; margin-bottom: 8px; }
     .header p { font-size: 16px; opacity: 0.9; }
 
@@ -78,6 +73,7 @@
 
     #card-container { min-height: 90px; margin: 20px 0; }
 
+    /* Page-specific: tighter form spacing */
     .form-group { margin-bottom: 15px; }
     .form-group label { display: block; font-weight: 600; color: #374151; margin-bottom: 6px; font-size: 14px; }
 
@@ -100,15 +96,13 @@
     .subscribe-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 5px 20px rgba(37, 99, 235, 0.4); }
     .subscribe-btn:disabled { background: #9ca3af; cursor: not-allowed; }
 
+    /* Page-specific: smaller white spinner for button */
     .spinner {
       width: 18px; height: 18px;
       border: 3px solid rgba(255,255,255,0.3);
       border-top-color: white;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
       display: none;
     }
-    /* @keyframes spin from shared.css */
 
     .message { padding: 12px 16px; border-radius: 8px; margin-bottom: 15px; display: none; font-size: 14px; }
     .message.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; display: block; }

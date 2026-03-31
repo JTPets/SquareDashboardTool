@@ -6,7 +6,6 @@
   <title>Loyalty Program Manager - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }    .container {
       max-width: 1600px; /* page-specific: shared has 1200px */
 }
     .header {
@@ -90,15 +89,8 @@
     .table-container { max-height: 60vh; overflow-y: auto; }
     .text-center { text-align: center; }
 
-    /* Status badges */
-    .status-badge {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
+    /* Page-specific: square badge shape, bolder weight, uppercase (shared has pill shape) */
+    .status-badge { border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
     .status-badge.in_progress { background: #dbeafe; color: #1e40af; }
     .status-badge.earned { background: #d1fae5; color: #065f46; }
     .status-badge.redeemed { background: #fef3c7; color: #92400e; }
@@ -131,16 +123,7 @@
       margin-bottom: 10px; /* page-specific: 10px vs shared 8px */
     }
 
-    /* Modal */
-    .modal {
-      display: none;
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.5);
-      z-index: 1000;
-      justify-content: center;
-      align-items: center;
-    }
+    /* Modal — base from shared.css, .show used instead of .active */
     .modal.show { display: flex; }
     .modal-content {
       background: white;
@@ -150,29 +133,8 @@
       max-height: 90vh;
       overflow-y: auto;
     }
-    .modal-header {
-      padding: 20px;
-      border-bottom: 1px solid #e5e7eb;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .modal-header h2 { font-size: 18px; }
-    .modal-close {
-      background: none; border: none;
-      font-size: 24px; cursor: pointer;
-      color: #6b7280;
-    }
-    .modal-body { padding: 20px; }
-    .modal-footer {
-      padding: 15px 20px;
-      border-top: 1px solid #e5e7eb;
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-    }
 
-    /* Form styles */
+    /* Page-specific: form inputs use 10px padding, 15px margin */
     .form-group { margin-bottom: 15px; }
     .form-group label {
       display: block;
@@ -272,16 +234,7 @@
       width: 95%;
     }
 
-    /* Alert */
-    .alert {
-      padding: 12px 20px;
-      border-radius: 4px;
-      margin-bottom: 15px;
-      font-size: 14px;
-    }
-    .alert-info { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
-    .alert-success { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
-    .alert-warning { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+    /* Page-specific: .alert-danger alias (shared uses .alert-error) */
     .alert-danger { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
 
     /* Customer search result */

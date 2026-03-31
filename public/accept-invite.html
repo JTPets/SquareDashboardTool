@@ -6,15 +6,13 @@
   <title>Accept Invitation - SqTools</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    /* Page-specific: centered card on gradient background */
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
       background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 20px;
     }
     .invite-container {
       background: white;
@@ -81,11 +79,12 @@
     .btn-accept:hover { background: #1d4ed8; }
     .btn-accept:disabled { opacity: 0.5; cursor: not-allowed; }
 
+    /* Page-specific: larger padding/margin than shared alert (12px 16px / 16px);
+       dot-notation variants (.alert.error) differ from shared dash-notation (.alert-error)
+       with different border colors */
     .alert {
       padding: 15px;
-      border-radius: 6px;
       margin-bottom: 20px;
-      font-size: 14px;
     }
     .alert.error { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; }
     .alert.success { background: #d1fae5; border: 1px solid #6ee7b7; color: #065f46; }

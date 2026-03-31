@@ -6,12 +6,12 @@
   <title>Catalog Workflow - AI Content Autofill</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }    .container {
-      max-width: 1600px; /* page-specific: shared has 1200px */
-}
-    .header {
-      background: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%); /* page-specific: shared has #2563eb */
-}    /* Summary cards */
+    /* Page-specific: wider container */
+    .container { max-width: 1600px; }
+    /* Page-specific: purple gradient header */
+    .header { background: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%); }
+
+    /* Summary cards */
     .summary {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -127,56 +127,37 @@
       font-size: 13px;
     }
 
-    /* Tabs — .tabs, .tab, .tab:hover, .tab.active from shared.css */
+    /* Page-specific: flex layout for badge inside tab */
     .tab {
-      display: flex; /* page-specific: flex layout for badge inside tab */
+      display: flex;
       align-items: center;
       gap: 8px;
     }
-    .tab .badge {
-      background: #e5e7eb;
-      color: #374151;
-      padding: 2px 8px;
-      border-radius: 10px;
-      font-size: 12px;
-      font-weight: 600;
-    }
-    .tab.active .badge {
-      background: #dbeafe;
-      color: #1d4ed8;
-    }
+    /* Page-specific: tab badge font-size 12px (shared has 11px) */
+    .tab .badge { font-size: 12px; }
 
-    /* Tab content — .tab-content.active from shared.css */
-    .tab-content {
-      padding: 20px; /* page-specific: shared only sets display:none */
-    }
+    /* Page-specific: tab-content padding (shared only sets display:none) */
+    .tab-content { padding: 20px; }
 
-    /* Buttons */
+    /* Page-specific: smaller padding, border, min-height on .btn */
     .btn {
-      padding: 8px 16px; /* page-specific: shared has 10px 16px */
-      border: 1px solid #d1d5db; /* page-specific: shared has none */
+      padding: 8px 16px;
+      border: 1px solid #d1d5db;
       min-height: 40px;
-}
-    .btn-primary {
-      border: none;
-}
-    .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
-    .btn-success {
-      background: #059669; /* page-specific: shared has #10b981 */
-      border: none;
-}
-    .btn-secondary {
-      background: white;
-      color: #374151;
     }
+    .btn-primary { border: none; }
+    /* Page-specific: disabled primary colour */
+    .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+    /* Page-specific: darker green */
+    .btn-success { background: #059669; border: none; }
+    /* Page-specific: white outline secondary */
+    .btn-secondary { background: white; color: #374151; }
     .btn-secondary:hover { background: #f3f4f6; }
-    .btn-danger {
-      border: none;
-}
+    .btn-danger { border: none; }
 
-    /* page-specific: scrollable table height */
+    /* Page-specific: scrollable table height */
     .table-container { max-height: 55vh; overflow-y: auto; }
-    /* page-specific: muted header colour, no letter-spacing */
+    /* Page-specific: muted header colour, no letter-spacing */
     th { color: #6b7280; letter-spacing: 0; }
     .thumbnail {
       width: 50px;
@@ -343,13 +324,10 @@
       color: #92400e !important;
     }
 
-    /* Empty state — .empty-state from shared.css */
-    .empty-state h3 {
-      margin-bottom: 10px; /* page-specific: 10px vs shared 8px */
-    }
+    /* Page-specific: 10px vs shared 8px */
+    .empty-state h3 { margin-bottom: 10px; }
 
-    /* Loading — .loading, @keyframes spin from shared.css */
-    /* page-specific: larger block-centered spinner */
+    /* Page-specific: larger block-centered spinner */
     .spinner {
       display: block;
       width: 40px;
@@ -357,33 +335,11 @@
       margin: 0 auto 15px;
     }
 
-    /* Alert boxes */
-    .alert {
-      padding: 12px 15px;
-      border-radius: 4px;
-      margin-bottom: 15px;
-      font-size: 14px;
-    }
-    .alert-info {
-      background: #dbeafe;
-      color: #1e40af;
-      border: 1px solid #93c5fd;
-    }
-    .alert-warning {
-      background: #fef3c7;
-      color: #92400e;
-      border: 1px solid #fcd34d;
-    }
-    .alert-error {
-      background: #fee2e2;
-      color: #991b1b;
-      border: 1px solid #fca5a5;
-    }
-    .alert-success {
-      background: #d1fae5;
-      color: #065f46;
-      border: 1px solid #6ee7b7;
-    }
+    /* Page-specific: alert border colours differ from shared */
+    .alert-info { border-color: #93c5fd; }
+    .alert-warning { border-color: #fcd34d; }
+    .alert-error { border-color: #fca5a5; }
+    .alert-success { border-color: #6ee7b7; }
 
     /* Progress indicator */
     .progress-bar {

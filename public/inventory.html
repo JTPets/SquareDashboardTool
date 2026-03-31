@@ -6,56 +6,39 @@
   <title>Catalog Viewer - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }    .container {
+    .container {
       max-width: 1800px; /* page-specific: shared has 1200px */
-}
+    }
     .header {
       padding: 15px 20px; /* page-specific: shared has 20px */
       flex-wrap: wrap;
       gap: 12px;
-}    .back-button {
+    }
+    .back-button {
       padding: 8px 12px; /* page-specific: shared has 8px 16px */
       border-radius: 6px; /* page-specific: shared has 4px */
       font-size: 13px; /* page-specific: shared has 14px */
       white-space: nowrap;
-}    .controls {
+    }
+    /* Page-specific: different padding/gap than shared .controls (20px / 15px) */
+    .controls {
       padding: 16px 20px;
-      border-bottom: 1px solid #e5e7eb;
-      display: flex;
       gap: 10px;
-      align-items: center;
-      flex-wrap: wrap;
     }
+    /* Page-specific: min-width 220px (shared has 200px) */
     .controls input[type="text"] {
-      flex: 1;
       min-width: 220px;
-      padding: 8px 12px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-    .controls select {
-      padding: 8px 12px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      font-size: 14px;
-      background: white;
     }
     .controls button {
       padding: 8px 14px; /* page-specific: shared has 8px 16px */
       white-space: nowrap;
-}
+    }
     .btn-secondary {
       background: #6b7280 !important;
     }
     .btn-secondary:hover { background: #4b5563 !important; }
+    /* Page-specific: white-space nowrap addition */
     .info-badge {
-      background: #dbeafe;
-      color: #1e40af;
-      padding: 8px 12px;
-      border-radius: 4px;
-      font-size: 13px;
-      margin-left: auto;
       white-space: nowrap;
     }
 
@@ -115,7 +98,7 @@
     .col-toggle-item:hover { background: #f9fafb; }
     .col-toggle-item input[type="checkbox"] { cursor: pointer; }
 
-    /* Stats */
+    /* Stats — page-specific grid layout (not shared .stats-bar flex) */
     .stats {
       padding: 16px 20px;
       display: grid;
@@ -124,20 +107,19 @@
       background: #f9fafb;
       border-bottom: 1px solid #e5e7eb;
     }
+    /* Page-specific: white bg, 12px 15px padding, 6px radius (shared has #f9fafb, 20px, 8px) */
     .stat-card {
       background: white;
       padding: 12px 15px;
       border-radius: 6px;
-      border: 1px solid #e5e7eb;
     }
+    /* Page-specific: 11px font, font-weight 600 (shared has 13px, normal) */
     .stat-label {
       font-size: 11px;
-      color: #6b7280;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
       font-weight: 600;
     }
-    .stat-value { font-size: 22px; font-weight: 700; color: #111827; margin-top: 4px; }
+    /* Page-specific: 22px font (shared has 28px) */
+    .stat-value { font-size: 22px; }
 
     /* Table — overrides for shared table styles */
     /* page-specific: position:relative for fixed columns; different max-height */
@@ -156,17 +138,11 @@
     thead .col-fixed { z-index: 101; background: #f9fafb; }
     tr:hover .col-fixed { background: #f0f9ff; }
 
-    /* Sortable columns */
-    .sortable { cursor: pointer; user-select: none; padding-right: 20px; position: relative; }
-    .sortable:hover { background: #e5e7eb; }
-    .sort-indicator { position: absolute; right: 5px; font-size: 10px; color: #6b7280; }
-    .sort-indicator.asc::after { content: '▲'; color: #2563eb; }
-    .sort-indicator.desc::after { content: '▼'; color: #2563eb; }
-
     /* Cell types */
     /* page-specific: 260px max-width vs shared 250px */
     .product-name { max-width: 260px; }
-    .variation-name { font-size: 11px; color: #6b7280; font-weight: 400; margin-top: 2px; }
+    /* Page-specific: 11px font (shared .variation-name has 12px) */
+    .variation-name { font-size: 11px; }
     .mono { font-family: monospace; font-size: 12px; color: #374151; }
     .text-right-cell { display: block; text-align: right; }
     .bool-true { color: #059669; font-weight: 700; }
@@ -183,7 +159,6 @@
     }
     .html-flag { color: #7c3aed; font-size: 11px; font-style: italic; }
 
-    /* Loading / error — .loading, @keyframes spin from shared.css */
     /* page-specific: larger block-centered spinner with lighter border */
     .spinner {
       display: block;

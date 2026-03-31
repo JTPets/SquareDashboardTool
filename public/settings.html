@@ -6,43 +6,27 @@
   <title>Settings - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }    .header {
-      background: #1f2937; /* page-specific: shared has #2563eb */
-}    /* Tabs — .tabs, .tab, .tab:hover, .tab.active, .tab-content.active from shared.css */
+
+    /* Page-specific: dark header (shared has #2563eb) */
+    .header {
+      background: #1f2937;
+    }
+
+    /* Page-specific: 1px border (shared has 2px) */
     .tabs {
-      border-bottom-width: 1px; /* page-specific: 1px vs shared 2px */
+      border-bottom-width: 1px;
     }
+    /* Page-specific: larger tab padding */
     .tab {
-      padding: 15px 25px; /* page-specific: larger padding */
+      padding: 15px 25px;
     }
 
-    /* Tab Content — .tab-content.active from shared.css */
+    /* Page-specific: larger tab-content padding */
     .tab-content {
-      padding: 30px; /* page-specific: larger than typical 20px */
+      padding: 30px;
     }
 
-    /* Section */
-    .section {
-      margin-bottom: 30px;
-    }
-    .section-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 15px;
-      padding-bottom: 10px;
-      border-bottom: 1px solid #e5e7eb;
-    }
-    .section-title {
-      font-size: 18px;
-      font-weight: 600;
-      color: #111827;
-    }
-    .section-desc {
-      font-size: 13px;
-      color: #6b7280;
-      margin-top: 4px;
-    }
+    /* .section, .section-header, .section-title, .section-desc from shared.css */
 
     /* Connection Status Cards */
     .connection-grid {
@@ -95,17 +79,20 @@
       font-weight: 500;
       font-size: 13px;
     }
+    /* Page-specific: different hover color (shared has #047857) */
     .btn-success:hover { background: #059669; }
+    /* Page-specific: shared has #dc2626 */
     .btn-danger {
-    background: #ef4444; /* page-specific: shared has #dc2626 */
-}
+      background: #ef4444;
+    }
     .btn-danger:hover { background: #dc2626; }
 
-    /* Settings Form */
+    /* Page-specific: settings form uses grid layout with label/input/action columns */
     .settings-form {
       display: grid;
       gap: 20px;
     }
+    /* Page-specific: completely different layout from shared form-group (grid vs simple margin) */
     .form-group {
       display: grid;
       grid-template-columns: 250px 1fr auto;
@@ -120,9 +107,8 @@
       background: #fef3c7;
       border-color: #fde68a;
     }
+    /* Page-specific: adds padding-top for grid alignment */
     .form-label {
-      font-weight: 500;
-      color: #374151;
       padding-top: 8px;
     }
     .form-label small {
@@ -132,18 +118,11 @@
       font-size: 12px;
       margin-top: 4px;
     }
+    /* Page-specific: tighter padding, monospace font (shared has 12px 14px, no monospace) */
     .form-input {
-      width: 100%;
       padding: 10px 12px;
-      border: 1px solid #d1d5db;
       border-radius: 4px;
-      font-size: 14px;
       font-family: monospace;
-    }
-    .form-input:focus {
-      outline: none;
-      border-color: #2563eb;
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
     }
     .form-input.masked {
       -webkit-text-security: disc;
@@ -191,7 +170,7 @@
     .save-bar .btn-cancel { background: #6b7280; color: white; margin-right: 10px; }
     .save-bar .btn-cancel:hover { background: #4b5563; }
 
-    /* Alert Boxes */
+    /* Page-specific: settings uses .alert.info/.alert.warning (shared uses .alert-info/.alert-warning) */
     .alert {
       padding: 15px;
       border-radius: 6px;
@@ -245,7 +224,6 @@
       margin-bottom: 10px;
     }
 
-    /* Responsive */
     @media (max-width: 768px) {
       .form-group {
         grid-template-columns: 1fr;

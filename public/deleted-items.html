@@ -6,21 +6,10 @@
   <title>Deleted & Archived Items - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }    .container {
-      max-width: 1600px; /* page-specific: shared has 1200px */
-}
-    .header {
-      background: #dc2626; /* page-specific: shared has #2563eb */
-}    /* .controls from shared.css */
-    .controls label { font-size: 14px; font-weight: 500; color: #374151; }
-    .controls select {
-      padding: 8px 12px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      font-size: 14px;
-      min-height: 40px;
-      background: white;
-    }
+    .container { max-width: 1600px; /* page-specific: wider for deleted items table */ }
+    .header { background: #dc2626; /* page-specific: red theme for deleted items */ }
+    /* page-specific: min-height for controls select */
+    .controls select { min-height: 40px; }
 
     .info-banner {
       background: #fef3c7;
@@ -29,47 +18,13 @@
       margin: 20px;
       border-radius: 4px;
     }
-    .info-banner h3 {
-      color: #92400e;
-      font-size: 14px;
-      margin-bottom: 5px;
-    }
-    .info-banner p {
-      color: #78350f;
-      font-size: 13px;
-      line-height: 1.5;
-    }
+    .info-banner h3 { color: #92400e; font-size: 14px; margin-bottom: 5px; }
+    .info-banner p { color: #78350f; font-size: 13px; line-height: 1.5; }
 
     /* page-specific: scrollable table height */
     .table-container { max-height: 60vh; overflow-y: auto; }
     /* page-specific: prevent header wrapping */
     th { white-space: nowrap; }
-    .product-image {
-      width: 50px;
-      height: 50px;
-      object-fit: cover;
-      border-radius: 4px;
-      border: 1px solid #e5e7eb;
-    }
-    .no-image {
-      width: 50px;
-      height: 50px;
-      background: #f3f4f6;
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #9ca3af;
-      font-size: 20px;
-      border: 1px solid #e5e7eb;
-    }
-    .variation-name {
-      font-size: 12px;
-      color: #6b7280;
-      font-weight: 400;
-      margin-top: 2px;
-    }
-    .sku { font-family: monospace; font-size: 12px; color: #6b7280; }
 
     .age-badge {
       display: inline-block;
@@ -78,62 +33,36 @@
       font-size: 11px;
       font-weight: 600;
     }
-    .age-recent {
-      background: #fef3c7;
-      color: #92400e;
-    }
-    .age-old {
-      background: #fee2e2;
-      color: #991b1b;
-    }
-    .age-ancient {
-      background: #dc2626;
-      color: white;
-    }
+    .age-recent { background: #fef3c7; color: #92400e; }
+    .age-old { background: #fee2e2; color: #991b1b; }
+    .age-ancient { background: #dc2626; color: white; }
 
+    /* page-specific: different padding (4px 8px vs 10px), border-radius (4px vs 12px), font-size (11px vs 12px), added text-transform */
     .status-badge {
-      display: inline-block;
       padding: 4px 8px;
       border-radius: 4px;
       font-size: 11px;
       font-weight: 600;
       text-transform: uppercase;
     }
-    .status-deleted {
-      background: #fee2e2;
-      color: #991b1b;
-    }
-    .status-archived {
-      background: #e0e7ff;
-      color: #3730a3;
-    }
+    .status-deleted { background: #fee2e2; color: #991b1b; }
+    .status-archived { background: #e0e7ff; color: #3730a3; }
 
-    .stock-warning {
-      color: #dc2626;
-      font-weight: 600;
-    }
-    .stock-ok {
-      color: #059669;
-    }
+    .stock-warning { color: #dc2626; font-weight: 600; }
+    .stock-ok { color: #059669; }
 
-    /* .text-right from shared.css */
     .text-center { text-align: center; }
-    /* .loading, .empty-state from shared.css */
     .loading { font-size: 14px; /* page-specific: explicit 14px */ }
-    .empty-state h3 {
-      margin-bottom: 10px; /* page-specific: 10px vs shared 8px */
-    }
+    .empty-state h3 { margin-bottom: 10px; /* page-specific: 10px vs shared 8px */ }
 
+    /* page-specific: different padding, border-top width, font-size, color vs shared .footer */
     .footer {
-      padding: 20px; /* page-specific: shared has 16px */
-      border-top: 2px solid #e5e7eb; /* page-specific: shared has 1px solid #e5e7eb */
-      font-size: 14px; /* page-specific: shared has 13px */
-      color: #374151; /* page-specific: shared has #6b7280 */
-}
-    .footer strong {
-      color: #dc2626;
-      font-size: 16px;
+      padding: 20px;
+      border-top: 2px solid #e5e7eb;
+      font-size: 14px;
+      color: #374151;
     }
+    .footer strong { color: #dc2626; font-size: 16px; }
 
     @media (max-width: 768px) {
       .controls { flex-direction: column; align-items: stretch; }

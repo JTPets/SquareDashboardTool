@@ -7,34 +7,29 @@
   <!-- Square Web Payments SDK loaded dynamically based on environment -->
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    /* BASE STYLES */
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
+    /* Page-specific: subscribe page uses gradient bg, centered layout */
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
       background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
       min-height: 100vh;
-      padding: 20px;
       line-height: 1.6;
     }
 
-    /* CONTAINER */
+    /* Page-specific: narrower than shared 1200px */
     .container {
       max-width: 1000px;
-      margin: 0 auto;
+      background: none;
+      box-shadow: none;
     }
 
-    /* HEADER */
+    /* Page-specific: centered white text header for subscribe page */
     .header {
       text-align: center;
-      color: white;
+      background: none;
+      display: block;
       padding: 40px 20px;
     }
 
+    /* Page-specific: subscribe checkout page */
     .header h1 {
       font-size: 36px;
       margin-bottom: 10px;
@@ -205,17 +200,9 @@
       text-align: center;
     }
 
-    .form-group {
-      margin-bottom: 20px;
-    }
-
-    .form-group label {
-      display: block;
-      font-weight: 600;
-      color: #374151;
-      margin-bottom: 8px;
-    }
-
+    /* Page-specific: subscribe checkout page — wider spacing and 2px border inputs */
+    .form-group { margin-bottom: 20px; }
+    .form-group label { display: block; font-weight: 600; color: #374151; margin-bottom: 8px; }
     .form-group input {
       width: 100%;
       padding: 12px 15px;
@@ -224,11 +211,7 @@
       font-size: 16px;
       transition: border-color 0.2s;
     }
-
-    .form-group input:focus {
-      outline: none;
-      border-color: #2563eb;
-    }
+    .form-group input:focus { outline: none; border-color: #2563eb; }
 
     /* Square Card Container */
     #card-container {
@@ -388,35 +371,23 @@
       display: block;
     }
 
-    /* FOOTER */
+    /* Page-specific: white footer text on gradient bg */
     .footer {
-      text-align: center;
       padding: 30px;
       color: rgba(255,255,255,0.7);
-      font-size: 14px;
+      background: none;
+      border-top: none;
     }
+    .footer a { color: rgba(255,255,255,0.9); text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
 
-    .footer a {
-      color: rgba(255,255,255,0.9);
-      text-decoration: none;
-    }
-
-    .footer a:hover {
-      text-decoration: underline;
-    }
-
-    /* LOADING SPINNER */
+    /* Page-specific: smaller white spinner for button, faster than shared 1s */
     .spinner {
       width: 20px;
       height: 20px;
       border: 3px solid rgba(255,255,255,0.3);
       border-top-color: white;
-      border-radius: 50%;
       animation: spin 0.8s linear infinite;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
     }
 
     /* BACK LINK */
@@ -466,25 +437,7 @@
       text-decoration: underline;
     }
 
-    /* TERMS MODAL */
-    .modal-overlay {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.7);
-      z-index: 1000;
-      justify-content: center;
-      align-items: center;
-      padding: 20px;
-    }
-
-    .modal-overlay.active {
-      display: flex;
-    }
-
+    /* TERMS MODAL — .modal-overlay, .modal-overlay.active from shared.css */
     .modal-content {
       background: white;
       border-radius: 12px;
@@ -526,21 +479,16 @@
       line-height: 1.6;
     }
 
+    /* Page-specific: larger close button positioned absolutely */
     .modal-close {
       position: absolute;
       top: 15px;
       right: 15px;
-      background: none;
-      border: none;
       font-size: 28px;
-      cursor: pointer;
-      color: #6b7280;
-      line-height: 1;
     }
 
-    .modal-close:hover {
-      color: #1f2937;
-    }
+    /* Page-specific: slightly lighter hover color than shared #111827 */
+    .modal-close:hover { color: #1f2937; }
 
     .modal-accept-btn {
       width: 100%;

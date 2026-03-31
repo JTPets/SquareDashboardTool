@@ -6,40 +6,35 @@
   <title>Cycle Count History - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }    .container {
-      max-width: 1600px; /* page-specific: shared has 1200px */
-}    /* .stats-bar, .stat, .stat-number from shared.css */
+    /* Page-specific: wider container */
+    .container { max-width: 1600px; }
     .stat-number.negative { color: #ef4444; }
-    .stat-label { font-size: 12px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
-    /* .controls from shared.css */
-    .controls label { font-weight: 500; font-size: 14px; }
+    /* Page-specific: 12px font, #9ca3af color (shared has 13px, #6b7280) */
+    .stat-label { font-size: 12px; color: #9ca3af; }
     .controls input, .controls select {
-      background: none; /* page-specific: outline-style inputs */
-      border: 1px solid #d1d5db;
+      background: none; /* Page-specific: outline-style inputs */
       min-height: 40px;
       color: inherit;
-}
+    }
+    /* Page-specific: padded/shaded filter-group (shared has no padding/background) */
     .filter-group {
-      display: flex;
-      gap: 10px;
-      align-items: center;
       padding: 10px;
       background: #f9fafb;
       border-radius: 4px;
     }
-    /* page-specific: scrollable table height */
+    /* Page-specific: scrollable table height */
     .table-container { max-height: 70vh; overflow-y: auto; }
-    /* page-specific: prevent cell wrapping */
+    /* Page-specific: prevent cell wrapping */
     th, td { white-space: nowrap; }
-    /* page-specific: 13px header font */
+    /* Page-specific: 13px header font */
     th { font-size: 13px; }
     .accurate { color: #10b981; font-weight: 600; }
     .inaccurate { color: #ef4444; font-weight: 600; }
     .variance-positive { color: #10b981; }
     .variance-negative { color: #ef4444; }
     .variance-zero { color: #6b7280; }
-    /* .loading from shared.css */
-    .loading { font-style: italic; /* page-specific: italic for cycle-count history */ }
+    /* Page-specific: italic loading text */
+    .loading { font-style: italic; }
     .notes-cell {
       max-width: 300px;
       white-space: normal;

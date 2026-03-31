@@ -15,19 +15,11 @@
     gap: 10px;
 }
 
-    /* Tabs — .tab:hover, .tab-content.active from shared.css */
-    /* page-specific: white bg and 1px border override shared 2px #f9fafb */
+    /* Page-specific: white bg and 1px border override shared 2px #f9fafb */
     .tabs { border-bottom-width: 1px; background: white; }
-    .tab {
-      padding: 15px 25px; /* page-specific: larger padding */
-    }
-    .tab.active { color: #2563eb; border-bottom-color: #2563eb; background: none; }
-    .tab .badge {
-      background: #e5e7eb; color: #374151;
-      font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-left: 6px;
-    }
-    .tab.active .badge { background: #dbeafe; color: #1d4ed8; }
-    /* .tab-content, .tab-content.active from shared.css */
+    /* Page-specific: larger padding */
+    .tab { padding: 15px 25px; }
+    .tab.active { background: none; }
 
     /* Order cards — unique to delivery scheduler */
     .order-list { display: grid; gap: 12px; }
@@ -49,8 +41,8 @@
     .order-actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
     .order-actions .btn { padding: 6px 12px; font-size: 13px; }
 
-    /* Status badge container + overrides — scheduler uses red for skipped, gray for completed */
-    .status-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+    /* Page-specific: 3px top/bottom padding (shared has 4px) */
+    .status-badge { padding: 3px 10px; }
     .status-skipped { background: #fee2e2; color: #991b1b; }
     .status-completed { background: #e5e7eb; color: #374151; }
 
@@ -60,11 +52,10 @@
       padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500;
     }
 
-    /* Modal overrides — scheduler uses lighter overlay and wider modal */
+    /* Page-specific: lighter overlay (shared has 0.7) */
     .modal-overlay { background: rgba(0,0,0,0.5); }
+    /* Page-specific: wider modal */
     .modal { border-radius: 8px; max-width: 500px; }
-    .modal-close { font-size: 24px; }
-    .modal-footer { justify-content: flex-end; }
     .modal-footer .btn { flex: auto; }
     .form-textarea {
       width: 100%; min-height: 80px; resize: vertical;
