@@ -36,6 +36,8 @@ jest.mock('../../middleware/auth', () => ({
 jest.mock('../../services/inventory/auto-min-max-service', () => ({
     generateRecommendations: jest.fn(),
     applyAllRecommendations: jest.fn(),
+    getHistory: jest.fn(),
+    pinVariation: jest.fn(),
 }));
 
 jest.mock('../../middleware/merchant', () => ({
@@ -738,12 +740,13 @@ describe('GET /api/min-max/history', () => {
     });
 
     it('returns paginated audit history', async () => {
-        db.query
-            .mockResolvedValueOnce({ rows: [
-                { id: 1, variation_id: 'var1', location_id: 'loc1',
-                  previous_min: 2, new_min: 1, rule: 'OVERSTOCKED' }
-            ]})
-            .mockResolvedValueOnce({ rows: [{ total: '1' }] });
+        autoMinMax.getHistory.mockResolvedValueOnce({
+            items: [{ id: 1, variation_id: 'var1', location_id: 'loc1',
+                      previous_min: 2, new_min: 1, rule: 'OVERSTOCKED' }],
+            total: 1,
+            limit: 50,
+            offset: 0,
+        });
 
         const res = await request(app).get('/api/min-max/history');
 
@@ -755,9 +758,12 @@ describe('GET /api/min-max/history', () => {
     });
 
     it('accepts custom limit and offset', async () => {
-        db.query
-            .mockResolvedValueOnce({ rows: [] })
-            .mockResolvedValueOnce({ rows: [{ total: '0' }] });
+        autoMinMax.getHistory.mockResolvedValueOnce({
+            items: [],
+            total: 0,
+            limit: 10,
+            offset: 20,
+        });
 
         const res = await request(app).get('/api/min-max/history?limit=10&offset=20');
 
