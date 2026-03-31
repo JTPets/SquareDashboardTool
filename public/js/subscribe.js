@@ -359,6 +359,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // Load plan pricing from API
   loadPlans();
 
+  // Pre-fill promo code from URL param (e.g., passed from pricing.html)
+  const promoParam = new URLSearchParams(window.location.search).get('promo');
+  if (promoParam) {
+    const promoInput = document.getElementById('promo-code');
+    if (promoInput) promoInput.value = promoParam.toUpperCase();
+  }
+
   // Close modal on overlay click
   document.getElementById('terms-modal').addEventListener('click', function(e) {
     if (e.target === this) closeTermsModal();

@@ -16,12 +16,13 @@ function renderModules(modules) {
     const grid = document.getElementById('modules-grid');
     if (!grid) return;
     grid.innerHTML = modules.map(m => {
-        const priceDisplay = formatCurrency(m.price_cents / 100);
+        // formatCurrency takes cents
+        const priceDisplay = formatCurrency(m.price_cents);
         return `
         <div class="pricing-card">
             <div class="pricing-card-name">${escapeHtml(m.name)}</div>
             <div class="pricing-card-price">${priceDisplay}<span>/mo</span></div>
-            <a href="${escapeHtml(subscribeUrl(m.key))}" class="pricing-card-cta">Get Started</a>
+            <a href="${escapeHtml(subscribeUrl())}" class="pricing-card-cta">Get Started</a>
         </div>`;
     }).join('');
 }
@@ -30,22 +31,29 @@ function renderBundles(bundles) {
     const grid = document.getElementById('bundles-grid');
     if (!grid) return;
     grid.innerHTML = bundles.map(b => {
-        const priceDisplay = formatCurrency(b.price_cents / 100);
+        // formatCurrency takes cents
+        const priceDisplay = formatCurrency(b.price_cents);
         const includes = b.includes.join(', ').replace(/_/g, ' ');
         return `
         <div class="pricing-card bundle">
             <div class="pricing-card-name">${escapeHtml(b.name)}</div>
             <div class="pricing-card-price">${priceDisplay}<span>/mo</span></div>
             <div class="pricing-bundle-includes">Includes: ${escapeHtml(includes)}</div>
-            <a href="${escapeHtml(subscribeUrl(b.key, true))}" class="pricing-card-cta">Get Bundle</a>
+            <a href="${escapeHtml(subscribeUrl())}" class="pricing-card-cta">Get Bundle</a>
         </div>`;
     }).join('');
 }
 
-function subscribeUrl(planKey, isBundle) {
-    const base = '/subscribe.html?plan=' + encodeURIComponent(planKey);
-    const promoSuffix = appliedPromoCode ? '&promo=' + encodeURIComponent(appliedPromoCode) : '';
-    return base + promoSuffix + (isBundle ? '&bundle=1' : '');
+/**
+ * Build the subscribe.html URL, optionally including the applied promo code.
+ * subscribe.html handles plan selection internally — we don't pass a plan key
+ * because module keys (e.g. 'cycle_counts') are not valid plan keys there.
+ */
+function subscribeUrl() {
+    if (appliedPromoCode) {
+        return '/subscribe.html?promo=' + encodeURIComponent(appliedPromoCode);
+    }
+    return '/subscribe.html';
 }
 
 async function checkPromo() {
@@ -59,7 +67,7 @@ async function checkPromo() {
         return;
     }
 
-    result.textContent = 'Checking…';
+    result.textContent = 'Checking\u2026';
     result.className = 'pricing-promo-result';
 
     try {
@@ -68,16 +76,16 @@ async function checkPromo() {
 
         if (data.valid) {
             appliedPromoCode = code;
-            let msg = `Code applied: ${escapeHtml(data.discountDisplay)}`;
+            let msg = 'Code applied: ' + escapeHtml(data.discountDisplay);
             if (data.durationMonths) {
-                msg += ` for ${data.durationMonths} month${data.durationMonths === 1 ? '' : 's'}`;
+                msg += ' for ' + data.durationMonths + ' month' + (data.durationMonths === 1 ? '' : 's');
             }
             if (data.description) {
-                msg += ` — ${escapeHtml(data.description)}`;
+                msg += ' \u2014 ' + escapeHtml(data.description);
             }
             result.textContent = msg;
             result.className = 'pricing-promo-result valid';
-            // Refresh card links to include promo code
+            // Refresh card links to carry the promo code to subscribe.html
             loadPricing();
         } else {
             appliedPromoCode = null;
@@ -93,7 +101,7 @@ async function checkPromo() {
 document.addEventListener('DOMContentLoaded', () => {
     loadPricing();
 
-    // Support ?promo= in URL to pre-fill code
+    // Support ?promo= in URL to pre-fill and auto-check the code
     const params = new URLSearchParams(window.location.search);
     const prefilledCode = params.get('promo');
     if (prefilledCode) {
