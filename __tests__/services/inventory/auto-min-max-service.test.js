@@ -1,7 +1,7 @@
 /**
  * Auto Min/Max Stock Recommendation Service Tests
  *
- * Tests for all three business rules, edge cases, and apply operations.
+ * Tests for all business rules, eligibility checks, and new v2 operations.
  */
 
 jest.mock('../../../utils/logger', () => ({
@@ -33,7 +33,9 @@ function makeRow(overrides = {}) {
         quantity: '0',
         days_of_stock: '999999',
         current_min: '0',
+        min_stock_pinned: false,
         expiry_tier: null,
+        item_created_at: oldItemDate(),  // old enough by default
         last_sold_at: null,
         ...overrides,
     };
@@ -49,6 +51,16 @@ function oldDate() {
     return new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString();
 }
 
+// Helper: item created > 91 days ago (eligible)
+function oldItemDate() {
+    return new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString();
+}
+
+// Helper: item created < 91 days ago (too new)
+function newItemDate() {
+    return new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+}
+
 beforeEach(() => {
     jest.clearAllMocks();
 });
@@ -59,6 +71,39 @@ describe('generateRecommendations', () => {
     test('throws if merchantId is missing', async () => {
         await expect(service.generateRecommendations(null))
             .rejects.toThrow('merchantId is required');
+    });
+
+    // --- Eligibility: pinned item ---
+
+    test('Pinned item: skipped with skipped=pinned and recommendedMin=null', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ min_stock_pinned: true, days_of_stock: '95', current_min: '2' })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].skipped).toBe('pinned');
+        expect(recs[0].recommendedMin).toBeNull();
+    });
+
+    // --- Eligibility: item too new ---
+
+    test('New item (< 91 days): skipped with skipped=tooNew', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ item_created_at: newItemDate(), days_of_stock: '95', current_min: '2' })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].skipped).toBe('tooNew');
+        expect(recs[0].recommendedMin).toBeNull();
+    });
+
+    test('New item with no created_at: skipped with skipped=tooNew', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ item_created_at: null, days_of_stock: '95', current_min: '2' })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].skipped).toBe('tooNew');
     });
 
     // --- Rule 1: Overstocked slow mover ---
@@ -133,22 +178,16 @@ describe('generateRecommendations', () => {
     });
 
     test('Rule 2: safety cap — never recommends above ceil(velocity * 30)', async () => {
-        // velocity = 0.5, ceil(0.5*14) = 7 target, ceil(0.5*30) = 15 cap
-        // min = 14 (below target 7? No: min=14 >= targetMin=7, so no rec)
-        // Let's try min=0, vel=0.5 → recommended = min(0+1, 15) = 1 ✓
-        // To test cap: set min=14, targetMin=7, min >= targetMin → no rec
+        // velocity=0.5, cap=ceil(0.5*30)=15, min=15 → min >= cap → no rec
         db.query.mockResolvedValueOnce({ rows: [
-            makeRow({ quantity: '0', velocity_91d: '0.5', current_min: '14',
+            makeRow({ quantity: '0', velocity_91d: '0.5', current_min: '15',
                 days_of_stock: '0', last_sold_at: recentDate() })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
-        expect(recs).toHaveLength(0); // min 14 >= ceil(0.5*14)=7, no rec needed
+        expect(recs).toHaveLength(0);
     });
 
     test('Rule 2: recommended value never exceeds cap (ceil * 30)', async () => {
-        // velocity = 1.0, cap = ceil(1*30) = 30, min=29 → min+1=30 = cap ✓
-        // velocity = 1.0, min=30 → min=30 >= targetMin=14, no rec
-        // Let's use velocity=0.5, min=0 → recommended=min(1, 15)=1, cap=15
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.5', current_min: '0',
                 days_of_stock: '0', last_sold_at: recentDate() })
@@ -246,6 +285,60 @@ describe('generateRecommendations', () => {
             velocity91d: expect.any(Number),
             quantity: expect.any(Number),
         });
+    });
+});
+
+// ==================== applyWeeklyAdjustments ====================
+
+describe('applyWeeklyAdjustments', () => {
+    test('throws if merchantId is missing', async () => {
+        await expect(service.applyWeeklyAdjustments(null))
+            .rejects.toThrow('merchantId is required');
+    });
+
+    test('returns zero counts when nothing is applicable', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+        const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
+        expect(result).toMatchObject({ reduced: 0, increased: 0 });
+        expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    test('counts pinned items separately', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ min_stock_pinned: true, days_of_stock: '95', current_min: '2' })
+        ]});
+        const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
+        expect(result.pinned).toBe(1);
+        expect(result.reduced).toBe(0);
+        expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    test('counts tooNew items separately', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ item_created_at: newItemDate(), days_of_stock: '95', current_min: '2' })
+        ]});
+        const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
+        expect(result.tooNew).toBe(1);
+        expect(result.reduced).toBe(0);
+    });
+
+    test('applies all applicable recs in one transaction and returns correct counts', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ variation_id: 'var1', days_of_stock: '95', current_min: '2', velocity_91d: '0.5', quantity: '48' }),
+            makeRow({ variation_id: 'var2', quantity: '0', velocity_91d: '0.5', current_min: '0', days_of_stock: '0', last_sold_at: recentDate() }),
+        ]});
+
+        db.transaction.mockImplementationOnce(async (fn) => {
+            const mockClient = {
+                query: jest.fn().mockResolvedValue({ rows: [{ stock_alert_min: 2 }] }),
+            };
+            return fn(mockClient);
+        });
+
+        const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
+        expect(db.transaction).toHaveBeenCalledTimes(1);
+        expect(result.reduced).toBe(1);
+        expect(result.increased).toBe(1);
     });
 });
 
@@ -361,5 +454,86 @@ describe('applyAllRecommendations', () => {
 
         await service.applyAllRecommendations(MERCHANT_ID, recs);
         expect(clientQueryCount).toBe(3); // read + upsert + audit
+    });
+});
+
+// ==================== pinVariation ====================
+
+describe('pinVariation', () => {
+    test('throws if merchantId is missing', async () => {
+        await expect(service.pinVariation(null, 'var1', 'loc1', true))
+            .rejects.toThrow('merchantId, variationId, and locationId are required');
+    });
+
+    test('throws if pinned is not a boolean', async () => {
+        await expect(service.pinVariation(MERCHANT_ID, 'var1', 'loc1', 'true'))
+            .rejects.toThrow('pinned must be a boolean');
+    });
+
+    test('upserts min_stock_pinned = true', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+        const result = await service.pinVariation(MERCHANT_ID, 'var1', 'loc1', true);
+        expect(db.query).toHaveBeenCalledTimes(1);
+        const sql = db.query.mock.calls[0][0];
+        expect(sql).toContain('min_stock_pinned');
+        expect(db.query.mock.calls[0][1]).toContain(true);
+        expect(result).toMatchObject({ variationId: 'var1', locationId: 'loc1', pinned: true });
+    });
+
+    test('upserts min_stock_pinned = false (unpin)', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+        const result = await service.pinVariation(MERCHANT_ID, 'var1', 'loc1', false);
+        expect(result.pinned).toBe(false);
+    });
+});
+
+// ==================== getHistory ====================
+
+describe('getHistory', () => {
+    test('throws if merchantId is missing', async () => {
+        await expect(service.getHistory(null))
+            .rejects.toThrow('merchantId is required');
+    });
+
+    test('returns paginated results without filters', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [{ id: 1, rule: 'OVERSTOCKED' }] })
+            .mockResolvedValueOnce({ rows: [{ total: '5' }] });
+
+        const result = await service.getHistory(MERCHANT_ID);
+        expect(result.items).toHaveLength(1);
+        expect(result.total).toBe(5);
+        expect(result.limit).toBe(50);
+        expect(result.offset).toBe(0);
+    });
+
+    test('applies startDate filter to query params', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({ rows: [{ total: '0' }] });
+
+        await service.getHistory(MERCHANT_ID, { startDate: '2026-01-01' });
+        const params = db.query.mock.calls[0][1];
+        expect(params).toContain('2026-01-01');
+    });
+
+    test('applies rule filter to query params', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({ rows: [{ total: '0' }] });
+
+        await service.getHistory(MERCHANT_ID, { rule: 'OVERSTOCKED' });
+        const params = db.query.mock.calls[0][1];
+        expect(params).toContain('OVERSTOCKED');
+    });
+
+    test('respects custom limit and offset', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({ rows: [{ total: '0' }] });
+
+        const result = await service.getHistory(MERCHANT_ID, { limit: 10, offset: 20 });
+        expect(result.limit).toBe(10);
+        expect(result.offset).toBe(20);
     });
 });

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Min Stock Adjustment History - Square Dashboard Addon</title>
+  <link rel="stylesheet" href="/css/shared.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="header-content">
+        <h1>Min Stock Adjustment History</h1>
+        <p>Weekly auto-adjustment audit log — review changes and pin items to prevent auto-adjustment</p>
+      </div>
+      <div class="header-buttons">
+        <a href="/dashboard.html" class="back-button">← Dashboard</a>
+      </div>
+    </div>
+
+    <!-- Summary stats -->
+    <div class="mmh-summary" id="summary">
+      <div class="mmh-stat">
+        <div class="mmh-stat-label">Total Changes</div>
+        <div class="mmh-stat-value" id="stat-total">—</div>
+      </div>
+      <div class="mmh-stat">
+        <div class="mmh-stat-label">Mins Reduced</div>
+        <div class="mmh-stat-value" id="stat-reduced">—</div>
+      </div>
+      <div class="mmh-stat">
+        <div class="mmh-stat-label">Mins Increased</div>
+        <div class="mmh-stat-value" id="stat-increased">—</div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="controls">
+      <div>
+        <label for="start-date">From</label>
+        <input type="date" id="start-date">
+      </div>
+      <div>
+        <label for="end-date">To</label>
+        <input type="date" id="end-date">
+      </div>
+      <div>
+        <label for="rule-filter">Rule</label>
+        <select id="rule-filter">
+          <option value="">All rules</option>
+          <option value="OVERSTOCKED">Overstocked</option>
+          <option value="SOLDOUT_FAST_MOVER">Sold Out Fast Mover</option>
+          <option value="EXPIRING">Expiring</option>
+          <option value="MANUAL_APPLY">Manual Apply</option>
+        </select>
+      </div>
+      <button id="apply-filters" class="btn btn-primary">Apply Filters</button>
+      <button id="reset-filters" class="btn">Reset</button>
+    </div>
+
+    <!-- Table -->
+    <div class="mmh-table-wrap">
+      <table class="mmh-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Item</th>
+            <th>Variation</th>
+            <th>SKU</th>
+            <th>Rule</th>
+            <th>Prev Min</th>
+            <th>New Min</th>
+            <th>Reason</th>
+            <th>Pin</th>
+          </tr>
+        </thead>
+        <tbody id="history-body">
+          <tr><td colspan="9" class="empty-state">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    <div class="mmh-pagination">
+      <button id="prev-page" class="btn" disabled>← Prev</button>
+      <span id="page-info">Page 1</span>
+      <button id="next-page" class="btn">Next →</button>
+      <span id="total-info"></span>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="/js/utils/escape.js"></script>
+  <script src="/js/utils/toast.js"></script>
+  <script src="/js/utils/date-format.js"></script>
+  <script src="/js/min-max-history.js"></script>
+</body>
+</html>
