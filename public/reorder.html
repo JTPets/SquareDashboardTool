@@ -72,6 +72,8 @@
     .table-container { max-height: 65vh; min-height: 120px; overflow-y: auto; resize: vertical; }
     /* page-specific: border-separate so border-radius works on rows */
     table { border-collapse: separate; border-spacing: 0; }
+    /* page-specific: compact padding for wide multi-column table */
+    th, td { padding: 8px 10px; }
     /* page-specific: sticky thead row (not individual th); nowrap headers; shadow */
     thead { position: sticky; top: 0; z-index: 100; }
     th { position: static; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
