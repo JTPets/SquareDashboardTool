@@ -424,3 +424,118 @@ Six distinct SQL queries in the file. Checked against: merchant_id isolation, pa
 | Other vendor items | line 714 | YES (8×) | YES | YES | PASS |
 
 **No violations found.** All queries use `$N` parameterization throughout. String concatenation is used only to build dynamic WHERE clauses, and all dynamic values enter via the params array — never interpolated into the SQL string.
+
+## Module Breakdown Map
+
+### Current function inventory
+
+| Function | Lines | Concern |
+|----------|-------|---------|
+| imports/header | 1–17 (17) | — |
+| `getReorderSuggestions` | 18–132 (115) | Orchestration |
+| `buildMainQuery` | 134–296 (163) | Query building |
+| `processSuggestionRows` | 298–446 (149) | Row processing |
+| `sortSuggestions` | 448–459 (12) | Row processing |
+| `runBundleAnalysis` | 461–706 (246) | Bundle analysis |
+| `fetchOtherVendorItems` | 708–809 (102) | Query building |
+| `module.exports` | 811–819 (9) | — |
+| **Total** | **819** | |
+
+The pending-PO concern is not a standalone function — it is split across two locations:
+- SQL: correlated subquery inline in `buildMainQuery` (lines 182–189)
+- JS: `adjustedQty` deduction + exemption check in `processSuggestionRows` (lines 382–395)
+
+---
+
+### Proposed file structure
+
+```
+services/catalog/reorder/
+├─ reorder-service.js      (~140 lines — orchestrator only)
+├─ query-builder.js        (~280 lines — SQL construction)
+├─ bundle-analysis.js      (~260 lines — bundle logic)
+└─ row-processor.js        (~175 lines — row mapping + sort)
+```
+
+`reorder-math.js` stays in place (`services/catalog/reorder-math.js`) — already correctly scoped.
+
+---
+
+### File-by-file assignment
+
+#### `reorder-service.js` (~140 lines) — orchestrator
+
+Keeps: `getReorderSuggestions` only.
+
+Imports from siblings: `buildMainQuery`, `fetchOtherVendorItems` from `./reorder/query-builder`; `processSuggestionRows`, `sortSuggestions` from `./reorder/row-processor`; `runBundleAnalysis` from `./reorder/bundle-analysis`.
+
+Contents:
+- 6 imports (lines 11–16) → ~6 lines
+- `getReorderSuggestions` (115 lines)
+- `module.exports` → ~3 lines
+
+Estimated: **~125 lines**. Well under 300.
+
+---
+
+#### `query-builder.js` (~280 lines) — SQL construction
+
+Keeps: `buildMainQuery` (163 lines) + `fetchOtherVendorItems` (102 lines).
+
+The pending-PO correlated subquery (lines 182–189) stays inlined inside `buildMainQuery` — it is pure SQL and has no JS logic to extract. If future work isolates it, a `PENDING_PO_SUBQUERY` string constant can be exported from this file.
+
+Contents:
+- 2 imports (`db`, `logger`) → ~2 lines
+- `buildMainQuery` → 163 lines
+- `fetchOtherVendorItems` → 102 lines
+- `module.exports` → ~3 lines
+
+Estimated: **~270 lines**. Under 300.
+
+---
+
+#### `bundle-analysis.js` (~260 lines) — bundle logic
+
+Keeps: `runBundleAnalysis` (246 lines) in its entirety.
+
+This function is self-contained: it runs its own 4 queries, builds maps, aggregates bundle groups, and calls `calculateOrderOptions`. Splitting it further would fracture tightly coupled query+transform logic.
+
+Contents:
+- 3 imports (`db`, `logger`, `calculateOrderOptions`, `calculateReorderQuantity`) → ~4 lines
+- `runBundleAnalysis` → 246 lines
+- `module.exports` → ~3 lines
+
+Estimated: **~253 lines**. Under 300.
+
+Note: `runBundleAnalysis` is 246 lines and a future touch should apply the refactor-on-touch rule (CODE-RULES.md). The inner query-build + result-process cycle could split into `_buildBundleQueries` and `_processBundleGroups` helpers without changing the public API.
+
+---
+
+#### `row-processor.js` (~175 lines) — row mapping + sort
+
+Keeps: `processSuggestionRows` (149 lines) + `sortSuggestions` (12 lines).
+
+The pending-PO JS logic (`adjustedQty` deduction, lines 382–395) stays inside `processSuggestionRows` — it is two lines of arithmetic and one guard, not enough mass to justify a separate file.
+
+Contents:
+- 1 import (`calculateReorderQuantity`) → ~1 line
+- `processSuggestionRows` → 149 lines
+- `sortSuggestions` → 12 lines
+- `module.exports` → ~3 lines
+
+Estimated: **~165 lines**. Under 300.
+
+---
+
+### Split does not require
+
+- No interface changes — `getReorderSuggestions` signature is unchanged.
+- No test changes for integration tests (they call via the route). Unit tests that import `buildMainQuery`, `processSuggestionRows`, `sortSuggestions`, `runBundleAnalysis`, `fetchOtherVendorItems` directly will need import path updates.
+- No DB schema changes.
+- No migration.
+
+---
+
+### Why not extract `pending-po.js`
+
+The pending-PO SQL is 8 lines embedded in a 163-line function; the JS side is 3 lines in a 149-line function. Extracting it as a module adds an import, a function call boundary, and a file for ~11 lines of logic that is already easy to locate. The split would not bring either host file under 300 lines by itself. Recommend keeping it inline and noting it in a comment instead.
