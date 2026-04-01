@@ -297,3 +297,130 @@ JS (line 322–324): `if (stockAlertMax !== null && availableQty >= stockAlertMa
 SQL does not filter by `stock_alert_max`; the check is JS-only. This means the SQL returns overstocked rows and JS discards them — a minor inefficiency but not a correctness issue.
 
 `below_minimum` exemption does NOT apply here: the max check unconditionally returns null regardless of `below_minimum`. In practice `availableQty >= max` and `below_minimum = true` simultaneously is impossible (max ≥ min by convention), but there is no code-level assertion enforcing that constraint.
+
+## Security Audit
+
+Six distinct SQL queries in the file. Checked against: merchant_id isolation, parameterized inputs, string concatenation, user input in query string.
+
+---
+
+### Query 1 — Main reorder query (`buildMainQuery`, line 145)
+
+**merchant_id**: Present on every table.
+- `items i`: `i.merchant_id = $2` (line 219)
+- `variation_vendors vv`: `vv.merchant_id = $2` (line 221)
+- `vendors ve`: `ve.merchant_id = $2` (line 223)
+- `inventory_counts ic`: `ic.merchant_id = $2` (line 225)
+- LATERAL `sales_velocity`: `merchant_id = $2` (line 235)
+- `inventory_counts ic_committed`: `ic_committed.merchant_id = $2` (line 240)
+- `locations l`: `l.merchant_id = $2` (line 244)
+- `variation_location_settings vls`: `vls.merchant_id = $2` (line 246)
+- `variation_expiration vexp`: `vexp.merchant_id = $2` (line 249)
+- LATERAL `variation_vendors vv2 / vendors ve2`: `vv2.merchant_id = $2`, `ve2.merchant_id = $2` (lines 254–255)
+- Outer WHERE: `v.merchant_id = $2` (line 259)
+
+**Inline correlated subquery** (`pending_po_quantity`, lines 182–189):
+- `po.merchant_id = $2` and `poi.merchant_id = $2` — both present. PASS.
+
+**Parameterization**:
+- `$1` = `reorderThreshold` (computed: `supplyDaysNum + safetyDays` from merchant settings/env + validated query param)
+- `$2` = `merchantId` (from `req.merchantContext.id`)
+- `vendor_id` filter: `params.push(vendor_id)` + `$${params.length}` (line 286–287) — parameterized
+- `location_id` filter: `params.push(location_id)` + `$${params.length}` (line 291–292) — parameterized
+
+**String concatenation**: Lines 283–292 append hardcoded SQL fragments with `query +=`. No user data is interpolated into the string — only `$N` placeholders whose values go into the params array.
+
+**Verdict**: PASS — no violations.
+
+---
+
+### Query 2 — Bundle definitions (`runBundleAnalysis`, line 470)
+
+**merchant_id**: `bd.merchant_id = $1`, `ve.merchant_id = $1` (lines 482–483). PASS.
+
+**Parameterization**:
+- `$1` = `merchantId`
+- `vendor_id` filter: same `params.push` + `$${bundleParams.length}` pattern (lines 488–490) — parameterized
+
+**String concatenation**: `bundleQuery +=` appends hardcoded fragments only. PASS.
+
+**Verdict**: PASS.
+
+---
+
+### Query 3 — Bundle sales velocity (`runBundleAnalysis`, line 501)
+
+**merchant_id**: `merchant_id = $2` (line 504). PASS.
+
+**Parameterization**:
+- `$1` = `allBundleVarIds` (array derived from DB results — not user input)
+- `$2` = `merchantId`
+- `$3` = `location_id` if present (line 508–509) — parameterized
+
+**String concatenation**: `velocityQuery +=` appends hardcoded fragment. PASS.
+
+**Verdict**: PASS.
+
+---
+
+### Query 4 — Bundle inventory counts (`runBundleAnalysis`, line 512)
+
+**merchant_id**: `ic.merchant_id = $2` (line 518). PASS.
+
+**Parameterization**:
+- `$1` = `allBundleVarIds` (from DB results)
+- `$2` = `merchantId`
+- `$3` = `location_id` if present (line 522–523) — parameterized
+
+**String concatenation**: `invQuery +=` appends hardcoded fragments. PASS.
+
+**Verdict**: PASS.
+
+---
+
+### Query 5 — Bundle min-stock / variation settings (`runBundleAnalysis`, line 527)
+
+**merchant_id**: `vls.merchant_id = $2`, `vv.merchant_id = $2`, `v.merchant_id = $2` (lines 534, 543, 545). PASS.
+
+**Parameterization**:
+- `$1` = `childVarIds` (from DB results)
+- `$2` = `merchantId`
+- `$3` = `location_id` if present (line 538–539) — parameterized
+
+**String concatenation**: `minStockQuery +=` appends hardcoded fragments. PASS.
+
+**Note**: The `LEFT JOIN variation_vendors vv` fragment is appended after the optional `location_id` block (lines 541–544). The join condition `vv.merchant_id = $2` is in the appended string — hardcoded, not derived from user input. No risk.
+
+**Verdict**: PASS.
+
+---
+
+### Query 6 — Other vendor items (`fetchOtherVendorItems`, line 714)
+
+**merchant_id**: `i.merchant_id = $1`, `vv.merchant_id = $1`, `ve.merchant_id = $1`, `ic.merchant_id = $1`, `ic_committed.merchant_id = $1`, `sv91.merchant_id = $1`, `vls.merchant_id = $1`, `v.merchant_id = $1` (lines 746–763). PASS.
+
+**Parameterization**:
+- `$1` = `merchantId`
+- `$2` = `vendor_id` (validated upstream by `validators.getReorderSuggestions` before reaching service)
+- `suggestedVarIds` array: `otherParams.push(suggestedVarIds)` + `$${otherParams.length}` (lines 771–772) — parameterized
+- `location_id`: `otherParams.push(location_id)` + `$${otherParams.length}` (lines 775–777) — parameterized
+
+**String concatenation**: Same safe `otherQuery +=` pattern, hardcoded fragments only. PASS.
+
+**Verdict**: PASS.
+
+---
+
+### Summary
+
+| Query | Location | merchant_id | Parameterized | String concat safe | Verdict |
+|-------|----------|-------------|---------------|--------------------|---------|
+| Main reorder | line 145 | YES (11×) | YES | YES | PASS |
+| pending_po subquery | line 182 | YES (2×) | YES | n/a | PASS |
+| Bundle definitions | line 470 | YES | YES | YES | PASS |
+| Bundle velocity | line 501 | YES | YES | YES | PASS |
+| Bundle inventory | line 512 | YES | YES | YES | PASS |
+| Bundle min-stock | line 527 | YES | YES | YES | PASS |
+| Other vendor items | line 714 | YES (8×) | YES | YES | PASS |
+
+**No violations found.** All queries use `$N` parameterization throughout. String concatenation is used only to build dynamic WHERE clauses, and all dynamic values enter via the params array — never interpolated into the SQL string.
