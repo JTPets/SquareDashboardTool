@@ -2509,6 +2509,29 @@ COMMENT ON COLUMN variations.stockable IS 'Whether variation has stockable inven
 COMMENT ON COLUMN variations.square_updated_at IS 'Square authoritative updated_at timestamp (RFC3339)';
 
 -- ========================================
+-- MIN MAX AUDIT LOG (BACKLOG-106)
+-- Combined audit log: applied changes (skipped=FALSE) and skipped items (skipped=TRUE)
+-- ========================================
+
+CREATE TABLE IF NOT EXISTS min_max_audit_log (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    variation_id TEXT NOT NULL,
+    location_id TEXT NOT NULL,
+    old_min INTEGER,
+    new_min INTEGER,
+    reason TEXT,
+    skipped BOOLEAN NOT NULL DEFAULT FALSE,
+    skip_reason TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_min_max_audit_log_merchant_created
+    ON min_max_audit_log(merchant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_min_max_audit_log_skipped
+    ON min_max_audit_log(merchant_id, skipped, created_at DESC);
+
+-- ========================================
 -- FINAL: Schema creation complete
 -- ========================================
 DO $$

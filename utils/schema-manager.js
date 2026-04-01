@@ -3196,6 +3196,49 @@ async function ensureSchema() {
         logger.error('Failed to create min_stock_audit table:', error.message);
     }
 
+    // ==================== MIN MAX AUDIT LOG TABLE ====================
+    // Combined audit log for auto min/max: applied changes AND skipped items (BACKLOG-106)
+    // Tracks both cron-applied changes (skipped=FALSE) and suppressed items (skipped=TRUE).
+    // Created via schema-manager (not migration) — structural table, idempotent.
+    try {
+        const minMaxAuditLogExists = await query(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables
+                WHERE table_name = 'min_max_audit_log'
+            )
+        `);
+
+        if (!minMaxAuditLogExists.rows[0].exists) {
+            logger.info('Creating min_max_audit_log table...');
+            await query(`
+                CREATE TABLE IF NOT EXISTS min_max_audit_log (
+                    id SERIAL PRIMARY KEY,
+                    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                    variation_id TEXT NOT NULL,
+                    location_id TEXT NOT NULL,
+                    old_min INTEGER,
+                    new_min INTEGER,
+                    reason TEXT,
+                    skipped BOOLEAN NOT NULL DEFAULT FALSE,
+                    skip_reason TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await query(`
+                CREATE INDEX IF NOT EXISTS idx_min_max_audit_log_merchant_created
+                ON min_max_audit_log(merchant_id, created_at DESC)
+            `);
+            await query(`
+                CREATE INDEX IF NOT EXISTS idx_min_max_audit_log_skipped
+                ON min_max_audit_log(merchant_id, skipped, created_at DESC)
+            `);
+            logger.info('Created min_max_audit_log table with indexes');
+            appliedCount++;
+        }
+    } catch (error) {
+        logger.error('Failed to create min_max_audit_log table:', error.message);
+    }
+
     if (appliedCount > 0) {
         logger.info(`Schema check complete: ${appliedCount} migrations applied`);
     } else {

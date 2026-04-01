@@ -121,6 +121,29 @@ describe('generateRecommendations', () => {
         expect(recs[0].skipped).toBe('tooNew');
     });
 
+    // --- Eligibility order: new item check runs before pin check ---
+
+    test('New item > 91 days → proceeds to rule evaluation (not skipped)', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ item_created_at: oldItemDate(), days_of_stock: '95',
+                current_min: '2', velocity_91d: '0.5', quantity: '48' })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].skipped).toBeUndefined();
+        expect(recs[0].rule).toBe('OVERSTOCKED');
+    });
+
+    test('min_stock_pinned = FALSE → proceeds to rule evaluation (not skipped)', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ min_stock_pinned: false, days_of_stock: '95',
+                current_min: '2', velocity_91d: '0.5', quantity: '48' })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].skipped).toBeUndefined();
+    });
+
     // --- Rule 1: Overstocked slow mover ---
 
     test('Rule 1: days_of_stock 95, min 2 → recommend min - 1 (1)', async () => {
@@ -562,7 +585,7 @@ describe('applyAllRecommendations', () => {
         expect(result.failed).toBe(0);
     });
 
-    test('transaction client.query called 3 times per recommendation (read, upsert, audit)', async () => {
+    test('transaction client.query called 4 times per recommendation (read, upsert, min_stock_audit, min_max_audit_log)', async () => {
         const recs = [
             { variationId: 'var1', locationId: 'loc1', newMin: 1,
               rule: 'OVERSTOCKED', reason: 'test' },
@@ -580,7 +603,7 @@ describe('applyAllRecommendations', () => {
         });
 
         await service.applyAllRecommendations(MERCHANT_ID, recs);
-        expect(clientQueryCount).toBe(3); // read + upsert + audit
+        expect(clientQueryCount).toBe(4); // read + upsert + min_stock_audit + min_max_audit_log
     });
 });
 
@@ -611,6 +634,122 @@ describe('pinVariation', () => {
         db.query.mockResolvedValueOnce({ rows: [] });
         const result = await service.pinVariation(MERCHANT_ID, 'var1', 'loc1', false);
         expect(result.pinned).toBe(false);
+    });
+});
+
+// ==================== toggleMinStockPin ====================
+
+describe('toggleMinStockPin', () => {
+    test('throws if merchantId is missing', async () => {
+        await expect(service.toggleMinStockPin('var1', 'loc1', null, true))
+            .rejects.toThrow('variationId, locationId, and merchantId are required');
+    });
+
+    test('throws if pinned is not a boolean', async () => {
+        await expect(service.toggleMinStockPin('var1', 'loc1', MERCHANT_ID, 'yes'))
+            .rejects.toThrow('pinned must be a boolean');
+    });
+
+    test('wrong merchant_id — variation not found → throws cross-tenant error', async () => {
+        // Ownership check returns no rows → variation belongs to different merchant
+        db.query.mockResolvedValueOnce({ rows: [] }); // variations ownership check
+        await expect(service.toggleMinStockPin('var-other', 'loc1', MERCHANT_ID, true))
+            .rejects.toThrow('Variation not found for this merchant');
+    });
+
+    test('correct merchant_id — updates pin flag and logs audit entry', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [{ id: 'var1' }] })           // ownership check
+            .mockResolvedValueOnce({ rows: [{ stock_alert_min: 3 }] })   // read current min
+            .mockResolvedValueOnce({ rows: [] })                          // upsert pin
+            .mockResolvedValueOnce({ rows: [] });                         // audit log insert
+
+        const result = await service.toggleMinStockPin('var1', 'loc1', MERCHANT_ID, true);
+
+        expect(db.query).toHaveBeenCalledTimes(4);
+        // ownership check includes merchant_id
+        expect(db.query.mock.calls[0][1]).toEqual(['var1', MERCHANT_ID]);
+        // upsert sets min_stock_pinned
+        const upsertSql = db.query.mock.calls[2][0];
+        expect(upsertSql).toContain('min_stock_pinned');
+        expect(db.query.mock.calls[2][1]).toContain(true);
+        // audit log written to min_max_audit_log
+        const auditSql = db.query.mock.calls[3][0];
+        expect(auditSql).toContain('min_max_audit_log');
+        expect(result).toMatchObject({ variationId: 'var1', locationId: 'loc1', pinned: true });
+    });
+
+    test('unpin — sets pinned=false and logs unpin reason in audit', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [{ id: 'var1' }] })
+            .mockResolvedValueOnce({ rows: [{ stock_alert_min: 2 }] })
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        const result = await service.toggleMinStockPin('var1', 'loc1', MERCHANT_ID, false);
+
+        expect(db.query.mock.calls[2][1]).toContain(false);
+        const auditParams = db.query.mock.calls[3][1];
+        expect(auditParams.some(p => typeof p === 'string' && p.includes('Pin removed'))).toBe(true);
+        expect(result.pinned).toBe(false);
+    });
+});
+
+// ==================== getSuppressedItems ====================
+
+describe('getSuppressedItems', () => {
+    test('throws if merchantId is missing', async () => {
+        await expect(service.getSuppressedItems(null))
+            .rejects.toThrow('merchantId is required');
+    });
+
+    test('returns rows from last run with skipped=TRUE', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            { variation_id: 'var1', location_id: 'loc1', old_min: 2,
+              skip_reason: 'Manually pinned', created_at: new Date().toISOString(),
+              variation_name: 'V1', item_name: 'Item1', sku: 'SKU1', min_stock_pinned: true }
+        ]});
+        const items = await service.getSuppressedItems(MERCHANT_ID);
+        expect(items).toHaveLength(1);
+        expect(items[0].skip_reason).toBe('Manually pinned');
+        // Query must filter by merchant_id
+        expect(db.query.mock.calls[0][1]).toContain(MERCHANT_ID);
+    });
+});
+
+// ==================== getAuditLog ====================
+
+describe('getAuditLog', () => {
+    test('throws if merchantId is missing', async () => {
+        await expect(service.getAuditLog(null))
+            .rejects.toThrow('merchantId is required');
+    });
+
+    test('returns rows with skipped=FALSE', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            { variation_id: 'var1', location_id: 'loc1', old_min: 2, new_min: 1,
+              reason: 'Overstocked', created_at: new Date().toISOString(),
+              variation_name: 'V1', item_name: 'Item1', sku: 'SKU1' }
+        ]});
+        const items = await service.getAuditLog(MERCHANT_ID);
+        expect(items).toHaveLength(1);
+        const sql = db.query.mock.calls[0][0];
+        expect(sql).toContain('skipped = FALSE');
+        expect(db.query.mock.calls[0][1]).toContain(MERCHANT_ID);
+    });
+
+    test('clamps limit to 200 max', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+        await service.getAuditLog(MERCHANT_ID, 9999);
+        const limitParam = db.query.mock.calls[0][1][1]; // second param is limit
+        expect(limitParam).toBe(200);
+    });
+
+    test('default limit is 50', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+        await service.getAuditLog(MERCHANT_ID);
+        const limitParam = db.query.mock.calls[0][1][1];
+        expect(limitParam).toBe(50);
     });
 });
 
