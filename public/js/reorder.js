@@ -814,7 +814,7 @@ function renderTable() {
         <td class="text-right" id="line-total-${item.variation_id}"><strong>$${totalCost}</strong></td>
         <td>${escapeHtml(item.vendor_name)}</td>
         <td class="clickable ${needsReorderResistance ? 'vendor-code-expiring' : ''}" data-action="copyToClipboard" data-action-param="${escapeJsString(item.vendor_code || '')}" data-copy-label="Vendor Code" title="${needsReorderResistance ? 'EXPIRING ITEM - Click to copy Vendor Code (still works)' : 'Click to copy Vendor Code'}">${escapeHtml(item.vendor_code)}</td>
-        <td class="text-right">${item.lead_time_days > 0 ? item.lead_time_days + 'd' : '-'}</td>
+        <td class="text-right"></td>
       </tr>
     `;
   }).join('');
