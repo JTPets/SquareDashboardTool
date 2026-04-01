@@ -290,4 +290,18 @@ Key findings: Zero CRITICAL, zero HIGH. 5 MEDIUM items all remediated same day. 
 
 ---
 
-*Last Updated: 2026-03-22*
+## Development Security Rules
+
+These rules apply when writing new code:
+
+- All SQL must be parameterized (`$1`, `$2`) — never string concatenation
+- All user input in HTML must use `escapeHtml()` / `escapeAttr()`
+- All new routes must have `requireAuth` + `requireMerchant` middleware
+- Admin routes accessing other merchants must use `requireMerchantAccess`
+- PII must not appear in logs — `utils/log-sanitizer.js` handles this automatically
+- All new env vars must be documented in `.env.example`
+- Tokens and API keys must never appear in log output
+
+---
+
+*Last Updated: 2026-04-01*

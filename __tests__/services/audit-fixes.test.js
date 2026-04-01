@@ -440,14 +440,14 @@ describe('logAuthEvent includes merchant_id in auth_audit_log INSERT', () => {
 // ============================================================================
 // CLAUDE.md: Refactor-on-touch policy
 // ============================================================================
-describe('CLAUDE.md refactor-on-touch policy for 500+ line files', () => {
+describe('Refactor-on-touch policy for 500+ line files', () => {
     test('contains module breakdown map instruction for files over 500 lines', () => {
         const fs = require('fs');
-        const claudeMd = fs.readFileSync(
-            require.resolve('../../CLAUDE.md'),
+        const codeRules = fs.readFileSync(
+            require.resolve('../../docs/CODE-RULES.md'),
             'utf8'
         );
-        expect(claudeMd).toContain('500 lines');
-        expect(claudeMd).toContain('module breakdown map');
+        expect(codeRules).toContain('500 lines');
+        expect(codeRules).toContain('module breakdown map');
     });
 });
