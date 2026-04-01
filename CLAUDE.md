@@ -1,32 +1,40 @@
-# CLAUDE.md - JTPets Square Dashboard Tool
+# SqTools — CLAUDE.md
 
-## Project Overview
+Multi-tenant SaaS inventory management system for Square POS. Built for JTPets.ca (pet food/supplies with free local delivery) with goal of SaaS revenue. Node.js 18+ / Express / PostgreSQL 15 on Raspberry Pi. Process manager: PM2. Square SDK v43.2.1, Google APIs v144. Timezone: America/Toronto.
 
-Multi-tenant SaaS inventory management system for Square POS. Built for JTPets.ca (pet food/supplies with free local delivery) with goal of SaaS revenue. Running on Raspberry Pi.
-
-## Tech Stack
-
-- **Runtime**: Node.js 18+ with Express.js
-- **Database**: PostgreSQL 15
-- **Process Manager**: PM2
-- **External APIs**: Square SDK v43.2.1, Google APIs v144
-- **Timezone**: America/Toronto
+> **CLAUDE.md must stay under 300 lines.** Detailed rules belong in `docs/` sub-files. Link, don't inline. Every token here costs money on every prompt.
 
 ---
 
 ## Critical Rules
 
-### Security First
-- ALL database queries use parameterized SQL (`$1, $2` - never string concatenation)
-- ALL user input validated via express-validator (see `middleware/validators/`)
-- ALL routes require authentication unless explicitly public
+### Security
+- ALL database queries use parameterized SQL (`$1, $2` — never string concatenation)
+- ALL user input validated via express-validator (`middleware/validators/`)
+- ALL routes require `requireAuth` + `requireMerchant` middleware
 - Multi-tenant isolation: EVERY query must filter by `merchant_id`
 - Tokens encrypted with AES-256-GCM before storage
+- All user input in HTML must use `escapeHtml()` / `escapeAttr()`
+- PII must not appear in logs — `utils/log-sanitizer.js` handles this
+- See [SECURITY.md](./SECURITY.md) for full security documentation
+
+### Code Quality
+- Function length: ≤ 100 lines
+- File length: ≤ 300 lines (split if larger)
+- No new `<style>` blocks in HTML — `public/css/shared.css` only
+- Every migration wrapped in `BEGIN`/`COMMIT`
+- Tests must pass before commit — new features require tests in same commit
+- See [docs/CODE-RULES.md](./docs/CODE-RULES.md) for full rules, violations, and checklists
+
+### Git Rules
+- Always start work with: `git checkout main && git pull origin main`
+- Then create feature branch from updated main
+- When told "do not commit" or "show me before committing", do NOT run `git commit` or `git push`. Show the diff only. Wait for explicit approval before committing.
+- This rule has no exceptions.
 
 ### Multi-Tenant Pattern
 ```javascript
 const merchantId = req.merchantContext.id;
-
 // EVERY database query must include merchant_id
 const result = await db.query(
     'SELECT * FROM items WHERE merchant_id = $1 AND id = $2',
@@ -37,237 +45,74 @@ const result = await db.query(
 ### Response Format
 ```javascript
 const { sendSuccess, sendError, sendPaginated } = require('../utils/response-helper');
-
-// Success — flat-merges data with { success: true }
-sendSuccess(res, { count: 5, items: [...] });
-// → { success: true, count: 5, items: [...] }
-
-// Error
-sendError(res, 'message', 400, 'ERROR_CODE');
-// → { success: false, error: 'message', code: 'ERROR_CODE' }
-
-// Paginated
-sendPaginated(res, { items: [...], total: 100, limit: 20, offset: 0 });
-// → { success: true, items: [...], total: 100, limit: 20, offset: 0 }
+sendSuccess(res, { count: 5, items: [...] });   // → { success: true, count: 5, items: [...] }
+sendError(res, 'message', 400, 'ERROR_CODE');    // → { success: false, error: 'message', code: 'ERROR_CODE' }
+sendPaginated(res, { items, total, limit, offset }); // → { success: true, items, total, limit, offset }
 ```
+> All routes use `utils/response-helper.js`. Do not use raw `res.json()`.
 
-> All routes use `utils/response-helper.js`. Do not use raw `res.json()` for new endpoints.
-
-### Git Rules
-- Always start work with: `git checkout main && git pull origin main`
-- Then create feature branch from updated main
-- When told "do not commit" or "show me before committing", do NOT run `git commit` or `git push`. Show the diff only. Wait for explicit approval before committing.
-- This rule has no exceptions. "Not committed, as requested" followed by committing is a violation.
-
-### Code Organization
-```
-routes/          → API endpoints (thin - validation + call service)
-middleware/      → Auth, merchant context, validators, security
-services/        → Business logic (loyalty-admin/ has good examples)
-utils/           → Shared utilities (database, Square API, logging)
-database/        → schema.sql + migrations/
-jobs/            → Background jobs and cron tasks
-```
-
-### Code Rules
-
-| Rule | Limit |
-|------|-------|
-| Function length | ≤ 100 lines |
-| File length | ≤ 300 lines (split if larger) |
-| Service scope | Single responsibility |
-| Route logic | Validation + call service only |
-| New files | Tests + docs reference required |
-| New features | Tests required in same commit — no exceptions |
-| Complexity | Explainable in one sentence |
-| Dependencies | `npm install --save` or `--save-dev` only — never manually edit package.json. Commit package.json and package-lock.json together in the same commit as the code requiring the new dependency. |
-| Env vars | Any new `process.env.X` reference MUST have a corresponding entry in `.env.example` with a placeholder value and descriptive comment. |
-| HTML pages | Every new HTML page MUST include shared utility scripts before page-specific scripts. Only include utilities the page's JS actually uses. Required order: `escape.js` → `toast.js` → `format-currency.js` → `date-format.js` → `your-page.js`. The test in `__tests__/frontend/utility-script-tags.test.js` enforces this — `npm test` will fail if a utility function is called but the script tag is missing. |
-| Logger changes | Any change to `utils/logger.js` or `utils/log-sanitizer.js` must include a Winston integration test that verifies log entries actually appear in the output file. See `__tests__/utils/logger-integration.test.js`. |
-| CSS styles | No new `<style>` blocks in HTML pages. All shared styles go in `public/css/shared.css`. Page-specific styles only if truly unique to that page and documented with a comment explaining why. |
-| Migrations | Every migration file MUST be wrapped in BEGIN/COMMIT. The test in `__tests__/database/schema-integrity.test.js` enforces this — `npm test` will fail if missing. |
-
-### Schema Change Policy
-- **`schema-manager.js`**: handles `CREATE TABLE` and `ADD COLUMN IF NOT EXISTS` (structural changes). Runs on every server start. No migration file needed for simple column additions.
-- **Migration files (`database/migrations/`)**: ONLY for data transforms (`UPDATE`, backfill, `ALTER CONSTRAINT`, `DROP COLUMN`, data migration between tables). These are changes schema-manager cannot safely do idempotently.
-- **`schema.sql`**: always kept in sync as the reference schema for fresh installs.
-
-**Violations require justification.** If any rule must be broken:
-1. Add a comment at the top of the file/function explaining WHY
-2. Log it in the Approved Violations table below
-3. Create a backlog item to refactor if temporary
-
-#### Approved Violations
-| Date | File | Rule Broken | Reason |
-|------|------|-------------|--------|
-| 2026-01-29 | utils/database.js | 2,397 line function | SQL schema definition, not logic |
-| 2026-01-29 | server.js | 1,006 lines | Express entry point, already reduced 66% |
-| 2026-01-29 | All LOW severity files | >300 lines | Stable code, refactor-on-touch policy |
-
-**Policy**: Files are refactored when modified, not proactively. Touch it = fix it.
-
-#### Refactor-on-Touch: Files Over 500 Lines
-Before modifying any file over 500 lines, produce a **module breakdown map** (filename, responsibility, line range, dependencies, extraction risk) and include it in the PR description or commit message. This ensures refactoring is planned, not ad-hoc. The map does not require immediate extraction — it documents the path for future work.
-
-### Security Rules
-- All SQL must be parameterized ($1, $2) — never string concatenation
-- All user input in HTML must use `escapeHtml()` / `escapeAttr()`
-- All new routes must have `requireAuth` + `requireMerchant` middleware
-- Admin routes accessing other merchants must use `requireMerchantAccess`
-- PII must not appear in logs — `utils/log-sanitizer.js` handles this automatically
-- All new env vars must be documented in `.env.example`
-- Tokens and API keys must never appear in log output
-
----
-
-## Common Patterns
-
-### Error Handling (asyncHandler)
+### Error Handling
 ```javascript
 const asyncHandler = require('../middleware/async-handler');
-
 router.get('/endpoint', asyncHandler(async (req, res) => {
     // Errors automatically caught and passed to error handler
 }));
 ```
 
-### Transaction Pattern
-```javascript
-const result = await db.transaction(async (client) => {
-    await client.query('INSERT INTO table1...', [a, b]);
-    await client.query('UPDATE table2...', [x, id]);
-    return result;
-});
-```
-
-### Batch Operations
-```javascript
-// Use ANY for batch lookups
-const result = await db.query(
-    'SELECT * FROM variations WHERE sku = ANY($1) AND merchant_id = $2',
-    [skuArray, merchantId]
-);
-```
-
-### Square API
-```javascript
-const { getSquareClientForMerchant } = require('../middleware/merchant');
-const squareClient = await getSquareClientForMerchant(merchantId);
-
-// Write operations require idempotency key
-await squareClient.orders.createOrder({
-    idempotencyKey: crypto.randomUUID(),
-    order: { ... }
-});
-```
+### Schema Change Policy
+- **`schema-manager.js`**: `CREATE TABLE` and `ADD COLUMN IF NOT EXISTS` (runs on start)
+- **Migration files**: ONLY for data transforms, `ALTER CONSTRAINT`, `DROP COLUMN`
+- **`schema.sql`**: always kept in sync as fresh-install reference
+- See [docs/DATABASE-RULES.md](./docs/DATABASE-RULES.md) for full details
 
 ### Square SDK Method Naming
-The Square Node.js SDK in this project uses nested resource patterns, NOT the flat API naming from Square's docs. Always check existing working code before writing Square API calls.
-
-Common mistakes:
+The SDK uses nested resource patterns, NOT flat API naming from Square's docs.
 - `squareClient.ordersApi.retrieveOrder()` → `squareClient.orders.get({ orderId })`
 - `squareClient.catalog.deleteObject()` → `squareClient.catalog.object.delete({ objectId })`
-- `squareClient.loyalty.searchLoyaltyEvents()` → `squareClient.loyalty.searchEvents()`
 - `response.result.order` → `response.order`
 
-**Rule**: Before writing any Square API call, grep the codebase for an existing working example of that endpoint.
-
-### Logging
-```javascript
-const logger = require('../utils/logger');
-logger.info('Operation completed', { merchantId, result });
-logger.error('Failed', { error: err.message, stack: err.stack });
-```
+**Rule**: Before writing any Square API call, grep the codebase for an existing working example.
 
 ---
 
-## Commands
-
-```bash
-# Development
-npm start                    # Production
-npm run dev                  # Development with --watch
-pm2 restart sqtools  # After code changes
-npm test                     # Run tests
-
-# View logs
-tail -f output/logs/app-*.log
-tail -f output/logs/error-*.log
-
-# Database (always source .env first)
-set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME"
-
-# Run migration (always include .env sourcing in one command)
-set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f database/migrations/XXX_name.sql
-```
-
----
-
-## Architecture Overview
+## Project Structure
 
 ```
-/home/user/SquareDashboardTool/
-├── server.js            # Route setup, middleware (~1,000 lines)
-├── config/constants.js  # Centralized configuration
-├── routes/              # 28 modules, ~283 routes
-├── middleware/          # auth, merchant, security, validators/
-├── services/            # Business logic
-│   ├── webhook-processor.js
-│   ├── webhook-handlers/ (8 handlers)
-│   ├── loyalty-admin/   # Loyalty program admin (modular - see below)
-│   ├── seniors/         # Seniors discount automation
-│   ├── catalog/         # Catalog data management
-│   └── bundle-calculator.js  # Bundle order optimization
-├── jobs/                # Cron tasks
-└── utils/               # database, logger, helpers
+routes/          → API endpoints (thin — validation + call service)
+middleware/      → Auth, merchant context, validators, security
+services/        → Business logic (loyalty-admin/ has good examples)
+utils/           → Shared utilities (database, Square API, logging)
+database/        → schema.sql + migrations/
+jobs/            → Background jobs and cron tasks
+public/          → 35 HTML pages + JS/CSS assets
 ```
 
 **Middleware Stack**: `Request → requireAuth → loadMerchantContext → requireMerchant → validators.* → Handler`
 
-### Loyalty-Admin Module Structure
+---
 
-The `services/loyalty-admin/` directory contains 41 modular services. The legacy monolith and dead modern layer have been fully eliminated.
+## Key Commands
 
-**Usage**: Always import from the index: `const loyaltyAdmin = require('./services/loyalty-admin');`
-
-See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module details and dependency rules.
+```bash
+npm start                    # Production
+npm run dev                  # Development with --watch
+pm2 restart sqtools          # After code changes
+npm test                     # Run tests
+```
 
 ---
 
-## New Code Checklists
-
-### New Route
-1. Create validator in `middleware/validators/routename.js`
-2. Create route file in `routes/routename.js` using `asyncHandler`
-3. Add to `server.js`
-4. **Write tests in `__tests__/routes/routename.test.js` — mandatory, must be in the same commit**
-
-### New Database Table
-1. Add to `database/schema.sql`
-2. Create migration `database/migrations/XXX_description.sql`
-3. Include `merchant_id INTEGER REFERENCES merchants(id)` column
-4. Add composite index with merchant_id as leading column
-
----
-
-## Common Issues
-
-| Issue | Solution |
-|-------|----------|
-| "relation does not exist" | Run missing migration |
-| "Cannot find module" | `npm install` |
-| "merchant_id cannot be null" | Add `requireMerchant` middleware |
-| Session issues after deploy | `pm2 restart sqtools` |
-| Square API "ITEM_AT_LOCATION not found" | Use `POST /api/catalog-audit/enable-item-at-locations` to enable item at all active locations |
-
----
-
-## Detailed Documentation
+## Documentation Index
 
 | Document | Contents |
 |----------|----------|
+| [SECURITY.md](./SECURITY.md) | Security architecture, controls, audit history |
+| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Webhook flow, services structure, loyalty-admin modules, Square API details |
+| [docs/CODE-RULES.md](./docs/CODE-RULES.md) | Code limits, violations policy, refactor-on-touch, new code checklists, PR checklist |
+| [docs/DATABASE-RULES.md](./docs/DATABASE-RULES.md) | Schema change policy, migration format, DB patterns and commands |
+| [docs/CODING-PATTERNS.md](./docs/CODING-PATTERNS.md) | Response format, asyncHandler, Square API, transactions, logging |
+| [docs/TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md) | Common issues and solutions |
 | [docs/TECHNICAL_DEBT.md](./docs/TECHNICAL_DEBT.md) | Known issues, observations, deferred work |
-| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Webhook flow, services structure, loyalty-admin modules |
 | [docs/PRIORITIES.md](./docs/PRIORITIES.md) | Active HIGH/MEDIUM/LOW priority work items |
 | [docs/ROADMAP.md](./docs/ROADMAP.md) | Future initiatives and planned features |
 | [docs/WORK-ITEMS.md](./docs/WORK-ITEMS.md) | Consolidated master work list (all open items) |
@@ -281,63 +126,5 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 **Test Coverage**: 4,852 tests / 239 suites / 0 failures
 **Last Audit**: 2026-03-25
 
-### Audit Summary (13 sections)
-| Grade | Sections |
-|-------|----------|
-| A+ | Multi-Tenant Isolation, Authentication, Injection Prevention, Data Integrity |
-| A | API Integration, Error Handling, Dependencies |
-| B+ | Documentation |
-| B | Secret Scan |
-| B- | Compliance |
-| C+ | Logging, Testing, Deployment |
-
-### Backlog — Open Items
-
-See [docs/WORK-ITEMS.md](docs/WORK-ITEMS.md) for the complete consolidated work list with all open items from all sources.
-
-| Priority | Item | Description |
-|----------|------|-------------|
-| High | BACKLOG-50 | Post-trial conversion — $1 first month. Decide Stripe vs Square for SaaS billing |
-| High | BACKLOG-39 | Vendor bill-back tracking + promo engine — custom coupon/bundle creator (bypasses Square's timed sale "on sale" bug), vendor-funded promo bill-backs with date ranges, seniors day bill-backs (e.g., Smack covers 10% discount on their items). Three pieces: promo engine, order-level discount application, bill-back reporting per vendor |
-| High | BACKLOG-61 | GMC v1beta → v1 migration — Google Shopping feed broken since Feb 28 2026. **P0** |
-| Medium | BACKLOG-38 | Timed discount automation — cron-scheduled Square pricing rules |
-| Medium | BACKLOG-41 | User access control with roles — manager, clerk, accountant. Prerequisite for franchise |
-| Medium | BACKLOG-42 | Barcode scan-to-count for cycle counts |
-| Medium | BACKLOG-44 | Purchase order generation with branding |
-| Medium | BACKLOG-45 | Spreadsheet bulk upload — CSV/Google Sheets inventory import |
-| Medium | BACKLOG-51 | Demo account — read-only dashboard view for sales demos |
-| Medium | BACKLOG-55 | VIP customer auto-discounts via Square customer groups |
-| Medium | BACKLOG-63 | Caption auto-generation for Square Online product images (Claude API) |
-| Medium | BACKLOG-53 | Employee KPI coaching dashboard |
-| Medium | BACKLOG-54 | Employee auto-discounts via Square pricing rules |
-| Medium | BACKLOG-64 | Audit Square `sold_out` flag vs inventory = 0 |
-| Medium | BACKLOG-65 | Sync Square Online Store category assignments |
-| Medium | BACKLOG-95 | Multi-location expiry/count scoping — `variation_expiration`, `variation_discount_status`, cycle count tables lack `location_id`. Pre-franchise |
-| Medium | BACKLOG-4 | Customer birthday sync for marketing |
-| Medium | BACKLOG-1 | Frontend polling rate limits |
-| Low | BACKLOG-8 | Vendor API sync gaps — `contact_name`/`contact_phone` synced but not displayed (S). `account_number`/`address` not synced (M, needed for BACKLOG-44). Only first contact synced. Square `note` not synced. |
-| Low | BACKLOG-43 | Min/Max stock per item per location |
-| Low | BACKLOG-99 | PO inventory push — push received quantities to Square inventory on PO receive |
-| Low | BACKLOG-46 | QuickBooks daily sync |
-| Low | BACKLOG-47 | Multi-channel inventory sync (Shopify, WooCommerce, BigCommerce) |
-| Low | BACKLOG-48 | Clover POS integration |
-| Low | BACKLOG-49 | Stripe payment integration |
-| Low | BACKLOG-66 | Customer email bounce tracking |
-
-### Architectural Tech Debt
-
-#### Unified Audit Logging (Pre-Franchise)
-
-Audit trails fragmented across `webhook_events`, `loyalty_audit_logs`, `delivery_audit_log`, `sync_history`. Missing: inventory changes, catalog edits, admin actions. Need single `audit_log` table. Low priority (single store), High (pre-franchise).
-
----
-
-## PR Checklist
-
-- [ ] No security vulnerabilities (parameterized queries, no error exposure)
-- [ ] asyncHandler used (no manual try/catch in routes)
-- [ ] merchant_id filter on ALL database queries
-- [ ] Validators in `middleware/validators/`, not inline
-- [ ] Business logic in services, not routes
-- [ ] Tests added for new functionality
-- [ ] Multi-step operations use transactions
+See [docs/WORK-ITEMS.md](./docs/WORK-ITEMS.md) for the complete backlog and open items.
+See [docs/PRIORITIES.md](./docs/PRIORITIES.md) for current priority work.

@@ -141,3 +141,9 @@ No open items.
 | 2026-01-26 | A | P0-5,6,7 fixed. P1-6,7,8,9 fixed. Master engineering review |
 
 **Target A++ requirements**: Comprehensive test coverage, file size compliance, zero known security issues.
+
+---
+
+## Unified Audit Logging (Pre-Franchise)
+
+Audit trails fragmented across `webhook_events`, `loyalty_audit_logs`, `delivery_audit_log`, `sync_history`. Missing: inventory changes, catalog edits, admin actions. Need single `audit_log` table. Low priority (single store), High (pre-franchise).
