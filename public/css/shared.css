@@ -267,6 +267,31 @@ body {
   background: #f9fafb;
 }
 
+.footer a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.footer a:hover {
+  text-decoration: underline;
+}
+
+.header p {
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.back-link {
+  color: rgba(255,255,255,0.8);
+  text-decoration: none;
+  font-size: 14px;
+  display: inline-block;
+}
+
+.back-link:hover {
+  color: white;
+}
+
 /* =============================================================
    Buttons
    Mode values derived from 19+ pages. Pages with different
@@ -298,7 +323,7 @@ body {
 .btn-secondary        { background: #6b7280; color: white; }
 .btn-secondary:hover  { background: #4b5563; }
 
-.btn-success          { background: #10b981; color: white; }
+.btn-success          { background: #059669; color: white; }
 .btn-success:hover    { background: #047857; }
 
 .btn-danger           { background: #dc2626; color: white; }
@@ -306,6 +331,13 @@ body {
 
 .btn-warning          { background: #f59e0b; color: white; }
 .btn-warning:hover    { background: #d97706; }
+
+.btn:active           { transform: scale(0.98); }
+
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-success:disabled,
+.btn-danger:disabled  { background: #9ca3af; cursor: not-allowed; }
 
 /* =============================================================
    Controls bar buttons (.controls button)
@@ -411,6 +443,40 @@ tr:hover {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
+.form-group label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 6px;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #e5e7eb;
+}
+
 /* =============================================================
    Modals
    Two patterns in use:
@@ -498,6 +564,16 @@ tr:hover {
   background: #f9fafb;
 }
 
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  max-width: 500px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+}
+
 /* =============================================================
    Alerts
    Canonical color scheme derived from admin-subscriptions.html.
@@ -506,31 +582,31 @@ tr:hover {
    ============================================================= */
 
 .alert {
-  padding: 12px 16px;
+  padding: 15px;
   border-radius: 6px;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
   font-size: 14px;
 }
 
-.alert-success {
+.alert-success, .alert.success {
   background: #d1fae5;
   border: 1px solid #059669;
   color: #065f46;
 }
 
-.alert-error {
+.alert-error, .alert.error {
   background: #fee2e2;
   border: 1px solid #dc2626;
   color: #991b1b;
 }
 
-.alert-warning {
+.alert-warning, .alert.warning {
   background: #fef3c7;
   border: 1px solid #f59e0b;
   color: #92400e;
 }
 
-.alert-info {
+.alert-info, .alert.info {
   background: #dbeafe;
   border: 1px solid #2563eb;
   color: #1e40af;
@@ -659,6 +735,17 @@ tr:hover {
   to { transform: rotate(360deg); }
 }
 
+.loading-spinner {
+  text-align: center;
+  padding: 40px;
+}
+
+.loading-spinner .spinner {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto;
+}
+
 /* =============================================================
    Controls bar
    Pages with different padding (loyalty: 15px 20px) or gap
@@ -695,7 +782,7 @@ tr:hover {
   --color-accent-green-hover: #047857;
 
   /* Semantic */
-  --color-success: #10b981;
+  --color-success: #059669;
   --color-success-hover: #047857;
   --color-danger: #dc2626;
   --color-danger-hover: #b91c1c;

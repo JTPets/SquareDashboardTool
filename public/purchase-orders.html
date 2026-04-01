@@ -162,13 +162,9 @@
 
     /* Modal overrides — PO uses 2px borders and 25px padding (shared has 1px / 20px) */
     .modal-content {
-      background: white;
-      border-radius: 8px;
-      max-width: 900px;
-      width: 90%;
-      max-height: 90vh;
-      overflow-y: auto;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+      border-radius: 8px; /* page-specific: 8px vs shared 12px */
+      max-width: 900px; /* page-specific: 900px vs shared 500px */
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3); /* page-specific: different shadow */
     }
 
     /* Page-specific: PO modal uses 2px borders and 25px padding (shared has 1px / 20px) */
@@ -269,9 +265,7 @@
       border-top: 2px solid #e5e7eb;
     }
 
-    .btn-success {
-      background: #059669; /* page-specific: shared has #10b981 */
-}
+    /* .btn-success background now in shared.css */
 
     /* Form overrides — PO modal uses tighter spacing and smaller labels */
     .form-group { margin-bottom: 15px; } /* page-specific: 15px (shared has 16px) */
