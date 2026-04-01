@@ -114,3 +114,84 @@ None — no GROUP BY. The LATERAL join on `sales_velocity` uses `MAX(CASE WHEN p
 | base_suggested_qty | daily_avg_quantity × $1 (supply_days + safety_days) |
 | below_minimum | CASE on available vs stock_alert_min |
 | variation_age_days | EXTRACT(DAY FROM NOW() − v.created_at) |
+
+## Silent Exclusion Points
+
+All four are `return null` inside `processSuggestionRows` (reorder-service.js:302), collected by `.filter(item => item !== null)` at line 445. One additional filter runs after the function returns.
+
+---
+
+**1. Line 322–324 — Already at or above stock_alert_max**
+
+```javascript
+if (stockAlertMax !== null && availableQty >= stockAlertMax) return null;
+```
+
+Why: Available stock already meets or exceeds the configured maximum; ordering more would overshoot the ceiling.
+Intentional: YES — correct guard against over-ordering.
+Note: `stockAlertMax` is `null` when no max is configured, so this check is skipped entirely for items with no max set. Items with `stock_alert_max = 0` set in the DB would suppress all suggestions for that item — but that's an unlikely config.
+
+---
+
+**2. Line 330–332 — Velocity/threshold recheck**
+
+```javascript
+const reorderThreshold = supplyDaysNum + leadTime + safetyDays;
+const needsReorder = isOutOfStock || row.below_minimum || daysUntilStockout < reorderThreshold;
+if (!needsReorder) return null;
+```
+
+Why: The SQL WHERE uses `$1 + COALESCE(ve.lead_time_days, 0)` where `$1 = supply_days + safety_days`. The JS recalculates with the same components. In theory these should agree, but the JS check acts as a safety net for any rows that slipped through.
+Intentional: YES — defensive duplicate of the SQL filter.
+Divergence risk: If `leadTime` parsed in JS (line 318: `parseInt(row.lead_time_days) || 0`) ever differs from the SQL `COALESCE(ve.lead_time_days, 0)` (e.g. due to type coercion differences), a row could pass the SQL filter but be silently dropped here. No known instance, but the dual calculation is a latent inconsistency.
+
+---
+
+**3. Line 376–378 — calculateReorderQuantity returned 0**
+
+```javascript
+if (finalQty <= 0) return null;
+```
+
+Why: `calculateReorderQuantity` (reorder-math.js) returned zero or negative after accounting for case-pack rounding, reorder multiples, and current available stock vs. max. This means the math determined nothing needs to be ordered.
+Intentional: YES — no actionable suggestion to surface.
+Note: This can silently drop an out-of-stock or below-minimum item if the math produces 0. For example, if `stock_alert_max` is very low and available stock already covers `supply_days` worth of demand even at zero, the result could be 0. Worth verifying `calculateReorderQuantity` handles the out-of-stock + no-velocity case explicitly.
+
+---
+
+**4. Line 393–395 — Pending PO already covers the order quantity**
+
+```javascript
+const adjustedQty = Math.max(0, finalQty - pendingPoQty);
+if (adjustedQty <= 0 && !row.below_minimum) return null;
+```
+
+Why: Outstanding purchase orders already cover the full suggested quantity, and the item is not currently below its alert threshold. Nothing more needs to be ordered right now.
+Intentional: YES — avoids duplicate ordering when a PO is already in flight.
+Exception built-in: `below_minimum` items are exempt from this filter (comment at line 391: "Stock is below threshold right now and the PO may not arrive for days"). These still surface with `final_suggested_qty = 0` and `order_cost = 0`, which is correct for visibility but could confuse users who see a suggestion with nothing to order.
+
+---
+
+**5. Post-function filter — min_cost (getReorderSuggestions line 91–94)**
+
+```javascript
+if (min_cost) {
+    filteredSuggestions = suggestions.filter(s => s.order_cost >= minCostNum);
+}
+```
+
+Why: Caller-supplied query param drops suggestions below a cost threshold.
+Intentional: YES — UI feature to hide trivial reorders.
+Note: `order_cost` is based on `adjustedQty` (after PO deduction), so an item with a pending PO that reduces `adjustedQty` to 0 will have `order_cost = 0` and will be dropped by any non-zero `min_cost` filter — even if it was kept by exclusion point 4 above due to `below_minimum`. The `below_minimum` exemption in point 4 is effectively overridden by `min_cost > 0`.
+
+---
+
+### Exclusion Summary
+
+| # | Location | Condition | Items affected |
+|---|----------|-----------|----------------|
+| 1 | line 322 | `availableQty >= stockAlertMax` | Items already overstocked |
+| 2 | line 330 | `!needsReorder` (JS threshold recheck) | Rows that passed SQL but fail JS recalc |
+| 3 | line 376 | `finalQty <= 0` | Items where math yields nothing to order |
+| 4 | line 393 | `adjustedQty <= 0 && !below_minimum` | Items fully covered by pending POs |
+| 5 | line 91 | `order_cost < min_cost` | Below cost threshold (caller param) |
