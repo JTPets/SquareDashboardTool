@@ -63,7 +63,6 @@
     border: none;
 }
     .btn-success {
-    background: #059669; /* page-specific: shared has #10b981 */
     border: none;
 }
     .btn-warning {
@@ -126,28 +125,14 @@
     /* Modal — base from shared.css, .show used instead of .active */
     .modal.show { display: flex; }
     .modal-content {
-      background: white;
-      border-radius: 8px;
-      max-width: 600px;
-      width: 90%;
-      max-height: 90vh;
-      overflow-y: auto;
+      border-radius: 8px; /* page-specific: 8px vs shared 12px */
+      max-width: 600px; /* page-specific: 600px vs shared 500px */
     }
 
     /* Page-specific: form inputs use 10px padding, 15px margin */
     .form-group { margin-bottom: 15px; }
     .form-group label {
-      display: block;
-      font-weight: 500;
-      margin-bottom: 5px;
-      color: #374151;
-    }
-    .form-group input, .form-group select, .form-group textarea {
-      width: 100%;
-      padding: 10px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      font-size: 14px;
+      margin-bottom: 5px; /* page-specific: 5px vs shared 6px */
     }
     .form-group small {
       color: #6b7280;
