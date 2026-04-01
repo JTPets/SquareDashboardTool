@@ -141,7 +141,11 @@ async function applyWeeklyAdjustments(merchantId) {
     const tooNew = recs.filter(r => r.skipped === 'tooNew').length;
     // Supplier-issue warnings (recommendedMin=null, no skipped flag) are also skipped
     const applicable = recs.filter(r => !r.skipped && r.recommendedMin !== null);
+    const notApplicable = recs.filter(r => r.skipped || r.recommendedMin === null);
     const skipped = recs.length - applicable.length - pinned - tooNew;
+
+    // Persist skipped items to min_max_audit_log for the suppression dashboard
+    await _logSkippedItems(merchantId, notApplicable);
 
     // Guardrail 2: circuit breaker — abort if too many reductions
     const reductions = applicable.filter(r => r.recommendedMin < r.currentMin);
@@ -272,6 +276,139 @@ async function pinVariation(merchantId, variationId, locationId, pinned) {
 }
 
 /**
+ * Pin or unpin a variation from auto-adjustment with cross-tenant ownership check
+ * and audit logging. Exposed on the suppression dashboard.
+ *
+ * Parameter order matches the UI call pattern: variation first, merchant last.
+ *
+ * @param {string} variationId
+ * @param {string} locationId
+ * @param {number} merchantId
+ * @param {boolean} pinned
+ * @returns {Promise<{variationId, locationId, pinned}>}
+ */
+async function toggleMinStockPin(variationId, locationId, merchantId, pinned) {
+    if (!merchantId || !variationId || !locationId) {
+        throw new Error('variationId, locationId, and merchantId are required');
+    }
+    if (typeof pinned !== 'boolean') {
+        throw new Error('pinned must be a boolean');
+    }
+
+    // Cross-tenant ownership check — prevents variation hijacking across merchants
+    const varCheck = await db.query(
+        'SELECT 1 FROM variations WHERE id = $1 AND merchant_id = $2',
+        [variationId, merchantId]
+    );
+    if (!varCheck.rows.length) {
+        throw new Error('Variation not found for this merchant');
+    }
+
+    // Read current min for audit record (old_min = new_min — min is unchanged by a pin toggle)
+    const current = await db.query(
+        `SELECT COALESCE(stock_alert_min, 0) AS stock_alert_min
+         FROM variation_location_settings
+         WHERE variation_id = $1 AND location_id = $2 AND merchant_id = $3`,
+        [variationId, locationId, merchantId]
+    );
+    const currentMin = current.rows.length > 0
+        ? parseInt(current.rows[0].stock_alert_min) || 0
+        : 0;
+
+    await db.query(
+        `INSERT INTO variation_location_settings
+             (variation_id, location_id, merchant_id, min_stock_pinned, updated_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (variation_id, location_id, merchant_id)
+         DO UPDATE SET min_stock_pinned = $4, updated_at = NOW()`,
+        [variationId, locationId, merchantId, pinned]
+    );
+
+    const auditReason = pinned
+        ? 'Manually pinned — excluded from auto-adjustment'
+        : 'Pin removed — eligible for auto-adjustment';
+
+    await db.query(
+        `INSERT INTO min_max_audit_log
+             (merchant_id, variation_id, location_id, old_min, new_min, reason, skipped, skip_reason)
+         VALUES ($1, $2, $3, $4, $4, $5, FALSE, NULL)`,
+        [merchantId, variationId, locationId, currentMin, auditReason]
+    );
+
+    logger.info('Variation min_stock_pinned toggled', { merchantId, variationId, locationId, pinned });
+    return { variationId, locationId, pinned };
+}
+
+/**
+ * Return items that were skipped during the most recent auto-adjustment run.
+ * "Last run" = all skipped entries created within 1 hour of the latest skipped entry.
+ * Includes current pin state so the UI can render pin/unpin buttons correctly.
+ *
+ * @param {number} merchantId
+ * @returns {Promise<Array>}
+ */
+async function getSuppressedItems(merchantId) {
+    if (!merchantId) throw new Error('merchantId is required');
+
+    const result = await db.query(
+        `WITH last_run AS (
+             SELECT MAX(created_at) AS max_at
+             FROM min_max_audit_log
+             WHERE merchant_id = $1 AND skipped = TRUE
+         )
+         SELECT
+             a.variation_id, a.location_id, a.old_min, a.skip_reason, a.created_at,
+             v.name AS variation_name, i.name AS item_name, v.sku,
+             COALESCE(vls.min_stock_pinned, FALSE) AS min_stock_pinned
+         FROM min_max_audit_log a
+         JOIN last_run lr ON a.created_at >= lr.max_at - INTERVAL '1 hour'
+         LEFT JOIN variations v
+             ON v.id = a.variation_id AND v.merchant_id = a.merchant_id
+         LEFT JOIN items i
+             ON i.id = v.item_id AND i.merchant_id = a.merchant_id
+         LEFT JOIN variation_location_settings vls
+             ON vls.variation_id = a.variation_id
+             AND vls.location_id = a.location_id
+             AND vls.merchant_id = a.merchant_id
+         WHERE a.merchant_id = $1 AND a.skipped = TRUE
+         ORDER BY a.created_at DESC`,
+        [merchantId]
+    );
+
+    return result.rows;
+}
+
+/**
+ * Return the most recent applied min-stock changes from min_max_audit_log.
+ *
+ * @param {number} merchantId
+ * @param {number} limit - max rows to return (1–200, default 50)
+ * @returns {Promise<Array>}
+ */
+async function getAuditLog(merchantId, limit = 50) {
+    if (!merchantId) throw new Error('merchantId is required');
+    const safeLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 200);
+
+    const result = await db.query(
+        `SELECT
+             a.variation_id, a.location_id, a.old_min, a.new_min,
+             a.reason, a.created_at,
+             v.name AS variation_name, i.name AS item_name, v.sku
+         FROM min_max_audit_log a
+         LEFT JOIN variations v
+             ON v.id = a.variation_id AND v.merchant_id = a.merchant_id
+         LEFT JOIN items i
+             ON i.id = v.item_id AND i.merchant_id = a.merchant_id
+         WHERE a.merchant_id = $1 AND a.skipped = FALSE
+         ORDER BY a.created_at DESC
+         LIMIT $2`,
+        [merchantId, safeLimit]
+    );
+
+    return result.rows;
+}
+
+/**
  * Query the min_stock_audit table with optional date/rule filters.
  *
  * @param {number} merchantId
@@ -330,15 +467,15 @@ async function getHistory(merchantId, { startDate, endDate, rule, limit = 50, of
  * Returns a recommendation object, a skip object, or null if no change needed.
  */
 function _evaluateRules(row, thirtyDaysAgo, ninetyOneDaysAgo) {
-    // Eligibility: skip pinned items
-    if (row.min_stock_pinned) {
-        return _buildRec(row, null, null, 'Min pinned by merchant — skipping auto-adjustment', 'pinned');
-    }
-
-    // Eligibility: skip items with < 91 days of history
+    // Eligibility: skip items with < 91 days of history (checked first — data quality gate)
     const itemAge = row.item_created_at ? new Date(row.item_created_at) : null;
     if (!itemAge || itemAge > ninetyOneDaysAgo) {
         return _buildRec(row, null, null, 'Item created less than 91 days ago — insufficient history', 'tooNew');
+    }
+
+    // Eligibility: skip pinned items (checked after new-item — pin is a merchant override)
+    if (row.min_stock_pinned) {
+        return _buildRec(row, null, null, 'Min pinned by merchant — skipping auto-adjustment', 'pinned');
     }
 
     const min = parseInt(row.current_min) || 0;
@@ -440,7 +577,36 @@ async function _applyOne(client, merchantId, variationId, locationId, newMin,
             rule, reason, velocity91d, daysOfStock, quantity]
     );
 
+    await client.query(
+        `INSERT INTO min_max_audit_log
+             (merchant_id, variation_id, location_id, old_min, new_min, reason, skipped, skip_reason)
+         VALUES ($1, $2, $3, $4, $5, $6, FALSE, NULL)`,
+        [merchantId, variationId, locationId, previousMin, newMin, reason]
+    );
+
     return { variationId, locationId, previousMin, newMin };
+}
+
+/**
+ * Write skipped/non-applicable recommendation records to min_max_audit_log.
+ * Called by applyWeeklyAdjustments for all items the cron chose not to apply.
+ *
+ * @param {number} merchantId
+ * @param {Array} recs - recommendation objects with skipped flag or null recommendedMin
+ */
+async function _logSkippedItems(merchantId, recs) {
+    if (!recs.length) return;
+    const now = new Date().toISOString();
+    for (const rec of recs) {
+        const skipReason = rec.reason || 'No recommendation applicable';
+        await db.query(
+            `INSERT INTO min_max_audit_log
+                 (merchant_id, variation_id, location_id, old_min, new_min,
+                  reason, skipped, skip_reason, created_at)
+             VALUES ($1, $2, $3, $4, NULL, NULL, TRUE, $5, $6)`,
+            [merchantId, rec.variationId, rec.locationId, rec.currentMin, skipReason, now]
+        );
+    }
 }
 
 function _validateApplyArgs(merchantId, variationId, locationId, newMin) {
@@ -458,5 +624,8 @@ module.exports = {
     applyRecommendation,
     applyAllRecommendations,
     pinVariation,
+    toggleMinStockPin,
+    getSuppressedItems,
+    getAuditLog,
     getHistory
 };

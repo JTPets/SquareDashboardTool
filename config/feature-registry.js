@@ -86,6 +86,9 @@ const modules = {
         name: 'Reorder Intelligence',
         routes: [
             '/api/analytics',
+            '/api/min-max/suppressed',
+            '/api/min-max/audit-log',
+            '/api/min-max/toggle-pin',
             '/api/purchase-orders',
             '/api/vendor-catalog',
             '/api/vendor-dashboard',
@@ -101,6 +104,7 @@ const modules = {
             'vendor-catalog',
             'sales-velocity',
             'min-max-history',
+            'min-max-suppression',
         ],
         price_cents: 1499,
         free: false,

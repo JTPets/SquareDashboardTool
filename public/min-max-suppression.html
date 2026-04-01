@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Min/Max Suppression Dashboard - Square Dashboard Addon</title>
+  <link rel="stylesheet" href="/css/shared.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="header-content">
+        <h1>Min/Max Suppression Dashboard</h1>
+        <p>Items skipped by auto-adjustment and recent min-stock changes</p>
+      </div>
+      <div class="header-buttons">
+        <a href="/min-max-history.html" class="back-button">← Adjustment History</a>
+        <a href="/dashboard.html" class="back-button">← Dashboard</a>
+      </div>
+    </div>
+
+    <!-- Tab bar (shared.css: .tabs / .tab / .tab.active) -->
+    <div class="tabs">
+      <button class="tab active" data-tab="skipped">Skipped Items</button>
+      <button class="tab" data-tab="history">Change History</button>
+    </div>
+
+    <!-- ==================== TAB: Skipped Items ==================== -->
+    <div class="tab-content active" id="tab-skipped">
+      <div class="mmh-table-wrap">
+        <table class="mmh-table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Variation</th>
+              <th>SKU</th>
+              <th>Current Min</th>
+              <th>Reason Skipped</th>
+              <th>Last Checked</th>
+              <th>Pin</th>
+            </tr>
+          </thead>
+          <tbody id="skipped-body">
+            <tr><td colspan="7" class="empty-state">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ==================== TAB: Change History ==================== -->
+    <div class="tab-content" id="tab-history">
+      <div class="mmh-table-wrap">
+        <table class="mmh-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Item</th>
+              <th>Variation</th>
+              <th>SKU</th>
+              <th>Old Min → New Min</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody id="history-body">
+            <tr><td colspan="6" class="empty-state">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="/js/utils/escape.js"></script>
+  <script src="/js/utils/toast.js"></script>
+  <script src="/js/utils/date-format.js"></script>
+  <script src="/js/min-max-suppression.js"></script>
+</body>
+</html>

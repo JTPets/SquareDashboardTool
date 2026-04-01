@@ -89,6 +89,7 @@ const aiAutofillRoutes = require('./routes/ai-autofill');
 const squareAttributesRoutes = require('./routes/square-attributes');
 const googleOAuthRoutes = require('./routes/google-oauth');
 const analyticsRoutes = require('./routes/analytics');
+const minMaxSuppressionRoutes = require('./routes/min-max-suppression-routes');
 const bundlesRoutes = require('./routes/bundles');
 const merchantsRoutes = require('./routes/merchants');
 const settingsRoutes = require('./routes/settings');
@@ -422,6 +423,9 @@ gateApi('/merchants', requirePermission('base', 'read'));
 gateApi('/merchant/features', requirePermission('base', 'read'));
 gateApi('/config', requirePermission('base', 'read'));
 gateApi('/analytics', requireFeature('reorder'), requirePermission('reorder', 'read'));
+gateApi('/min-max/suppressed', requireFeature('reorder'), requirePermission('reorder', 'read'));
+gateApi('/min-max/audit-log', requireFeature('reorder'), requirePermission('reorder', 'read'));
+gateApi('/min-max/toggle-pin', requireFeature('reorder'), requirePermission('reorder', 'read'));
 
 // --- Virtual feature gates (with public path exemptions) ---
 gateApi('/admin', requirePermission('staff', 'admin'));
@@ -541,6 +545,7 @@ app.use('/api/ai-autofill', requireFeature('ai_tools'), requirePermission('ai_to
 app.use('/api', squareAttributesRoutes);
 app.use('/api', googleOAuthRoutes);
 app.use('/api', analyticsRoutes);
+app.use('/api', minMaxSuppressionRoutes);
 app.use('/api/bundles', bundlesRoutes);
 app.use('/api', merchantsRoutes);
 app.use('/api', settingsRoutes);
@@ -576,6 +581,7 @@ app.use('/api/v1/ai-autofill', requireFeature('ai_tools'), requirePermission('ai
 app.use('/api/v1', squareAttributesRoutes);
 app.use('/api/v1', googleOAuthRoutes);
 app.use('/api/v1', analyticsRoutes);
+app.use('/api/v1', minMaxSuppressionRoutes);
 app.use('/api/v1/bundles', bundlesRoutes);
 app.use('/api/v1', merchantsRoutes);
 app.use('/api/v1', settingsRoutes);
