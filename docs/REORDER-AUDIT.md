@@ -195,3 +195,105 @@ Note: `order_cost` is based on `adjustedQty` (after PO deduction), so an item wi
 | 3 | line 376 | `finalQty <= 0` | Items where math yields nothing to order |
 | 4 | line 393 | `adjustedQty <= 0 && !below_minimum` | Items fully covered by pending POs |
 | 5 | line 91 | `order_cost < min_cost` | Below cost threshold (caller param) |
+
+## Edge Cases
+
+---
+
+**1. Null velocity (never sold)**
+
+Handled: YES
+
+SQL (line 228–238): The LATERAL on `sales_velocity` returns no rows when a variation has no velocity records. All `sv.*` columns become NULL.
+
+JS (line 310): `const dailyAvg = parseFloat(row.daily_avg_quantity) || 0` — NULL coerces to 0.
+JS (line 319): `const daysUntilStockout = parseFloat(row.days_until_stockout) || 999` — NULL/0 coerces to 999 (treated as "infinite").
+
+Result: The velocity-based reorder condition (`daysUntilStockout < reorderThreshold`) never fires. The item still surfaces if `isOutOfStock` or `row.below_minimum` is true. This matches the SQL WHERE, which guards its velocity branch with `sv.daily_avg_quantity > 0`.
+
+Items with no sales history: surfaced only when out of stock or below alert threshold. All other items with null velocity are silently excluded — by design.
+
+---
+
+**2. Null vendor (no supplier)**
+
+Handled: PARTIALLY
+
+SQL (line 221): `LEFT JOIN variation_vendors vv` — variations with no vendor assignment still match. `vv.vendor_id`, `vv.vendor_code`, `vv.unit_cost_money` are all NULL.
+SQL (line 251–258): The primary-vendor LATERAL returns no row; `pv.*` columns are NULL.
+
+JS (line 380): `unitCost = parseInt(row.unit_cost_cents) || 0` → 0.
+JS (line 428): `vendor_code: row.vendor_code || 'N/A'`.
+JS (line 389): `orderCost = (adjustedQty * 0) / 100 = 0`.
+
+No exclusion fires for a null vendor — the item surfaces in suggestions with `vendor_name: null`, `unit_cost_cents: 0`, `order_cost: 0`. A `min_cost > 0` filter will silently remove it afterward (exclusion point 5).
+
+Gap: An item with no vendor cannot be ordered, but the system surfaces it as a reorder suggestion anyway. The UI must handle `vendor_name: null` to avoid misleading the user.
+
+---
+
+**3. Null location (unassigned stock)**
+
+Handled: YES — by design
+
+SQL (line 225): `LEFT JOIN inventory_counts ic` — a variation with no inventory record still returns one row with `ic.*` NULL. `current_stock = COALESCE(ic.quantity, 0) = 0`, `location_id = NULL`, `location_name = NULL`.
+
+The LATERAL sales_velocity join (line 237) matches correctly: `location_id IS NULL AND ic.location_id IS NULL`.
+
+JS (lines 316–317): `locationId = row.location_id || null`, `locationName = row.location_name || null`.
+
+A never-stocked variation appears with `current_stock = 0`, `available_quantity = 0`, qualifies as `isOutOfStock`, and surfaces as a suggestion. This is intentional — new catalog items that have never been stocked should prompt a reorder.
+
+---
+
+**4. Multi-vendor items (>1 vendor for same variation)**
+
+Handled: NO — produces duplicate suggestion rows
+
+SQL (line 221): `LEFT JOIN variation_vendors vv` has no DISTINCT, LIMIT, or GROUP BY. A variation assigned to 3 vendors generates 3 rows from the query, one per vendor assignment.
+
+There is no deduplication in `processSuggestionRows`. Each row produces a separate suggestion object with a different `vendor_name`, `vendor_code`, and `unit_cost_cents`. The LATERAL `pv` (primary vendor) is consistent across all three rows, but the `vv` columns differ.
+
+Effect: A variation with N vendors generates N identical-looking suggestion entries in the response, differentiated only by vendor fields. The caller-supplied `vendor_id` filter eliminates this when set (only one vendor matches), but without that filter the result set is inflated.
+
+This is the most significant structural gap in the query. No ticket was found tracking a fix.
+
+---
+
+**5. Duplicate rows from JOINs (GROUP BY)**
+
+Handled: PARTIALLY
+
+Two join axes can multiply rows:
+
+- **Multi-vendor** (see edge case 4): one row per `variation_vendors` assignment.
+- **Multi-location**: `LEFT JOIN inventory_counts ic` (IN_STOCK) produces one row per location where the variation has stock. This is intentional — one suggestion per location is the desired behaviour.
+
+The combination of both: a variation at 2 locations assigned to 3 vendors produces up to 6 rows. There is no GROUP BY anywhere in the query and no deduplication in `processSuggestionRows`.
+
+Single-vendor merchants (the common case for JTPets) are unaffected. Multi-vendor merchants see inflated suggestion counts.
+
+---
+
+**6. Below minimum but pending PO exists**
+
+Handled: YES — with intentional trade-off
+
+JS (line 388): `adjustedQty = Math.max(0, finalQty - pendingPoQty)` — PO covers the suggested order, leaving 0.
+JS (line 393–395): `if (adjustedQty <= 0 && !row.below_minimum) return null` — the `!below_minimum` guard keeps the item visible.
+
+The item surfaces as HIGH priority (line 346–349) with `final_suggested_qty: 0` and `order_cost: 0`. The intent (comment at line 391) is: "Stock is below threshold right now and the PO may not arrive for days."
+
+Interaction with `min_cost` filter: `order_cost = 0` fails any `min_cost > 0` check (exclusion point 5), so the below-minimum visibility exemption is silently overridden when the caller passes `min_cost`. This is an undocumented interaction.
+
+---
+
+**7. Above maximum stock**
+
+Handled: YES
+
+JS (line 322–324): `if (stockAlertMax !== null && availableQty >= stockAlertMax) return null` — earliest exclusion, fires before `needsReorder` is evaluated.
+
+SQL does not filter by `stock_alert_max`; the check is JS-only. This means the SQL returns overstocked rows and JS discards them — a minor inefficiency but not a correctness issue.
+
+`below_minimum` exemption does NOT apply here: the max check unconditionally returns null regardless of `below_minimum`. In practice `availableQty >= max` and `below_minimum = true` simultaneously is impossible (max ≥ min by convention), but there is no code-level assertion enforcing that constraint.
