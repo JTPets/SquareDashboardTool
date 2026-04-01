@@ -86,7 +86,6 @@
       gap: 8px;
       transition: transform 0.1s, background 0.2s;
     }
-    .btn:active { transform: scale(0.98); }
     /* Page-specific: green primary (shared has blue) */
     .btn-primary { background: #059669; }
     .btn-primary:hover { background: #047857; }
@@ -237,11 +236,8 @@
 
     .modal-footer .btn { flex: 1; }
 
-    /* Page-specific: larger spinner with 4px border, green top */
-    .loading-spinner { text-align: center; }
+    /* Page-specific: 4px border, green top, extra bottom margin */
     .loading-spinner .spinner {
-      width: 40px;
-      height: 40px;
       border-width: 4px;
       border-top-color: #059669;
       margin: 0 auto 10px;
