@@ -18,7 +18,7 @@
       padding: 0 0 20px 0;
     }
 
-    /* Page-specific: block layout (not flex), sticky position, shadow — gradient via .header-indigo */
+    /* Page-specific: block layout (not flex), sticky position, shadow */
     .header {
       display: block;
       box-shadow: 0 2px 10px rgba(0,0,0,0.1);
@@ -26,12 +26,11 @@
       top: 0;
       z-index: 100;
     }
-    /* Page-specific: bottom margin for stats row */
-    .header h1 { margin-bottom: 15px; }
     .stats-row {
       display: flex;
       justify-content: space-around;
       gap: 10px;
+      padding: 15px 20px;
     }
     /* .stat-card, .stat-value, .stat-label from shared.css */
 
@@ -52,10 +51,6 @@
       gap: 5px;
       transition: transform 0.1s;
     }
-    /* Page-specific: purple primary to match header gradient */
-    .btn-primary { background: #667eea; }
-    /* Page-specific: light gray secondary */
-    .btn-secondary { background: #f3f4f6; color: #374151; }
 
     .items-container { padding: 15px; }
 
@@ -215,21 +210,22 @@
   </style>
 </head>
 <body>
-  <div class="header header-indigo">
+  <div class="header">
     <h1>📋 Cycle Count</h1>
-    <div class="stats-row">
-      <div class="stat-card">
-        <span class="stat-value" id="pending-count">0</span>
-        <span class="stat-label">Pending</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value" id="target-count">0</span>
-        <span class="stat-label">Today's Target</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value" id="completion-rate">0%</span>
-        <span class="stat-label">Completed</span>
-      </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <span class="stat-value" id="pending-count">0</span>
+      <span class="stat-label">Pending</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value" id="target-count">0</span>
+      <span class="stat-label">Today's Target</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value" id="completion-rate">0%</span>
+      <span class="stat-label">Completed</span>
     </div>
   </div>
 

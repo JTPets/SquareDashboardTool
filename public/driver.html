@@ -9,7 +9,7 @@
     /* Page-specific: full-screen layout, no padding */
     body { min-height: 100vh; padding: 0; }
 
-    /* Page-specific: block layout (not flex), sticky, compact padding — gradient via .header-green */
+    /* Page-specific: block layout (not flex), sticky, compact padding */
     .header {
       display: block;
       padding: 15px 20px;
@@ -85,11 +85,6 @@
       gap: 8px;
       transition: transform 0.1s, background 0.2s;
     }
-    /* Page-specific: green primary (shared has blue) */
-    .btn-primary { background: #059669; }
-    .btn-primary:hover { background: #047857; }
-    /* Page-specific: .btn-success hover is darker green */
-    .btn-success:hover { background: #059669; }
     /* Page-specific: purple finish button */
     .btn-finish { background: #7c3aed; color: white; }
     .btn-finish:hover { background: #6d28d9; }
@@ -244,7 +239,7 @@
   </style>
 </head>
 <body>
-  <div class="header header-green">
+  <div class="header">
     <div class="header-top">
       <div>
         <h1 id="routeTitle">Delivery Route</h1>
