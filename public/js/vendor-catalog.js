@@ -1631,3 +1631,22 @@
     // LOGIC CHANGE: Suggested vendor links (BACKLOG-90)
     window.confirmSuggestedLinks = confirmSuggestedLinks;
     window.toggleSelectAllLinks = toggleSelectAllLinks;
+
+// BACKLOG-114: Load pending vendor match suggestions count for header badge.
+// Runs on DOMContentLoaded — non-fatal if the endpoint is unavailable.
+(function loadMatchBadge() {
+    document.addEventListener('DOMContentLoaded', async function() {
+        try {
+            const r = await fetch('/api/vendor-match-suggestions/count');
+            const d = await r.json();
+            if (d.success && d.count > 0) {
+                const link = document.getElementById('matchSuggestionsLink');
+                if (link) {
+                    link.textContent = 'Vendor Matches (' + d.count + ')';
+                    link.style.background = 'rgba(255,255,255,0.35)';
+                    link.style.fontWeight = '700';
+                }
+            }
+        } catch (e) { /* non-fatal */ }
+    });
+}());

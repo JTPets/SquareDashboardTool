@@ -3265,7 +3265,7 @@ async function ensureSchema() {
                     status TEXT NOT NULL DEFAULT 'pending'
                         CHECK (status IN ('pending', 'approved', 'rejected')),
                     reviewed_at TIMESTAMPTZ,
-                    reviewed_by INTEGER REFERENCES users(id),
+                    reviewed_by INTEGER REFERENCES users(id) ON DELETE CASCADE,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     CONSTRAINT vendor_match_suggestions_unique
                         UNIQUE (merchant_id, variation_id, suggested_vendor_id)
