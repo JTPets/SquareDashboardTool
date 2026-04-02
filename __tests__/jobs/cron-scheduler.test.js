@@ -82,6 +82,10 @@ jest.mock('../../jobs/email-heartbeat-job', () => ({
     isHeartbeatEnabled: jest.fn().mockReturnValue(false)
 }));
 
+jest.mock('../../jobs/vendor-match-backfill-job', () => ({
+    runScheduledVendorMatchBackfill: jest.fn()
+}));
+
 const cron = require('node-cron');
 const {
     initializeCronJobs,
@@ -102,12 +106,13 @@ describe('CronScheduler', () => {
         it('should schedule all default cron jobs', () => {
             initializeCronJobs();
 
-            // Should schedule 17 jobs (without GMC which is optional)
+            // Should schedule 18 jobs (without GMC which is optional)
             // Jobs: cycle count, webhook retry, webhook cleanup, sync, backup,
             // expiry discount, loyalty catchup, loyalty audit, cart activity cleanup,
             // seniors discount, committed inventory reconciliation, trial expiry,
-            // loyalty sync retry, catalog health, email heartbeat, pod cleanup, auto min/max
-            expect(cron.schedule).toHaveBeenCalledTimes(17);
+            // loyalty sync retry, catalog health, email heartbeat, pod cleanup,
+            // auto min/max, vendor match backfill (BACKLOG-114)
+            expect(cron.schedule).toHaveBeenCalledTimes(18);
         });
 
         it('should use environment variable schedules when provided', () => {
@@ -125,8 +130,8 @@ describe('CronScheduler', () => {
 
             initializeCronJobs();
 
-            // Should schedule 18 jobs including GMC
-            expect(cron.schedule).toHaveBeenCalledTimes(18);
+            // Should schedule 19 jobs including GMC
+            expect(cron.schedule).toHaveBeenCalledTimes(19);
             expect(cron.schedule).toHaveBeenCalledWith('0 4 * * *', expect.any(Function));
 
             delete process.env.GMC_SYNC_CRON_SCHEDULE;
