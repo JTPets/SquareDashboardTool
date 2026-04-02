@@ -9,10 +9,9 @@
     /* Page-specific: full-screen layout, no padding */
     body { min-height: 100vh; padding: 0; }
 
-    /* Page-specific: block header, green gradient, sticky, compact padding */
+    /* Page-specific: block layout (not flex), sticky, compact padding — gradient via .header-green */
     .header {
       display: block;
-      background: linear-gradient(135deg, #059669 0%, #047857 100%);
       padding: 15px 20px;
       position: sticky;
       top: 0;
@@ -245,7 +244,7 @@
   </style>
 </head>
 <body>
-  <div class="header">
+  <div class="header header-green">
     <div class="header-top">
       <div>
         <h1 id="routeTitle">Delivery Route</h1>

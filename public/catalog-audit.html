@@ -110,7 +110,8 @@
     .stat-label { font-size: 11px; color: #9ca3af; font-weight: 600; }
     /* Page-specific: 24px green stat-value, 5px margin (shared has 28px, #111827, 4px) */
     .stat-value { font-size: 24px; color: #10b981; margin-top: 5px; }
-    .stat-value.alert { color: #ef4444; }
+    /* Page-specific: red color for alert-level stat values (avoids .alert class collision) */
+    .stat-value.stat-alert { color: #ef4444; }
 
     /* Page-specific: scrollable table height */
     .table-container { max-height: 55vh; overflow-y: auto; }
@@ -246,7 +247,7 @@
       </div>
       <div class="stat-card">
         <div class="stat-label">Items With Issues</div>
-        <div class="stat-value alert" id="itemsWithIssues">-</div>
+        <div class="stat-value stat-alert" id="itemsWithIssues">-</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Completion Rate</div>
@@ -254,7 +255,7 @@
       </div>
       <div class="stat-card">
         <div class="stat-label">Critical Issues</div>
-        <div class="stat-value alert" id="criticalIssues">-</div>
+        <div class="stat-value stat-alert" id="criticalIssues">-</div>
       </div>
     </div>
 
