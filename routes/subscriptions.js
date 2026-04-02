@@ -49,9 +49,9 @@ const asyncHandler = require('../middleware/async-handler');
 
 const promoRateLimit = configureLoginRateLimit();
 const subscriptionRateLimit = configureSubscriptionRateLimit();
-const subscriptionBridge = require('../services/subscription-bridge');
+const subscriptionBridge = require('../services/subscriptions/subscription-bridge');
 // LOGIC CHANGE: extracted promo code validation to shared service (BACKLOG-74)
-const { validatePromoCode } = require('../services/promo-validation');
+const { validatePromoCode } = require('../services/subscriptions/promo-validation');
 const featureRegistry = require('../config/feature-registry');
 const { sendSuccess, sendError } = require('../utils/response-helper');
 

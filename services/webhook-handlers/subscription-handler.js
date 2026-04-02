@@ -19,7 +19,7 @@
 
 const logger = require('../../utils/logger');
 const subscriptionHandler = require('../../utils/subscription-handler');
-const subscriptionBridge = require('../subscription-bridge');
+const subscriptionBridge = require('../subscriptions/subscription-bridge');
 
 // Map Square subscription status to internal status
 const STATUS_MAP = {

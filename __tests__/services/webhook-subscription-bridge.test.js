@@ -29,7 +29,7 @@ jest.mock('../../utils/logger', () => ({
 }));
 
 const subscriptionHandler = require('../../utils/subscription-handler');
-const subscriptionBridge = require('../../services/subscription-bridge');
+const subscriptionBridge = require('../../services/subscriptions/subscription-bridge');
 const SubscriptionHandler = require('../../services/webhook-handlers/subscription-handler');
 
 const handler = new SubscriptionHandler();

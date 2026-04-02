@@ -290,7 +290,7 @@ describe('CRIT-2/CRIT-4: Subscription tenant isolation', () => {
             };
             subscriptionHandler.getSubscriberByEmail.mockResolvedValueOnce(subscriber);
             subscriptionHandler.cancelSubscription.mockResolvedValueOnce(subscriber);
-            const subscriptionBridge = require('../../services/subscription-bridge');
+            const subscriptionBridge = require('../../services/subscriptions/subscription-bridge');
             subscriptionBridge.resolveMerchantId.mockResolvedValueOnce(3);
             subscriptionBridge.cancelMerchantSubscription.mockResolvedValueOnce({});
             subscriptionHandler.logEvent.mockResolvedValueOnce({});

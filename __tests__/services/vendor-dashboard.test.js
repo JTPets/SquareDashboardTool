@@ -22,7 +22,7 @@ jest.mock('../../services/merchant', () => ({
 
 const db = require('../../utils/database');
 const { getMerchantSettings } = require('../../services/merchant');
-const { computeStatus, getVendorDashboard, updateVendorSettings, STATUS_PRIORITY } = require('../../services/vendor-dashboard');
+const { computeStatus, getVendorDashboard, updateVendorSettings, STATUS_PRIORITY } = require('../../services/vendor/vendor-dashboard');
 
 describe('Vendor Dashboard Service', () => {
     beforeEach(() => {

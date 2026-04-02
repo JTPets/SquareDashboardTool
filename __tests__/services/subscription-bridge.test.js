@@ -20,7 +20,7 @@ const {
     suspendMerchantSubscription,
     cancelMerchantSubscription,
     resolveMerchantId
-} = require('../../services/subscription-bridge');
+} = require('../../services/subscriptions/subscription-bridge');
 
 beforeEach(() => {
     jest.clearAllMocks();

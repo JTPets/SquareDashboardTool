@@ -10,8 +10,8 @@
  * @module services/subscription-bridge
  */
 
-const db = require('../utils/database');
-const logger = require('../utils/logger');
+const db = require('../../utils/database');
+const logger = require('../../utils/logger');
 
 /**
  * Activate a merchant's subscription after successful payment.

@@ -11,7 +11,7 @@ jest.mock('../../utils/database', () => ({
 }));
 
 const db = require('../../utils/database');
-const { validatePromoCode } = require('../../services/promo-validation');
+const { validatePromoCode } = require('../../services/subscriptions/promo-validation');
 
 describe('validatePromoCode', () => {
     beforeEach(() => jest.clearAllMocks());
