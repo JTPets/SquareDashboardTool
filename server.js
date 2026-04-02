@@ -81,6 +81,7 @@ const webhooksRoutes = require('./routes/webhooks');
 const webhooksSquareRoute = require('./routes/webhooks/square');
 const expiryDiscountsRoutes = require('./routes/expiry-discounts');
 const vendorCatalogRoutes = require('./routes/vendor-catalog');
+const vendorMatchSuggestionsRoutes = require('./routes/vendor-match-suggestions');
 const cycleCountsRoutes = require('./routes/cycle-counts');
 const syncRoutes = require('./routes/sync');
 const { runSmartSync, isSyncNeeded } = require('./routes/sync');
@@ -390,6 +391,7 @@ gateApi('/expiry-discounts', requireFeature('expiry'), requirePermission('expiry
 gateApi('/expirations', requireFeature('expiry'), requirePermission('expiry', 'read'));
 gateApi('/vendors', requireFeature('reorder'), requirePermission('reorder', 'read'));
 gateApi('/vendor-catalog', requireFeature('reorder'), requirePermission('reorder', 'read'));
+gateApi('/vendor-match-suggestions', requireFeature('reorder'), requirePermission('reorder', 'read'));
 gateApi('/vendor-dashboard', requireFeature('reorder'), requirePermission('reorder', 'read'));
 gateApi('/sales-velocity', requireFeature('reorder'), requirePermission('reorder', 'read'));
 gateApi('/reorder-suggestions', requireFeature('reorder'), requirePermission('reorder', 'read'));
@@ -535,6 +537,7 @@ app.use('/api', expiryDiscountsRoutes);
 // ==================== VENDOR CATALOG ROUTES ====================
 // Vendor management and catalog import/matching
 app.use('/api', vendorCatalogRoutes);
+app.use('/api/vendor-match-suggestions', vendorMatchSuggestionsRoutes);
 
 // ==================== CYCLE COUNTS ROUTES ====================
 // Inventory cycle counting operations and reporting
@@ -574,6 +577,7 @@ app.use('/api/v1', subscriptionsRoutes);
 app.use('/api/v1', webhooksRoutes);
 app.use('/api/v1', expiryDiscountsRoutes);
 app.use('/api/v1', vendorCatalogRoutes);
+app.use('/api/v1/vendor-match-suggestions', vendorMatchSuggestionsRoutes);
 app.use('/api/v1', cycleCountsRoutes);
 app.use('/api/v1', syncRoutes);
 app.use('/api/v1', catalogRoutes);

@@ -2532,6 +2532,38 @@ CREATE INDEX IF NOT EXISTS idx_min_max_audit_log_skipped
     ON min_max_audit_log(merchant_id, skipped, created_at DESC);
 
 -- ========================================
+-- BACKLOG-114: Cross-vendor product matching suggestions
+-- ========================================
+-- Tracks pending/approved/rejected suggestions for linking a variation
+-- to an additional vendor discovered via UPC match across vendor catalogs.
+-- NEVER auto-approved — all matches require merchant review.
+
+CREATE TABLE IF NOT EXISTS vendor_match_suggestions (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    variation_id TEXT NOT NULL REFERENCES variations(id) ON DELETE CASCADE,
+    upc TEXT NOT NULL,
+    source_vendor_id TEXT NOT NULL REFERENCES vendors(id),
+    suggested_vendor_id TEXT NOT NULL REFERENCES vendors(id),
+    suggested_vendor_code TEXT,
+    suggested_cost_cents INTEGER,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    reviewed_at TIMESTAMPTZ,
+    reviewed_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- One suggestion per (merchant, variation, suggested vendor) — no duplicates
+    CONSTRAINT vendor_match_suggestions_unique
+        UNIQUE (merchant_id, variation_id, suggested_vendor_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vendor_match_suggestions_merchant_status
+    ON vendor_match_suggestions(merchant_id, status);
+CREATE INDEX IF NOT EXISTS idx_vendor_match_suggestions_upc
+    ON vendor_match_suggestions(merchant_id, upc);
+CREATE INDEX IF NOT EXISTS idx_vendor_match_suggestions_variation
+    ON vendor_match_suggestions(variation_id, merchant_id);
+
+-- ========================================
 -- FINAL: Schema creation complete
 -- ========================================
 DO $$
