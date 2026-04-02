@@ -18,7 +18,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/bundles');
-const bundleService = require('../services/bundle-service');
+const bundleService = require('../services/bundles/bundle-service');
 const { sendSuccess, sendError } = require('../utils/response-helper');
 
 // ==================== LIST BUNDLES ====================

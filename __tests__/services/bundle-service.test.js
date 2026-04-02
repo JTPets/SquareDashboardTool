@@ -18,7 +18,7 @@ jest.mock('../../utils/database', () => ({
 }));
 
 const db = require('../../utils/database');
-const bundleService = require('../../services/bundle-service');
+const bundleService = require('../../services/bundles/bundle-service');
 
 describe('Bundle Service', () => {
     beforeEach(() => {

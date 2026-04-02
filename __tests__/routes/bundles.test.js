@@ -31,7 +31,7 @@ jest.mock('../../middleware/merchant', () => ({
 const request = require('supertest');
 const express = require('express');
 const session = require('express-session');
-const bundleService = require('../../services/bundle-service');
+const bundleService = require('../../services/bundles/bundle-service');
 
 function createTestApp() {
     const app = express();

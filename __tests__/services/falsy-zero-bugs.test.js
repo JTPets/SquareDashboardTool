@@ -196,7 +196,7 @@ describe('Falsy-zero bug fixes', () => {
         test('stores individual_cost_cents=0 as 0, not null', async () => {
             const fs = require('fs');
             const source = fs.readFileSync(
-                require.resolve('../../services/bundle-service'),
+                require.resolve('../../services/bundles/bundle-service'),
                 'utf8'
             );
 
@@ -208,7 +208,7 @@ describe('Falsy-zero bug fixes', () => {
         test('stores bundle_sell_price_cents=0 as 0, not null', async () => {
             const fs = require('fs');
             const source = fs.readFileSync(
-                require.resolve('../../services/bundle-service'),
+                require.resolve('../../services/bundles/bundle-service'),
                 'utf8'
             );
 

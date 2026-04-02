@@ -15,7 +15,7 @@ jest.mock('../../services/webhook-handlers', () => ({
     routeEvent: jest.fn().mockResolvedValue({ handled: false })
 }));
 
-const webhookProcessor = require('../../services/webhook-processor');
+const webhookProcessor = require('../../services/webhook-handlers/webhook-processor');
 const db = require('../../utils/database');
 const { routeEvent } = require('../../services/webhook-handlers');
 const subscriptionHandler = require('../../utils/subscription-handler');
