@@ -6,11 +6,7 @@
   <title>System Logs - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    /* margin/padding/box-sizing reset from shared.css */
 
     /* Page-specific: logs page has no padding, just text color override */
     body {
@@ -72,9 +68,9 @@
       opacity: 0.8;
     }
 
-    /* Page-specific: wider container with different margin/padding than shared */
+    /* Page-specific: card-less container (custom margin/padding/no-shadow) for card-based layout */
+    /* .container-wide for max-width: 1400px */
     .container {
-      max-width: 1400px;
       margin: 30px auto;
       padding: 0 20px;
       background: none;
@@ -351,7 +347,7 @@
     </div>
   </div>
 
-  <div class="container">
+  <div class="container container-wide">
     <div id="message-container"></div>
 
     <div class="tabs">

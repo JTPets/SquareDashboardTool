@@ -6,17 +6,15 @@
   <title>Purchase Orders - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    /* margin/padding/box-sizing reset from shared.css */
 
+    /* Page-specific: no body padding (uses card layout), explicit text color */
     body {
       color: #1f2937;
       padding: 0;
 }
 
+    /* Page-specific: uses <header> element with blue gradient (not .header class pattern) */
     header {
       background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
       color: white;
@@ -63,9 +61,9 @@
       }
     }
 
-    /* Page-specific: wider container with different margin/padding */
+    /* Page-specific: card-less container (custom margin/padding/no-shadow) for card-based layout */
+    /* .container-wide for max-width: 1400px */
     .container {
-      max-width: 1400px;
       margin: 30px auto;
       padding: 0 20px;
       background: none;
@@ -421,7 +419,7 @@
     </div>
   </header>
 
-  <div class="container">
+  <div class="container container-wide">
     <div class="card">
       <h2>All Purchase Orders</h2>
 

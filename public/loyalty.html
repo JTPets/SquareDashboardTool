@@ -6,11 +6,10 @@
   <title>Loyalty Program Manager - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-      max-width: 1600px; /* page-specific: shared has 1200px */
-}
-    .header {
-      background: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%); /* page-specific: shared has #2563eb */
-}    /* Stats cards */
+    /* .container-xl from shared.css (max-width: 1600px) */
+    /* .header-purple from shared.css (gradient #7c3aed→#2563eb) */
+
+    /* Stats cards */
     .stats-summary {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -298,8 +297,8 @@
   <script src="/js/event-delegation.js"></script>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
+  <div class="container container-xl">
+    <div class="header header-purple">
       <h1>Loyalty Program Manager</h1>
       <div class="header-actions">
         <a href="/dashboard.html" class="back-button">Dashboard</a>

@@ -7,11 +7,10 @@
   <link rel="stylesheet" href="/css/delivery.css">
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    .container {
-      max-width: 1400px; /* page-specific: shared has 1200px */
-    }
+    /* .container-wide from shared.css (max-width: 1400px) */
+    /* .header-dark from shared.css (gradient #1f2937→#111827) */
+    /* Page-specific: wrapping header to stack action buttons on narrow screens */
     .header {
-      background: #1f2937; /* page-specific: shared has #2563eb */
       flex-wrap: wrap;
       gap: 10px;
     }
@@ -218,8 +217,8 @@
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
+  <div class="container container-wide">
+    <div class="header header-dark">
       <h1>Delivery History</h1>
       <div class="header-actions">
         <a href="/delivery.html" class="btn btn-primary">Back to Scheduler</a>
