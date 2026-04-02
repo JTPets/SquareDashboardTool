@@ -36,6 +36,8 @@
 // | 16 | Email heartbeat             | 0 6 * * *  (6:00 AM)  | Batch  | Moved from 8 AM to catch AM issues |
 // | 18 | Auto min/max adjustment     | 0 6 * * 0  (Sun 6AM)  | Batch  | BACKLOG-106 v2: before Mon ordering|
 // | 19 | Vendor match backfill       | 0 3 * * 0  (Sun 3AM)  | Batch  | BACKLOG-114: cross-vendor UPC scan |
+// | 20 | Delivery auto-finish        | 0 23 * * * (11:00 PM) | Batch  | BACKLOG-116: stale route cleanup   |
+// | 21 | Delivery retention cleanup  | 0 1 * * 0  (Sun 1AM)  | Batch  | BACKLOG-116: purge old routes/orders|
 
 const cron = require('node-cron');
 const logger = require('../utils/logger');
@@ -58,6 +60,7 @@ const { runScheduledHeartbeat } = require('./email-heartbeat-job');
 const { runScheduledPodCleanup } = require('./pod-cleanup-job');
 const { runScheduledAutoMinMax } = require('./auto-min-max-job');
 const { runScheduledVendorMatchBackfill } = require('./vendor-match-backfill-job');
+const { runScheduledDeliveryAutoFinish, runScheduledDeliveryRetentionCleanup } = require('./delivery-auto-finish-job');
 const syncQueue = require('../services/sync-queue');
 
 // Store cron task references for graceful shutdown
@@ -220,6 +223,24 @@ function initializeCronJobs() {
         timezone: 'America/Toronto'
     }));
     logger.info('Vendor match backfill cron job scheduled', { schedule: vendorMatchBackfillSchedule, timezone: 'America/Toronto' });
+
+    // 20. Delivery auto-finish (BACKLOG-116)
+    // Runs nightly at 11:00 PM — auto-finish routes still active from previous days
+    // Resets skipped/active orders to pending so drivers can reschedule them
+    const deliveryAutoFinishSchedule = process.env.DELIVERY_AUTO_FINISH_CRON || '0 23 * * *';
+    cronTasks.push(cron.schedule(deliveryAutoFinishSchedule, runScheduledDeliveryAutoFinish, {
+        timezone: 'America/Toronto'
+    }));
+    logger.info('Delivery auto-finish cron job scheduled', { schedule: deliveryAutoFinishSchedule, timezone: 'America/Toronto' });
+
+    // 21. Delivery retention cleanup (BACKLOG-116)
+    // Runs every Sunday at 1:00 AM — delete finished/cancelled routes older than retention period
+    // Matches POD retention; controlled via DELIVERY_RETENTION_DAYS (default: 90)
+    const deliveryRetentionSchedule = process.env.DELIVERY_RETENTION_CLEANUP_CRON || '0 1 * * 0';
+    cronTasks.push(cron.schedule(deliveryRetentionSchedule, runScheduledDeliveryRetentionCleanup, {
+        timezone: 'America/Toronto'
+    }));
+    logger.info('Delivery retention cleanup cron job scheduled', { schedule: deliveryRetentionSchedule, timezone: 'America/Toronto' });
 
     return cronTasks;
 }

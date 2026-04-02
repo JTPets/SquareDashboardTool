@@ -21,6 +21,7 @@ const emailHeartbeatJob = require('./email-heartbeat-job');
 const podCleanupJob = require('./pod-cleanup-job');
 const autoMinMaxJob = require('./auto-min-max-job');
 const vendorMatchBackfillJob = require('./vendor-match-backfill-job');
+const deliveryAutoFinishJob = require('./delivery-auto-finish-job');
 const cronScheduler = require('./cron-scheduler');
 
 module.exports = {
@@ -92,6 +93,12 @@ module.exports = {
 
     // Vendor match backfill job (BACKLOG-114)
     runScheduledVendorMatchBackfill: vendorMatchBackfillJob.runScheduledVendorMatchBackfill,
+
+    // Delivery auto-finish and retention cleanup (BACKLOG-116)
+    runDeliveryAutoFinish: deliveryAutoFinishJob.runDeliveryAutoFinish,
+    runDeliveryRetentionCleanup: deliveryAutoFinishJob.runDeliveryRetentionCleanup,
+    runScheduledDeliveryAutoFinish: deliveryAutoFinishJob.runScheduledDeliveryAutoFinish,
+    runScheduledDeliveryRetentionCleanup: deliveryAutoFinishJob.runScheduledDeliveryRetentionCleanup,
 
     // Cron scheduler
     initializeCronJobs: cronScheduler.initializeCronJobs,
