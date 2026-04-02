@@ -6,9 +6,9 @@
   <title>Cart Activity - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    /* Page-specific: dark header (shared has #2563eb) */
+    /* .header-dark from shared.css (gradient #1f2937→#111827) */
+    /* Page-specific: wrapping header to stack action buttons on narrow screens */
     .header {
-      background: #1f2937;
       flex-wrap: wrap;
       gap: 10px;
     }
@@ -149,7 +149,7 @@
 </head>
 <body>
   <div class="container">
-    <div class="header">
+    <div class="header header-dark">
       <h1>Cart Activity</h1>
       <div class="header-actions">
         <a href="dashboard.html" class="btn btn-secondary">Back to Dashboard</a>

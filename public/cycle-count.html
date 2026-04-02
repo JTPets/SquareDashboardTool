@@ -9,7 +9,8 @@
   <title>Cycle Count - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    /* Page-specific: mobile suppresses tap highlight; margin/padding/box-sizing from shared.css */
+    * { -webkit-tap-highlight-color: transparent; }
     /* Page-specific: mobile-first full-screen layout with custom bg and no body padding */
     body {
       background-color: #f5f5f7;
@@ -32,17 +33,7 @@
       justify-content: space-around;
       gap: 10px;
     }
-    /* Page-specific: translucent card style for in-header stats */
-    .stat-card {
-      background: rgba(255,255,255,0.2);
-      padding: 10px;
-      flex: 1;
-      backdrop-filter: blur(10px);
-    }
-    /* Page-specific: smaller stat-value, inline display */
-    .stat-value { font-size: 24px; display: block; }
-    /* Page-specific: smaller label with opacity instead of color */
-    .stat-label { font-size: 11px; opacity: 0.9; }
+    /* .stat-card, .stat-value, .stat-label from shared.css */
 
     .toolbar {
       background: white;

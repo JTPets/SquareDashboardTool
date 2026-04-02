@@ -6,12 +6,9 @@
   <title>Vendor Match Suggestions - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    /* Page-specific: wider than shared 1200px */
-    .container { max-width: 1400px; }
+    /* .container-wide from shared.css (max-width: 1400px) */
 
-    .header {
-      background: #7c3aed;
-    }
+    /* .header-purple from shared.css (gradient #7c3aed→#2563eb); vendor purple theme */
     .header a {
       color: white;
       text-decoration: none;
@@ -220,8 +217,8 @@
   </style>
 </head>
 <body>
-  <div class="header">
-    <div class="container" style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px;">
+  <div class="header header-purple">
+    <div class="container container-wide" style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px;">
       <h1 style="color:white;margin:0;font-size:20px;">Vendor Match Suggestions</h1>
       <div style="display:flex;gap:10px;">
         <a href="/vendor-catalog.html">← Vendor Catalog</a>

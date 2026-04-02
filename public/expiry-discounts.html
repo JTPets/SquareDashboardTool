@@ -6,11 +6,10 @@
   <title>Expiry Discount Manager - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    /* Page-specific: wider than shared 1200px */
-    .container { max-width: 1600px; }
-    .header {
-      background: linear-gradient(135deg, #dc2626 0%, #f59e0b 100%); /* page-specific: shared has #2563eb */
-}    /* Tier summary cards */
+    /* .container-xl from shared.css (max-width: 1600px) */
+    /* .header-danger from shared.css (gradient #dc2626→#f59e0b) */
+
+    /* Tier summary cards */
     .tier-summary {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -263,8 +262,8 @@
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
+  <div class="container container-xl">
+    <div class="header header-danger">
       <h1>Expiry Discount Manager</h1>
       <div>
         <a href="expiry.html" class="back-button">Back to Expiry Tracker</a>

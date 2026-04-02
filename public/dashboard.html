@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/css/shared.css">
   <style>
     /* Page-specific: wider than shared 1200px */
-    .container { max-width: 1400px; }
+    /* .container-wide from shared.css (max-width: 1400px) */
 
     /* HEADER */    .header-content {
       text-align: left;
@@ -146,12 +146,14 @@
     }
 
     /* STATS BAR — .stats-bar, .stat, .stat-number from shared.css */
+    /* Page-specific: each row spans full width so stats don't compete across rows */
     .stats-row {
       display: flex;
       justify-content: space-around;
       flex-wrap: wrap;
       gap: 20px;
       padding: 10px 0;
+      width: 100%;
     }
 
     .stats-row:not(:last-child) {
@@ -509,7 +511,7 @@
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="container container-wide">
     <!-- HEADER -->
     <div class="header">
       <div class="header-content" style="display: flex; align-items: center; gap: 16px;">

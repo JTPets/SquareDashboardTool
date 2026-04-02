@@ -6,14 +6,14 @@
   <title>Sales Velocity Reports - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-    .container {
-      max-width: 1800px; /* page-specific: shared has 1200px */
-    }
-    .controls label { font-size: 14px; font-weight: 500; color: #374151; }
+    /* .container-xxl from shared.css (max-width: 1800px) */
+    /* Page-specific: explicit text color for controls labels (shared has font only) */
+    .controls label { color: #374151; }
     /* Page-specific: min-height (not in shared .controls select) */
     .controls select {
       min-height: 40px;
     }
+    /* Page-specific: disabled state for .controls button (shared .btn:disabled uses opacity) */
     .controls button:disabled {
       background: #9ca3af;
       cursor: not-allowed;
@@ -92,7 +92,7 @@
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="container container-xxl">
     <div class="header">
       <h1>📈 Sales Velocity Reports</h1>
       <a href="/dashboard.html" class="back-button">← Back to Dashboard</a>

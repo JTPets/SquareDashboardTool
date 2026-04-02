@@ -6,8 +6,7 @@
   <title>Expiration Tracker - Square Dashboard Addon</title>
   <link rel="stylesheet" href="/css/shared.css">
   <style>
-      max-width: 1600px; /* page-specific: shared has 1200px */
-}
+    /* .container-xl from shared.css (max-width: 1600px) */
     .header {
       padding: 15px 20px; /* page-specific: shared has 20px */
       flex-wrap: wrap;
@@ -34,7 +33,7 @@
       }
     }
     /* .stats-bar, .stat, .stat-number from shared.css */
-    .stat-label { font-size: 12px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+    /* .stat-label from shared.css (12px, #9ca3af, uppercase, letter-spacing 0.5px) */
     /* .controls from shared.css */
     .controls select {
       background: none; /* page-specific: outline-style select */
@@ -142,7 +141,7 @@
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="container container-xl">
     <div class="header">
       <h1>📅 Expiration Tracker</h1>
       <div class="header-buttons">

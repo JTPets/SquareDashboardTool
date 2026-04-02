@@ -7,18 +7,18 @@
   <link rel="stylesheet" href="/css/shared.css">
   <link rel="stylesheet" href="/css/delivery.css">
   <style>
-    /* Page-specific styles for delivery scheduler */    .container {
-      max-width: 1400px; /* page-specific: shared has 1200px */
-}
+    /* .container-wide from shared.css (max-width: 1400px) */
+    /* Page-specific: wrapping header to stack action buttons on narrow screens */
     .header {
-    flex-wrap: wrap;
-    gap: 10px;
-}
+      flex-wrap: wrap;
+      gap: 10px;
+    }
 
     /* Page-specific: white bg and 1px border override shared 2px #f9fafb */
     .tabs { border-bottom-width: 1px; background: white; }
     /* Page-specific: larger padding */
     .tab { padding: 15px 25px; }
+    /* Page-specific: no active-tab background (shared has white bg) */
     .tab.active { background: none; }
 
     /* Order cards — unique to delivery scheduler */
@@ -88,7 +88,7 @@
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="container container-wide">
     <div class="header">
       <h1>Delivery Scheduler</h1>
       <div class="header-actions">
