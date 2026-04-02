@@ -84,7 +84,7 @@ jest.mock('../../utils/square-token', () => ({
 }));
 
 const db = require('../../utils/database');
-const platformSettings = require('../../services/platform-settings');
+const platformSettings = require('../../services/merchant/platform-settings');
 const logger = require('../../utils/logger');
 const { requireValidSubscription } = require('../../middleware/merchant');
 

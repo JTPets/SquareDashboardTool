@@ -17,8 +17,8 @@
  * @module services/sync-queue
  */
 
-const logger = require('../utils/logger');
-const db = require('../utils/database');
+const logger = require('../../utils/logger');
+const db = require('../../utils/database');
 
 // Stale sync threshold: syncs running longer than this are considered interrupted
 const STALE_SYNC_THRESHOLD_MINUTES = 30;

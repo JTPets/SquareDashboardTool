@@ -16,7 +16,7 @@ jest.mock('../../utils/database', () => ({
 }));
 
 const db = require('../../utils/database');
-const platformSettings = require('../../services/platform-settings');
+const platformSettings = require('../../services/merchant/platform-settings');
 
 describe('Platform Settings Service', () => {
     beforeEach(() => {

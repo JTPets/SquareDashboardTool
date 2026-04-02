@@ -35,7 +35,7 @@ const LoyaltyHandler = require('./loyalty-handler');
 const CustomerHandler = require('./customer-handler');
 
 // Import shared dependencies
-const syncQueue = require('../sync-queue');
+const syncQueue = require('../infra/sync-queue');
 
 // Initialize handlers with dependencies
 const subscriptionHandler = new SubscriptionHandler();

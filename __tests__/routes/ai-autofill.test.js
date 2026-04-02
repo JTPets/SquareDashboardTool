@@ -39,7 +39,7 @@ const request = require('supertest');
 const express = require('express');
 const session = require('express-session');
 const db = require('../../utils/database');
-const aiAutofillService = require('../../services/ai-autofill-service');
+const aiAutofillService = require('../../services/ai-autofill/ai-autofill-service');
 const squareApi = require('../../services/square/api');
 const tokenEncryption = require('../../utils/token-encryption');
 

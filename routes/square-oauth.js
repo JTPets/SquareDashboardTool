@@ -20,7 +20,7 @@ const asyncHandler = require('../middleware/async-handler');
 const { encryptToken, decryptToken } = require('../utils/token-encryption');
 const { requireAuth, requireAdmin, logAuthEvent, getClientIp } = require('../middleware/auth');
 const { loadMerchantContext, requireMerchant, requireMerchantRole } = require('../middleware/merchant');
-const platformSettings = require('../services/platform-settings');
+const platformSettings = require('../services/merchant/platform-settings');
 
 // OAuth configuration
 const SQUARE_APPLICATION_ID = process.env.SQUARE_APPLICATION_ID;

@@ -22,7 +22,7 @@ const { requireAuth, requireAdmin } = require('../middleware/auth');
 // LOGIC CHANGE: verify admin has access to target merchant (Audit 2.6.1)
 const { requireMerchantAccess } = require('../middleware/merchant-access');
 const asyncHandler = require('../middleware/async-handler');
-const platformSettings = require('../services/platform-settings');
+const platformSettings = require('../services/merchant/platform-settings');
 const validators = require('../middleware/validators/admin');
 const emailNotifier = require('../utils/email-notifier');
 const { sendSuccess, sendError } = require('../utils/response-helper');

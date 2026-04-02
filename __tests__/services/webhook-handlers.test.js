@@ -57,7 +57,7 @@ const {
     inventoryHandler,
     subscriptionHandler
 } = require('../../services/webhook-handlers');
-const syncQueue = require('../../services/sync-queue');
+const syncQueue = require('../../services/infra/sync-queue');
 const squareApi = require('../../services/square');
 
 describe('Webhook Handlers Index', () => {

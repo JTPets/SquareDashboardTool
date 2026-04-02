@@ -30,7 +30,7 @@ jest.mock('../../middleware/merchant', () => ({
 const db = require('../../utils/database');
 const { getSquareClientForMerchant } = require('../../middleware/merchant');
 const InventoryHandler = require('../../services/webhook-handlers/inventory-handler');
-const syncQueue = require('../../services/sync-queue');
+const syncQueue = require('../../services/infra/sync-queue');
 
 // Create handler instance with real sync queue
 const inventoryHandler = new InventoryHandler(syncQueue);

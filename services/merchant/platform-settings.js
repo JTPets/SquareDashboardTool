@@ -7,8 +7,8 @@
  * @module services/platform-settings
  */
 
-const db = require('../utils/database');
-const logger = require('../utils/logger');
+const db = require('../../utils/database');
+const logger = require('../../utils/logger');
 
 // In-memory cache: { key: { value, cachedAt } }
 // BACKLOG-9: Acceptable loss on PM2 restart — read-through cache rebuilds on first miss per key.
