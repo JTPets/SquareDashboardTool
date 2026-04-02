@@ -411,12 +411,69 @@ describe('generateRoute', () => {
                 start_address_lng: '-79.38'
             }]
         });
+        // Reset stale skipped orders (no stale skipped orders)
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
         // No pending orders
         db.query.mockResolvedValueOnce({ rows: [] });
 
         await expect(
             deliveryService.generateRoute(MERCHANT_ID, 1, {})
         ).rejects.toThrow('No geocoded pending orders');
+    });
+
+    it('includes skipped orders from non-active routes in next route generation', async () => {
+        // getActiveRoute — no active route today
+        db.query.mockResolvedValueOnce({ rows: [] });
+        // getSettings
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                start_address: '100 Queen St',
+                start_address_lat: '43.65',
+                start_address_lng: '-79.38',
+                openrouteservice_api_key: null
+            }]
+        });
+        // Reset stale skipped orders — 1 order reset (was skipped on yesterday's finished route)
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
+        // Pending orders query — now returns the previously-skipped order (after reset)
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                id: UUID,
+                status: 'pending',
+                address_lat: '43.70',
+                address_lng: '-79.42',
+                geocoded_at: new Date()
+            }]
+        });
+
+        // Transaction client
+        const mockClient = {
+            query: jest.fn()
+                .mockResolvedValueOnce({ rows: [] }) // BEGIN
+                .mockResolvedValueOnce({ rows: [{ id: UUID2, status: 'finished' }] }) // no existing active route to cancel (route result for INSERT)
+                .mockResolvedValueOnce({ rows: [{ id: UUID2, route_date: '2026-04-02', status: 'active', total_stops: 1 }] }) // INSERT route
+                .mockResolvedValueOnce({ rows: [] }) // UPDATE order → active
+                .mockResolvedValueOnce({ rows: [] }), // COMMIT
+            release: jest.fn()
+        };
+        db.getClient.mockResolvedValueOnce(mockClient);
+
+        // getOrders (called after route creation to return route with orders)
+        db.query.mockResolvedValueOnce({ rows: [{ id: UUID, status: 'active', route_id: UUID2 }] });
+        // logAuditEvent
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        // Should not throw — the previously-skipped order is now available
+        await expect(
+            deliveryService.generateRoute(MERCHANT_ID, 1, {})
+        ).resolves.toBeDefined();
+
+        // Verify the reset query was called with the right merchant
+        const resetCall = db.query.mock.calls.find(call =>
+            typeof call[0] === 'string' && call[0].includes("status = 'skipped'") && call[0].includes('NOT IN')
+        );
+        expect(resetCall).toBeDefined();
+        expect(resetCall[1]).toEqual([MERCHANT_ID]);
     });
 
     it('throws when active route exists without force', async () => {

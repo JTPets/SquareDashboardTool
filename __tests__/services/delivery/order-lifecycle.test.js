@@ -208,6 +208,8 @@ describe('Route Generation — Order Assignment', () => {
         db.query.mockResolvedValueOnce({ rows: [] });
         // getSettings
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        // reset stale skipped orders
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
         // pending orders query
         db.query.mockResolvedValueOnce({ rows: [pendingOrder] });
 
@@ -237,13 +239,14 @@ describe('Route Generation — Order Assignment', () => {
     it('only selects pending + geocoded orders', async () => {
         db.query.mockResolvedValueOnce({ rows: [] });              // getActiveRoute
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] }); // getSettings
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // reset stale skipped orders
         db.query.mockResolvedValueOnce({ rows: [] });              // no orders
 
         await expect(
             deliveryService.generateRoute(MERCHANT_ID, USER_ID, {})
         ).rejects.toThrow('No geocoded pending orders');
 
-        const orderQuery = db.query.mock.calls[2][0];
+        const orderQuery = db.query.mock.calls[3][0];
         expect(orderQuery).toContain("status = 'pending'");
         expect(orderQuery).toContain('geocoded_at IS NOT NULL');
     });
@@ -251,6 +254,7 @@ describe('Route Generation — Order Assignment', () => {
     it('filters by orderIds when provided', async () => {
         db.query.mockResolvedValueOnce({ rows: [] });
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // reset stale skipped orders
         db.query.mockResolvedValueOnce({ rows: [] });
 
         await expect(
@@ -259,14 +263,15 @@ describe('Route Generation — Order Assignment', () => {
             })
         ).rejects.toThrow('No geocoded pending orders');
 
-        const orderQuery = db.query.mock.calls[2][0];
+        const orderQuery = db.query.mock.calls[3][0];
         expect(orderQuery).toContain('id = ANY($2)');
-        expect(db.query.mock.calls[2][1]).toEqual([MERCHANT_ID, [ORDER_ID, ORDER_ID_2]]);
+        expect(db.query.mock.calls[3][1]).toEqual([MERCHANT_ID, [ORDER_ID, ORDER_ID_2]]);
     });
 
     it('excludes orders when excludeOrderIds provided', async () => {
         db.query.mockResolvedValueOnce({ rows: [] });
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // reset stale skipped orders
         db.query.mockResolvedValueOnce({ rows: [] });
 
         await expect(
@@ -275,14 +280,15 @@ describe('Route Generation — Order Assignment', () => {
             })
         ).rejects.toThrow('No geocoded pending orders');
 
-        const orderQuery = db.query.mock.calls[2][0];
+        const orderQuery = db.query.mock.calls[3][0];
         expect(orderQuery).toContain('id != ANY($2)');
-        expect(db.query.mock.calls[2][1]).toEqual([MERCHANT_ID, [ORDER_ID]]);
+        expect(db.query.mock.calls[3][1]).toEqual([MERCHANT_ID, [ORDER_ID]]);
     });
 
     it('supports both orderIds and excludeOrderIds together', async () => {
         db.query.mockResolvedValueOnce({ rows: [] });
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // reset stale skipped orders
         db.query.mockResolvedValueOnce({ rows: [] });
 
         await expect(
@@ -292,10 +298,10 @@ describe('Route Generation — Order Assignment', () => {
             })
         ).rejects.toThrow('No geocoded pending orders');
 
-        const orderQuery = db.query.mock.calls[2][0];
+        const orderQuery = db.query.mock.calls[3][0];
         expect(orderQuery).toContain('id = ANY($2)');
         expect(orderQuery).toContain('id != ANY($3)');
-        expect(db.query.mock.calls[2][1]).toEqual([
+        expect(db.query.mock.calls[3][1]).toEqual([
             MERCHANT_ID,
             [ORDER_ID, ORDER_ID_2, ORDER_ID_3],
             [ORDER_ID_3]
@@ -305,6 +311,7 @@ describe('Route Generation — Order Assignment', () => {
     it('ignores empty excludeOrderIds array', async () => {
         db.query.mockResolvedValueOnce({ rows: [] });
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // reset stale skipped orders
         db.query.mockResolvedValueOnce({ rows: [] });
 
         await expect(
@@ -313,7 +320,7 @@ describe('Route Generation — Order Assignment', () => {
             })
         ).rejects.toThrow('No geocoded pending orders');
 
-        const orderQuery = db.query.mock.calls[2][0];
+        const orderQuery = db.query.mock.calls[3][0];
         expect(orderQuery).not.toContain('id != ANY');
     });
 
@@ -322,6 +329,7 @@ describe('Route Generation — Order Assignment', () => {
 
         db.query.mockResolvedValueOnce({ rows: [] });              // getActiveRoute
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] }); // getSettings
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // reset stale skipped orders
         db.query.mockResolvedValueOnce({ rows: [pendingOrder] });  // pending orders
 
         const mockClient = makeMockClient([
@@ -353,6 +361,7 @@ describe('Route Generation — Order Assignment', () => {
 
         db.query.mockResolvedValueOnce({ rows: [] });
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // reset stale skipped orders
         db.query.mockResolvedValueOnce({ rows: [pendingOrder] });
 
         const mockClient = makeMockClient([
@@ -381,6 +390,7 @@ describe('Route Generation — Order Assignment', () => {
 
         db.query.mockResolvedValueOnce({ rows: [] });
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // reset stale skipped orders
         db.query.mockResolvedValueOnce({ rows: [pendingOrder] });
 
         const mockClient = makeMockClient([
@@ -409,6 +419,7 @@ describe('Route Generation — Order Assignment', () => {
 
         db.query.mockResolvedValueOnce({ rows: [] });
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // reset stale skipped orders
         db.query.mockResolvedValueOnce({ rows: [pendingOrder] });
 
         const mockClient = makeMockClient([
@@ -442,26 +453,28 @@ describe('Route Planning Query — Status Filtering', () => {
     it('includes pending orders', async () => {
         db.query.mockResolvedValueOnce({ rows: [] });
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // reset stale skipped orders
         db.query.mockResolvedValueOnce({ rows: [] });
 
         try {
             await deliveryService.generateRoute(MERCHANT_ID, USER_ID, {});
         } catch (e) { /* expected — no orders */ }
 
-        const sql = db.query.mock.calls[2][0];
+        const sql = db.query.mock.calls[3][0];
         expect(sql).toContain("status = 'pending'");
     });
 
     it('excludes active orders (already on a route)', async () => {
         db.query.mockResolvedValueOnce({ rows: [] });
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // reset stale skipped orders
         db.query.mockResolvedValueOnce({ rows: [] });
 
         try {
             await deliveryService.generateRoute(MERCHANT_ID, USER_ID, {});
         } catch (e) { /* expected */ }
 
-        const sql = db.query.mock.calls[2][0];
+        const sql = db.query.mock.calls[3][0];
         // Only pending is selected — active, skipped, delivered, completed are all excluded
         expect(sql).toContain("status = 'pending'");
         expect(sql).not.toContain("status IN");
@@ -470,13 +483,14 @@ describe('Route Planning Query — Status Filtering', () => {
     it('excludes non-geocoded orders', async () => {
         db.query.mockResolvedValueOnce({ rows: [] });
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // reset stale skipped orders
         db.query.mockResolvedValueOnce({ rows: [] });
 
         try {
             await deliveryService.generateRoute(MERCHANT_ID, USER_ID, {});
         } catch (e) { /* expected */ }
 
-        const sql = db.query.mock.calls[2][0];
+        const sql = db.query.mock.calls[3][0];
         expect(sql).toContain('geocoded_at IS NOT NULL');
     });
 });
@@ -655,6 +669,8 @@ describe('Force-Regenerate Route — Cancelled Route Orders', () => {
         db.query.mockResolvedValueOnce({ rows: [existingRoute] });
         // getSettings
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        // reset stale skipped orders
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
         // pending orders for new route
         db.query.mockResolvedValueOnce({ rows: [pendingOrder] });
 
@@ -703,6 +719,7 @@ describe('Force-Regenerate Route — Cancelled Route Orders', () => {
 
         db.query.mockResolvedValueOnce({ rows: [existingRoute] });
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // reset stale skipped orders
         db.query.mockResolvedValueOnce({ rows: [newPendingOrder] });
 
         const mockClient = makeMockClient([
@@ -722,7 +739,7 @@ describe('Force-Regenerate Route — Cancelled Route Orders', () => {
 
         // The order selection query only picks pending orders — but now old route's
         // active/skipped orders have been reset to pending so they'll be eligible next time
-        const orderSelectSql = db.query.mock.calls[2][0];
+        const orderSelectSql = db.query.mock.calls[3][0];
         expect(orderSelectSql).toContain("status = 'pending'");
     });
 
@@ -732,6 +749,7 @@ describe('Force-Regenerate Route — Cancelled Route Orders', () => {
 
         db.query.mockResolvedValueOnce({ rows: [existingRoute] });
         db.query.mockResolvedValueOnce({ rows: [makeSettings()] });
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // reset stale skipped orders
         db.query.mockResolvedValueOnce({ rows: [pendingOrder] });
 
         const mockClient = makeMockClient([
