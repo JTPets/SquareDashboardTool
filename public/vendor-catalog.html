@@ -504,6 +504,7 @@
     <div class="header">
       <h1>Vendor Catalog Import</h1>
       <div class="header-actions">
+        <a href="/vendor-match-suggestions.html" id="matchSuggestionsLink">Vendor Matches</a>
         <a href="/dashboard.html">Back to Dashboard</a>
       </div>
     </div>
@@ -770,5 +771,22 @@
   <script src="/js/utils/date-format.js"></script>
   <script src="/js/vendor-catalog.js"></script>
   <script src="/js/feature-check.js" data-feature-key="reorder"></script>
+  <script>
+    // BACKLOG-114: Load pending vendor match suggestions count for badge
+    (async function loadMatchBadge() {
+      try {
+        const r = await fetch('/api/vendor-match-suggestions/count');
+        const d = await r.json();
+        if (d.success && d.count > 0) {
+          const link = document.getElementById('matchSuggestionsLink');
+          if (link) {
+            link.textContent = 'Vendor Matches (' + d.count + ')';
+            link.style.background = 'rgba(255,255,255,0.35)';
+            link.style.fontWeight = '700';
+          }
+        }
+      } catch (e) { /* non-fatal */ }
+    })();
+  </script>
 </body>
 </html>

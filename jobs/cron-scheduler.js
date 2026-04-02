@@ -35,6 +35,7 @@
 // | 15 | Catalog health              | 0 4 * * *  (4:00 AM)  | Batch  | Moved from 2 AM to avoid overlap   |
 // | 16 | Email heartbeat             | 0 6 * * *  (6:00 AM)  | Batch  | Moved from 8 AM to catch AM issues |
 // | 18 | Auto min/max adjustment     | 0 6 * * 0  (Sun 6AM)  | Batch  | BACKLOG-106 v2: before Mon ordering|
+// | 19 | Vendor match backfill       | 0 3 * * 0  (Sun 3AM)  | Batch  | BACKLOG-114: cross-vendor UPC scan |
 
 const cron = require('node-cron');
 const logger = require('../utils/logger');
@@ -56,6 +57,7 @@ const { runScheduledHealthCheck } = require('./catalog-health-job');
 const { runScheduledHeartbeat } = require('./email-heartbeat-job');
 const { runScheduledPodCleanup } = require('./pod-cleanup-job');
 const { runScheduledAutoMinMax } = require('./auto-min-max-job');
+const { runScheduledVendorMatchBackfill } = require('./vendor-match-backfill-job');
 const syncQueue = require('../services/sync-queue');
 
 // Store cron task references for graceful shutdown
@@ -209,6 +211,15 @@ function initializeCronJobs() {
         timezone: 'America/Toronto'
     }));
     logger.info('Auto min/max cron job scheduled', { schedule: autoMinMaxSchedule, timezone: 'America/Toronto' });
+
+    // 19. Vendor match backfill (BACKLOG-114)
+    // Runs every Sunday at 3:00 AM — scan matched catalog items for cross-vendor UPC matches
+    // Generates PENDING suggestions only; merchants review via /vendor-match-suggestions.html
+    const vendorMatchBackfillSchedule = process.env.VENDOR_MATCH_BACKFILL_CRON || '0 3 * * 0';
+    cronTasks.push(cron.schedule(vendorMatchBackfillSchedule, runScheduledVendorMatchBackfill, {
+        timezone: 'America/Toronto'
+    }));
+    logger.info('Vendor match backfill cron job scheduled', { schedule: vendorMatchBackfillSchedule, timezone: 'America/Toronto' });
 
     return cronTasks;
 }

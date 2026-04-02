@@ -20,6 +20,7 @@ const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const crypto = require('crypto');
 const { escapeLikePattern } = require('../../utils/escape-like');
+const { generateMatchSuggestions } = require('./match-suggestions-service');
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -734,6 +735,27 @@ async function importItems(items, batchId, options = {}) {
             ]);
 
             stats.imported++;
+
+            // BACKLOG-114: Generate cross-vendor match suggestions when item has
+            // a UPC and matched a variation — look for same UPC in other vendors.
+            if (match.variation_id && item.upc && vendorId) {
+                try {
+                    await generateMatchSuggestions(
+                        match.variation_id,
+                        item.upc,
+                        vendorId,
+                        merchantId
+                    );
+                } catch (matchErr) {
+                    // Non-fatal — log and continue
+                    logger.warn('Failed to generate cross-vendor match suggestions', {
+                        variationId: match.variation_id,
+                        upc: item.upc,
+                        vendorId,
+                        error: matchErr.message
+                    });
+                }
+            }
 
         } catch (error) {
             stats.errors.push({

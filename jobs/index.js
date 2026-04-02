@@ -20,6 +20,7 @@ const catalogHealthJob = require('./catalog-health-job');
 const emailHeartbeatJob = require('./email-heartbeat-job');
 const podCleanupJob = require('./pod-cleanup-job');
 const autoMinMaxJob = require('./auto-min-max-job');
+const vendorMatchBackfillJob = require('./vendor-match-backfill-job');
 const cronScheduler = require('./cron-scheduler');
 
 module.exports = {
@@ -88,6 +89,9 @@ module.exports = {
     runAutoMinMaxForMerchant: autoMinMaxJob.runAutoMinMaxForMerchant,
     runAutoMinMaxForAllMerchants: autoMinMaxJob.runAutoMinMaxForAllMerchants,
     runScheduledAutoMinMax: autoMinMaxJob.runScheduledAutoMinMax,
+
+    // Vendor match backfill job (BACKLOG-114)
+    runScheduledVendorMatchBackfill: vendorMatchBackfillJob.runScheduledVendorMatchBackfill,
 
     // Cron scheduler
     initializeCronJobs: cronScheduler.initializeCronJobs,
