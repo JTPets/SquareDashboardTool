@@ -49,7 +49,7 @@ describe('Vendor Dashboard Routes', () => {
                 getMerchantSettings.mockResolvedValue({ default_supply_days: 45, reorder_safety_days: 7 });
                 mockDashboardQueries([]);
 
-                const { getVendorDashboard } = require('../../services/vendor-dashboard');
+                const { getVendorDashboard } = require('../../services/vendor/vendor-dashboard');
                 await getVendorDashboard(merchantId);
 
                 const queryCall = db.query.mock.calls[0];
@@ -61,7 +61,7 @@ describe('Vendor Dashboard Routes', () => {
                 getMerchantSettings.mockResolvedValue({});
                 mockDashboardQueries([]);
 
-                const { getVendorDashboard } = require('../../services/vendor-dashboard');
+                const { getVendorDashboard } = require('../../services/vendor/vendor-dashboard');
                 await getVendorDashboard(1);
 
                 const queryCall = db.query.mock.calls[0];
@@ -72,7 +72,7 @@ describe('Vendor Dashboard Routes', () => {
                 getMerchantSettings.mockResolvedValue({});
                 mockDashboardQueries([]);
 
-                const { getVendorDashboard } = require('../../services/vendor-dashboard');
+                const { getVendorDashboard } = require('../../services/vendor/vendor-dashboard');
                 await getVendorDashboard(1);
 
                 const queryCall = db.query.mock.calls[0];
@@ -84,7 +84,7 @@ describe('Vendor Dashboard Routes', () => {
                 getMerchantSettings.mockResolvedValue({});
                 mockDashboardQueries([]);
 
-                const { getVendorDashboard } = require('../../services/vendor-dashboard');
+                const { getVendorDashboard } = require('../../services/vendor/vendor-dashboard');
                 await getVendorDashboard(1);
 
                 const queryCall = db.query.mock.calls[0];
@@ -96,7 +96,7 @@ describe('Vendor Dashboard Routes', () => {
                 getMerchantSettings.mockResolvedValue({});
                 mockDashboardQueries([]);
 
-                const { getVendorDashboard } = require('../../services/vendor-dashboard');
+                const { getVendorDashboard } = require('../../services/vendor/vendor-dashboard');
                 await getVendorDashboard(1);
 
                 expect(db.query).toHaveBeenCalledTimes(4);
@@ -108,7 +108,7 @@ describe('Vendor Dashboard Routes', () => {
                 getMerchantSettings.mockResolvedValue({});
                 mockDashboardQueries([]);
 
-                const { getVendorDashboard } = require('../../services/vendor-dashboard');
+                const { getVendorDashboard } = require('../../services/vendor/vendor-dashboard');
                 await getVendorDashboard(1);
 
                 const vendorQuery = db.query.mock.calls[0][0];
@@ -119,7 +119,7 @@ describe('Vendor Dashboard Routes', () => {
                 getMerchantSettings.mockResolvedValue({});
                 mockDashboardQueries([]);
 
-                const { getVendorDashboard } = require('../../services/vendor-dashboard');
+                const { getVendorDashboard } = require('../../services/vendor/vendor-dashboard');
                 await getVendorDashboard(1);
 
                 // Second query fetches per-item reorder data
@@ -151,7 +151,7 @@ describe('Vendor Dashboard Routes', () => {
                       pending_po_qty: 0 }
                 ], null, 73);
 
-                const { getVendorDashboard } = require('../../services/vendor-dashboard');
+                const { getVendorDashboard } = require('../../services/vendor/vendor-dashboard');
                 const result = await getVendorDashboard(1);
 
                 expect(result).toHaveProperty('global_oos_count', 73);
@@ -188,7 +188,7 @@ describe('Vendor Dashboard Routes', () => {
                       pending_po_qty: 0 }
                 ]);
 
-                const { getVendorDashboard } = require('../../services/vendor-dashboard');
+                const { getVendorDashboard } = require('../../services/vendor/vendor-dashboard');
                 const result = await getVendorDashboard(1);
 
                 const vendor = result.vendors[0];
@@ -210,7 +210,7 @@ describe('Vendor Dashboard Routes', () => {
             test('service rejects update when vendor not found (simulates invalid input)', async () => {
                 db.query.mockResolvedValueOnce({ rows: [] });
 
-                const { updateVendorSettings } = require('../../services/vendor-dashboard');
+                const { updateVendorSettings } = require('../../services/vendor/vendor-dashboard');
                 const result = await updateVendorSettings('INVALID', 1, {
                     schedule_type: 'invalid_value'
                 });
@@ -225,7 +225,7 @@ describe('Vendor Dashboard Routes', () => {
             test('rejects update for vendor belonging to different merchant', async () => {
                 db.query.mockResolvedValueOnce({ rows: [] }); // No vendor found
 
-                const { updateVendorSettings } = require('../../services/vendor-dashboard');
+                const { updateVendorSettings } = require('../../services/vendor/vendor-dashboard');
                 const result = await updateVendorSettings('V1', 999, { notes: 'test' });
 
                 expect(result).toBeNull();
@@ -235,7 +235,7 @@ describe('Vendor Dashboard Routes', () => {
                 db.query.mockResolvedValueOnce({ rows: [{ id: 'V1' }] });
                 db.query.mockResolvedValueOnce({ rows: [{ id: 'V1' }] });
 
-                const { updateVendorSettings } = require('../../services/vendor-dashboard');
+                const { updateVendorSettings } = require('../../services/vendor/vendor-dashboard');
                 await updateVendorSettings('V1', 1, { notes: 'test' });
 
                 // Ownership check
@@ -250,7 +250,7 @@ describe('Vendor Dashboard Routes', () => {
                 db.query.mockResolvedValueOnce({ rows: [{ id: 'V1' }] });
                 db.query.mockResolvedValueOnce({ rows: [{ id: 'V1' }] });
 
-                const { updateVendorSettings } = require('../../services/vendor-dashboard');
+                const { updateVendorSettings } = require('../../services/vendor/vendor-dashboard');
                 await updateVendorSettings('V1', 1, {
                     schedule_type: 'fixed',
                     order_day: 'Monday',
@@ -285,7 +285,7 @@ describe('Vendor Dashboard Routes', () => {
                 db.query.mockResolvedValueOnce({ rows: [{ id: 'V1' }] });
                 db.query.mockResolvedValueOnce({ rows: [{ id: 'V1' }] });
 
-                const { updateVendorSettings } = require('../../services/vendor-dashboard');
+                const { updateVendorSettings } = require('../../services/vendor/vendor-dashboard');
                 await updateVendorSettings('V1', 1, { notes: 'test <script>alert(1)</script>' });
 
                 const updateCall = db.query.mock.calls[1];

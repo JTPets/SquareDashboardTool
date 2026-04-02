@@ -15,7 +15,7 @@
  * visible to all merchants (used for site-wide beta promos).
  */
 
-const db = require('../utils/database');
+const db = require('../../utils/database');
 
 /**
  * Validate a promo code and calculate discount.

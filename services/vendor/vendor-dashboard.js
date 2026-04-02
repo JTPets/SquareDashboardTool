@@ -15,10 +15,10 @@
  * Reorder value computed in JS via shared reorder-math.js (BACKLOG-14 resolved).
  */
 
-const db = require('../utils/database');
-const { getMerchantSettings } = require('./merchant');
-const logger = require('../utils/logger');
-const { calculateReorderQuantity } = require('./catalog/reorder-math');
+const db = require('../../utils/database');
+const { getMerchantSettings } = require('../merchant');
+const logger = require('../../utils/logger');
+const { calculateReorderQuantity } = require('../catalog/reorder-math');
 
 // Status priority order (for sorting)
 const STATUS_PRIORITY = {
