@@ -96,6 +96,20 @@ async function generateRoute(merchantId, userId, options = {}) {
         lng: (endLat != null && endLng != null && isFinite(endLat) && isFinite(endLng)) ? endLng : (settings.end_address_lng ? parseFloat(settings.end_address_lng) : resolvedStart.lng)
     };
 
+    // Reset stale skipped orders (from finished/cancelled/previous-day routes) back to pending.
+    // This handles the case where a driver skipped orders but the route was never explicitly
+    // finished — those orders must re-enter the queue for the next route.
+    await db.query(
+        `UPDATE delivery_orders
+         SET status = 'pending', route_id = NULL, route_position = NULL, route_date = NULL, updated_at = NOW()
+         WHERE merchant_id = $1
+           AND status = 'skipped'
+           AND (route_id IS NULL OR route_id NOT IN (
+               SELECT id FROM delivery_routes WHERE status = 'active' AND merchant_id = $1
+           ))`,
+        [merchantId]
+    );
+
     // Get pending orders that need to be on the route
     let ordersQuery = `
         SELECT * FROM delivery_orders
