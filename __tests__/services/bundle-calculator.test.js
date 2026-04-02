@@ -4,7 +4,7 @@
  * Tests for pure bundle ordering optimization calculations.
  */
 
-const { calculateOrderOptions, calculateBundleOption } = require('../../services/bundle-calculator');
+const { calculateOrderOptions, calculateBundleOption } = require('../../services/bundles/bundle-calculator');
 
 describe('Bundle Calculator', () => {
     const bundle = { cost_cents: 5000 }; // $50 bundle

@@ -7,8 +7,8 @@
  * Square has no bundle API — we track bundle relationships locally.
  */
 
-const db = require('../utils/database');
-const logger = require('../utils/logger');
+const db = require('../../utils/database');
+const logger = require('../../utils/logger');
 
 /**
  * List all bundles with their components for a merchant

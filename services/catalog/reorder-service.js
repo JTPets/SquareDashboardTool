@@ -12,7 +12,7 @@ const db = require('../../utils/database');
 const { getMerchantSettings } = require('../merchant');
 const logger = require('../../utils/logger');
 const { batchResolveImageUrls } = require('../../utils/image-utils');
-const { calculateOrderOptions } = require('../bundle-calculator');
+const { calculateOrderOptions } = require('../bundles/bundle-calculator');
 const { calculateReorderQuantity } = require('./reorder-math');
 
 /**

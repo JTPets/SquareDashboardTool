@@ -9,11 +9,11 @@
  */
 
 const crypto = require('crypto');
-const logger = require('../utils/logger');
-const db = require('../utils/database');
-const subscriptionHandler = require('../utils/subscription-handler');
-const webhookRetry = require('../utils/webhook-retry');
-const { routeEvent } = require('./webhook-handlers');
+const logger = require('../../utils/logger');
+const db = require('../../utils/database');
+const subscriptionHandler = require('../../utils/subscription-handler');
+const webhookRetry = require('../../utils/webhook-retry');
+const { routeEvent } = require('.');
 
 class WebhookProcessor {
     constructor() {
