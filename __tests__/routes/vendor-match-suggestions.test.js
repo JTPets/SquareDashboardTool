@@ -184,10 +184,10 @@ describe('Vendor Match Suggestions Routes', () => {
             );
         });
 
-        it('rejects invalid status with 422', async () => {
+        it('rejects invalid status with 400', async () => {
             const res = await request(app)
                 .get('/api/vendor-match-suggestions/?status=bogus');
-            expect(res.status).toBe(422);
+            expect(res.status).toBe(400);
         });
     });
 
@@ -234,10 +234,10 @@ describe('Vendor Match Suggestions Routes', () => {
             expect(res.status).toBe(409);
         });
 
-        it('rejects non-integer id with 422', async () => {
+        it('rejects non-integer id with 400', async () => {
             const res = await request(app)
                 .post('/api/vendor-match-suggestions/abc/approve');
-            expect(res.status).toBe(422);
+            expect(res.status).toBe(400);
         });
     });
 
@@ -292,25 +292,25 @@ describe('Vendor Match Suggestions Routes', () => {
             expect(mockMatchSvc.bulkApprove).toHaveBeenCalledWith([1, 2], 42, 1);
         });
 
-        it('rejects empty ids array with 422', async () => {
+        it('rejects empty ids array with 400', async () => {
             const res = await request(app)
                 .post('/api/vendor-match-suggestions/bulk-approve')
                 .send({ ids: [] });
-            expect(res.status).toBe(422);
+            expect(res.status).toBe(400);
         });
 
-        it('rejects missing ids with 422', async () => {
+        it('rejects missing ids with 400', async () => {
             const res = await request(app)
                 .post('/api/vendor-match-suggestions/bulk-approve')
                 .send({});
-            expect(res.status).toBe(422);
+            expect(res.status).toBe(400);
         });
 
-        it('rejects non-integer ids with 422', async () => {
+        it('rejects non-integer ids with 400', async () => {
             const res = await request(app)
                 .post('/api/vendor-match-suggestions/bulk-approve')
                 .send({ ids: ['abc', 1] });
-            expect(res.status).toBe(422);
+            expect(res.status).toBe(400);
         });
     });
 
