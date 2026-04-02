@@ -10,10 +10,9 @@
     /* Page-specific: full-screen layout, no padding */
     body { min-height: 100vh; padding: 0; }
 
-    /* Page-specific: block header, dark gradient, sticky, compact padding */
+    /* Page-specific: block layout (not flex), sticky, compact padding — gradient via .header-dark */
     .header {
       display: block;
-      background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
       padding: 15px 20px;
       position: sticky;
       top: 0;
@@ -239,7 +238,7 @@
   </style>
 </head>
 <body>
-  <div class="header">
+  <div class="header header-dark">
     <div class="header-top">
       <h1 id="routeTitle">Today's Route</h1>
       <div style="display: flex; gap: 15px; align-items: center;">

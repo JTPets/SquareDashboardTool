@@ -158,7 +158,8 @@
       border-bottom: 1px solid #374151;
     }
 
-    .stat-number.alert {
+    /* Page-specific: red color for alert-level stats (not .alert from shared.css) */
+    .stat-number.stat-alert {
       color: #ef4444;
     }
 
@@ -552,11 +553,11 @@
           <div class="stat-label">Inventory Value (COG)</div>
         </div>
         <div class="stat">
-          <div class="stat-number loading-placeholder alert" id="stat-out-of-stock">--</div>
+          <div class="stat-number loading-placeholder stat-alert" id="stat-out-of-stock">--</div>
           <div class="stat-label">Out of Stock</div>
         </div>
         <div class="stat">
-          <div class="stat-number loading-placeholder alert" id="stat-alerts">--</div>
+          <div class="stat-number loading-placeholder stat-alert" id="stat-alerts">--</div>
           <div class="stat-label">Reorder Alerts</div>
         </div>
       </div>
@@ -568,7 +569,7 @@
           <div class="stat-label">With Expiry Data</div>
         </div>
         <div class="stat clickable" data-action="navigate" data-action-param="expiry-audit.html" title="Open expiry audit tool">
-          <div class="stat-number loading-placeholder alert" id="stat-expiring-soon">--</div>
+          <div class="stat-number loading-placeholder stat-alert" id="stat-expiring-soon">--</div>
           <div class="stat-label">Expiring &lt; 120 Days</div>
         </div>
         <div class="stat">
