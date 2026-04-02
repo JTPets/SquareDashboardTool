@@ -217,7 +217,7 @@ body {
 }
 
 .header {
-  background: #2563eb;
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
   color: white;
   padding: 20px;
   display: flex;
@@ -1116,30 +1116,6 @@ tr:hover {
 .container-xl      { max-width: 1600px; }
 .container-xxl     { max-width: 1800px; }
 
-/* =============================================================
-   Header Gradient Variants
-   Colored header backgrounds. Base .header is blue (#2563eb).
-   ============================================================= */
-
-.header-purple {
-  background: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
-}
-
-.header-green {
-  background: linear-gradient(135deg, #059669 0%, #047857 100%);
-}
-
-.header-dark {
-  background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
-}
-
-.header-danger {
-  background: linear-gradient(135deg, #dc2626 0%, #f59e0b 100%);
-}
-
-.header-indigo {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-}
 
 /* =============================================================
    Button Variants
