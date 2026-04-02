@@ -61,7 +61,7 @@ const { runScheduledPodCleanup } = require('./pod-cleanup-job');
 const { runScheduledAutoMinMax } = require('./auto-min-max-job');
 const { runScheduledVendorMatchBackfill } = require('./vendor-match-backfill-job');
 const { runScheduledDeliveryAutoFinish, runScheduledDeliveryRetentionCleanup } = require('./delivery-auto-finish-job');
-const syncQueue = require('../services/sync-queue');
+const syncQueue = require('../services/infra/sync-queue');
 
 // Store cron task references for graceful shutdown
 const cronTasks = [];

@@ -58,7 +58,7 @@ const request = require('supertest');
 const express = require('express');
 const session = require('express-session');
 const db = require('../../utils/database');
-const platformSettings = require('../../services/platform-settings');
+const platformSettings = require('../../services/merchant/platform-settings');
 
 function createTestApp(userRole = 'admin') {
     const app = express();

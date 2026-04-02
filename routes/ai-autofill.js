@@ -28,7 +28,7 @@ const validators = require('../middleware/validators/ai-autofill');
 // LOGIC CHANGE: dedicated rate limiter for AI endpoints (Audit 3.4.1)
 const { configureAiAutofillRateLimit } = require('../middleware/security');
 const aiRateLimit = configureAiAutofillRateLimit();
-const aiAutofillService = require('../services/ai-autofill-service');
+const aiAutofillService = require('../services/ai-autofill/ai-autofill-service');
 const { batchUpdateCatalogContent } = require('../services/square/api');
 const { encryptToken, decryptToken } = require('../utils/token-encryption');
 

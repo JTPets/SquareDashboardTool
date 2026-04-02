@@ -21,7 +21,7 @@ jest.mock('../../utils/database', () => ({
 global.fetch = jest.fn();
 
 const db = require('../../utils/database');
-const service = require('../../services/ai-autofill-service');
+const service = require('../../services/ai-autofill/ai-autofill-service');
 
 describe('AI Autofill Service', () => {
     beforeEach(() => {

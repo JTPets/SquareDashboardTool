@@ -74,7 +74,7 @@ const request = require('supertest');
 const express = require('express');
 const session = require('express-session');
 const db = require('../../utils/database');
-const platformSettings = require('../../services/platform-settings');
+const platformSettings = require('../../services/merchant/platform-settings');
 const logger = require('../../utils/logger');
 
 // Build a minimal Express app with the OAuth router

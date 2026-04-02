@@ -11,8 +11,8 @@
  * 3. SEO Description - requires category + description + SEO title (no image)
  */
 
-const db = require('../utils/database');
-const logger = require('../utils/logger');
+const db = require('../../utils/database');
+const logger = require('../../utils/logger');
 
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
@@ -332,7 +332,7 @@ ${variationInfo}`;
 // generateContentBatched) should extract to services/ai-autofill-batch.js.
 // Refactor-on-touch per CLAUDE.md policy.
 // LOGIC CHANGE: use centralized config from constants (C-1)
-const { AI_AUTOFILL, RETRY: { MAX_ATTEMPTS: MAX_RETRIES } } = require('../config/constants');
+const { AI_AUTOFILL, RETRY: { MAX_ATTEMPTS: MAX_RETRIES } } = require('../../config/constants');
 const BATCH_SIZE = AI_AUTOFILL.BATCH_SIZE;
 const BATCH_DELAY_MS = AI_AUTOFILL.BATCH_DELAY_MS;
 const RATE_LIMIT_RETRY_DELAY_MS = AI_AUTOFILL.RATE_LIMIT_RETRY_DELAY_MS;

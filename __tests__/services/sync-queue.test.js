@@ -2,7 +2,7 @@
  * Tests for sync-queue service
  */
 
-const syncQueue = require('../../services/sync-queue');
+const syncQueue = require('../../services/infra/sync-queue');
 
 // Mock logger to avoid console noise during tests
 jest.mock('../../utils/logger', () => ({
