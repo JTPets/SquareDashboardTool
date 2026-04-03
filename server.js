@@ -49,7 +49,7 @@ let httpServer = null;
 
 // Sync queue is now managed by services/sync-queue.js
 // Webhook processing is now handled by services/webhook-processor.js
-const syncQueue = require('./services/sync-queue');
+const syncQueue = require('./services/infra/sync-queue');
 
 const squareApi = require('./services/square');
 const logger = require('./utils/logger');
@@ -339,7 +339,7 @@ const subscriptionExcludedPaths = [
     '/gmc/local-inventory-feed.tsv'
 ];
 
-const platformSettings = require('./services/platform-settings');
+const platformSettings = require('./services/merchant/platform-settings');
 
 const subscriptionEnforcementMiddleware = async (req, res, next) => {
     // Only apply to API routes

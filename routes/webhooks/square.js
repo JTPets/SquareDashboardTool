@@ -9,7 +9,7 @@
 
 const express = require('express');
 const router = express.Router();
-const webhookProcessor = require('../../services/webhook-processor');
+const webhookProcessor = require('../../services/webhook-handlers/webhook-processor');
 const { configureWebhookRateLimit } = require('../../middleware/security');
 
 // P1-8: Apply rate limiting to webhook endpoint
