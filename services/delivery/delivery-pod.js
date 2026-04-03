@@ -150,6 +150,15 @@ async function getPodPhoto(merchantId, podId) {
     }
 
     pod.full_path = resolvedPath;
+
+    // Verify file exists on disk before returning (avoids 500 at serve time)
+    try {
+        await fs.access(resolvedPath);
+    } catch {
+        logger.warn('POD file missing from disk', { merchantId, podId });
+        return null;
+    }
+
     return pod;
 }
 

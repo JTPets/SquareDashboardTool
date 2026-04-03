@@ -110,23 +110,10 @@ router.post('/orders', deliveryRateLimit, requireAuth, requireMerchant, validato
         return sendError(res, 'Customer name and address are required', 400);
     }
 
-    const order = await deliveryApi.createOrder(merchantId, {
-        customerName,
-        address,
-        phone,
-        notes
-    });
+    const order = await deliveryApi.createOrder(merchantId, { customerName, address, phone, notes });
 
-    // Attempt geocoding
-    const settings = await deliveryApi.getSettings(merchantId);
-    const coords = await deliveryApi.geocodeAddress(address, settings?.openrouteservice_api_key);
-
+    const coords = await deliveryApi.geocodeAndPatchOrder(merchantId, order.id, address);
     if (coords) {
-        await deliveryApi.updateOrder(merchantId, order.id, {
-            addressLat: coords.lat,
-            addressLng: coords.lng,
-            geocodedAt: new Date()
-        });
         order.address_lat = coords.lat;
         order.address_lng = coords.lng;
         order.geocoded_at = new Date();
@@ -175,22 +162,8 @@ router.patch('/orders/:id', deliveryRateLimit, requireAuth, requireMerchant, val
         return sendError(res, 'Order not found', 404);
     }
 
-    // Re-geocode if address changed
     if (req.body.address) {
-        const settings = await deliveryApi.getSettings(merchantId);
-        const coords = await deliveryApi.geocodeAddress(req.body.address, settings?.openrouteservice_api_key);
-
-        if (coords) {
-            await deliveryApi.updateOrder(merchantId, order.id, {
-                addressLat: coords.lat,
-                addressLng: coords.lng,
-                geocodedAt: new Date()
-            });
-        } else {
-            logger.warn('Geocoding failed for updated address, coordinates not updated', {
-                merchantId, orderId: order.id, address: req.body.address
-            });
-        }
+        await deliveryApi.geocodeAndPatchOrder(merchantId, order.id, req.body.address);
     }
 
     sendSuccess(res, { order });
@@ -359,14 +332,6 @@ router.get('/pod/:id', requireAuth, requireMerchant, validators.getPod, asyncHan
         return sendError(res, 'POD not found', 404);
     }
 
-    // Serve the file
-    const fsPromises = require('fs').promises;
-    try {
-        await fsPromises.access(pod.full_path);
-    } catch {
-        return sendError(res, 'POD file not found', 404);
-    }
-
     res.setHeader('Content-Type', pod.mime_type || 'image/jpeg');
     res.setHeader('Content-Disposition', `inline; filename="${pod.original_filename || 'pod.jpg'}"`);
     res.sendFile(pod.full_path);
@@ -492,20 +457,7 @@ router.post('/geocode', deliveryStrictRateLimit, requireAuth, requireMerchant, v
  */
 router.get('/settings', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    let settings = await deliveryApi.getSettings(merchantId);
-
-    // Return defaults if no settings exist
-    if (!settings) {
-        settings = {
-            merchant_id: merchantId,
-            start_address: null,
-            end_address: null,
-            same_day_cutoff: '17:00',
-            pod_retention_days: 180,
-            auto_ingest_ready_orders: true
-        };
-    }
-
+    const settings = await deliveryApi.getSettingsWithDefaults(merchantId);
     sendSuccess(res, { settings });
 }));
 
@@ -515,57 +467,11 @@ router.get('/settings', requireAuth, requireMerchant, asyncHandler(async (req, r
  */
 router.put('/settings', deliveryRateLimit, requireAuth, requireMerchant, validators.updateSettings, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const {
-        startAddress,
-        endAddress,
-        sameDayCutoff,
-        podRetentionDays,
-        autoIngestReadyOrders,
-        openrouteserviceApiKey
-    } = req.body;
-
-    // Geocode start and end addresses if provided
-    let startLat = null, startLng = null, endLat = null, endLng = null;
-
-    if (startAddress || endAddress) {
-        const currentSettings = await deliveryApi.getSettings(merchantId);
-        const apiKey = currentSettings?.openrouteservice_api_key || openrouteserviceApiKey;
-
-        if (startAddress) {
-            const coords = await deliveryApi.geocodeAddress(startAddress, apiKey);
-            if (coords) {
-                startLat = coords.lat;
-                startLng = coords.lng;
-            }
-        }
-
-        if (endAddress) {
-            const coords = await deliveryApi.geocodeAddress(endAddress, apiKey);
-            if (coords) {
-                endLat = coords.lat;
-                endLng = coords.lng;
-            }
-        }
-    }
-
-    const settings = await deliveryApi.updateSettings(merchantId, {
-        startAddress,
-        startAddressLat: startLat,
-        startAddressLng: startLng,
-        endAddress,
-        endAddressLat: endLat,
-        endAddressLng: endLng,
-        sameDayCutoff,
-        podRetentionDays,
-        autoIngestReadyOrders,
-        openrouteserviceApiKey
-    });
-
+    const settings = await deliveryApi.updateSettingsWithGeocode(merchantId, req.body);
     await deliveryApi.logAuditEvent(merchantId, req.session.user.id, 'settings_updated', null, null, {
-        startAddress: !!startAddress,
-        endAddress: !!endAddress
+        startAddress: !!req.body.startAddress,
+        endAddress: !!req.body.endAddress
     }, req.ip, req.get('user-agent'));
-
     sendSuccess(res, { settings });
 }));
 

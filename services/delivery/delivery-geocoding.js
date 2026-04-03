@@ -7,8 +7,9 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
-const { getSettings } = require('./delivery-settings');
+const { getSettings, updateSettings } = require('./delivery-settings');
 const { ORS_BASE_URL, ORS_API_KEY } = require('./delivery-utils');
+const { updateOrder } = require('./delivery-orders');
 
 /**
  * Geocode an address using OpenRouteService
@@ -100,7 +101,70 @@ async function geocodePendingOrders(merchantId, limit = 10) {
     return results;
 }
 
+/**
+ * Geocode an address and update the delivery order's coordinates.
+ * Fetches the merchant's ORS key automatically.
+ * @param {number} merchantId
+ * @param {string} orderId
+ * @param {string} address
+ * @returns {Promise<{lat, lng}|null>} Coordinates if geocoding succeeded, else null
+ */
+async function geocodeAndPatchOrder(merchantId, orderId, address) {
+    const settings = await getSettings(merchantId);
+    const coords = await geocodeAddress(address, settings?.openrouteservice_api_key);
+    if (!coords) {
+        logger.warn('Geocoding failed for address, coordinates not updated', { merchantId, orderId, address });
+        return null;
+    }
+    await updateOrder(merchantId, orderId, { addressLat: coords.lat, addressLng: coords.lng, geocodedAt: new Date() });
+    return coords;
+}
+
+/**
+ * Geocode start/end addresses in settings body then persist the full settings update.
+ * @param {number} merchantId
+ * @param {Object} body - Body from PUT /settings (camelCase field names)
+ * @returns {Promise<Object>} Updated settings row
+ */
+async function updateSettingsWithGeocode(merchantId, body) {
+    const {
+        startAddress, endAddress, sameDayCutoff, podRetentionDays,
+        autoIngestReadyOrders, openrouteserviceApiKey
+    } = body;
+
+    let startLat = null, startLng = null, endLat = null, endLng = null;
+
+    if (startAddress || endAddress) {
+        const currentSettings = await getSettings(merchantId);
+        const apiKey = currentSettings?.openrouteservice_api_key || openrouteserviceApiKey;
+
+        if (startAddress) {
+            const coords = await geocodeAddress(startAddress, apiKey);
+            if (coords) { startLat = coords.lat; startLng = coords.lng; }
+        }
+        if (endAddress) {
+            const coords = await geocodeAddress(endAddress, apiKey);
+            if (coords) { endLat = coords.lat; endLng = coords.lng; }
+        }
+    }
+
+    return updateSettings(merchantId, {
+        startAddress,
+        startAddressLat: startLat,
+        startAddressLng: startLng,
+        endAddress,
+        endAddressLat: endLat,
+        endAddressLng: endLng,
+        sameDayCutoff,
+        podRetentionDays,
+        autoIngestReadyOrders,
+        openrouteserviceApiKey
+    });
+}
+
 module.exports = {
     geocodeAddress,
-    geocodePendingOrders
+    geocodePendingOrders,
+    geocodeAndPatchOrder,
+    updateSettingsWithGeocode
 };
