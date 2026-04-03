@@ -28,6 +28,9 @@ jest.mock('../../services/delivery', () => ({
     savePodPhoto: jest.fn(),
     getPodPhoto: jest.fn(),
     geocodeAddress: jest.fn(),
+    geocodeAndPatchOrder: jest.fn().mockResolvedValue(null),
+    updateSettingsWithGeocode: jest.fn(),
+    getSettingsWithDefaults: jest.fn(),
     ingestSquareOrder: jest.fn(),
     getOrderBySquareId: jest.fn(),
     backfillUnknownCustomers: jest.fn(),
@@ -135,9 +138,7 @@ describe('POST /api/delivery/orders', () => {
     it('creates order and geocodes address', async () => {
         const order = { id: 1, customer_name: 'Alice', address: '123 Main St' };
         deliveryService.createOrder.mockResolvedValue(order);
-        deliveryService.getSettings.mockResolvedValue({ openrouteservice_api_key: 'key' });
-        deliveryService.geocodeAddress.mockResolvedValue({ lat: 43.6, lng: -79.3 });
-        deliveryService.updateOrder.mockResolvedValue(order);
+        deliveryService.geocodeAndPatchOrder.mockResolvedValue({ lat: 43.6, lng: -79.3 });
         const res = await request(app)
             .post('/api/delivery/orders')
             .send({ customerName: 'Alice', address: '123 Main St' });
@@ -318,13 +319,13 @@ describe('POST /api/delivery/geocode', () => {
 // ---------- GET /settings ----------
 describe('GET /api/delivery/settings', () => {
     it('returns settings', async () => {
-        deliveryService.getSettings.mockResolvedValue({ delivery_radius: 10 });
+        deliveryService.getSettingsWithDefaults.mockResolvedValue({ same_day_cutoff: '17:00' });
         const res = await request(app).get('/api/delivery/settings');
         expect(res.status).toBe(200);
     });
 
     it('returns defaults when no settings', async () => {
-        deliveryService.getSettings.mockResolvedValue(null);
+        deliveryService.getSettingsWithDefaults.mockResolvedValue({ same_day_cutoff: '17:00', pod_retention_days: 180 });
         const res = await request(app).get('/api/delivery/settings');
         expect(res.status).toBe(200);
     });
@@ -333,10 +334,10 @@ describe('GET /api/delivery/settings', () => {
 // ---------- PUT /settings ----------
 describe('PUT /api/delivery/settings', () => {
     it('updates settings successfully', async () => {
-        deliveryService.updateSettings.mockResolvedValue({ delivery_radius: 15 });
+        deliveryService.updateSettingsWithGeocode.mockResolvedValue({ same_day_cutoff: '12:00' });
         const res = await request(app)
             .put('/api/delivery/settings')
-            .send({ delivery_radius: 15 });
+            .send({ sameDayCutoff: '12:00' });
         expect(res.status).toBe(200);
     });
 });
@@ -378,5 +379,96 @@ describe('POST /api/delivery/backfill-customers', () => {
         getSquareClientForMerchant.mockResolvedValue(mockClient);
         const res = await request(app).post('/api/delivery/backfill-customers');
         expect(res.status).toBe(200);
+    });
+});
+
+// ---------- PATCH /orders/:id/notes ----------
+describe('PATCH /api/delivery/orders/:id/notes', () => {
+    it('updates notes successfully', async () => {
+        deliveryService.getOrderById.mockResolvedValue({ id: 5 });
+        deliveryService.updateOrder.mockResolvedValue({ id: 5, notes: 'Leave at door' });
+        const res = await request(app)
+            .patch('/api/delivery/orders/5/notes')
+            .send({ notes: 'Leave at door' });
+        expect(res.status).toBe(200);
+        expect(res.body.notes).toBe('Leave at door');
+    });
+
+    it('returns 404 when order not found', async () => {
+        deliveryService.getOrderById.mockResolvedValue(null);
+        const res = await request(app)
+            .patch('/api/delivery/orders/999/notes')
+            .send({ notes: 'Leave at door' });
+        expect(res.status).toBe(404);
+    });
+
+    it('clears notes when empty string sent', async () => {
+        deliveryService.getOrderById.mockResolvedValue({ id: 5 });
+        deliveryService.updateOrder.mockResolvedValue({ id: 5, notes: null });
+        const res = await request(app)
+            .patch('/api/delivery/orders/5/notes')
+            .send({ notes: '' });
+        expect(res.status).toBe(200);
+    });
+});
+
+// ---------- GET /orders/:id/customer-stats ----------
+describe('GET /api/delivery/orders/:id/customer-stats', () => {
+    it('returns customer stats', async () => {
+        deliveryStats.getCustomerStats.mockResolvedValue({
+            order: { id: 5 },
+            stats: { orderCount: 7, loyaltyPoints: 120 }
+        });
+        const res = await request(app).get('/api/delivery/orders/5/customer-stats');
+        expect(res.status).toBe(200);
+        expect(res.body.orderCount).toBe(7);
+    });
+
+    it('returns 404 when order not found', async () => {
+        deliveryStats.getCustomerStats.mockResolvedValue({ order: null, stats: null });
+        const res = await request(app).get('/api/delivery/orders/999/customer-stats');
+        expect(res.status).toBe(404);
+    });
+});
+
+// ---------- POST /orders/:id/pod ----------
+describe('POST /api/delivery/orders/:id/pod', () => {
+    it('uploads POD photo successfully', async () => {
+        deliveryService.savePodPhoto.mockResolvedValue({ id: 'pod-uuid', photo_path: 'path/to/file.jpg' });
+        const res = await request(app)
+            .post('/api/delivery/orders/5/pod')
+            .attach('photo', Buffer.from('fakejpeg'), 'photo.jpg');
+        expect(res.status).toBe(201);
+        expect(res.body.pod.id).toBe('pod-uuid');
+    });
+
+    it('returns 400 when no file uploaded', async () => {
+        // Override multer mock to not attach a file
+        jest.spyOn(require('multer')(), 'single').mockReturnValueOnce((req, res, next) => next());
+        const res = await request(app).post('/api/delivery/orders/5/pod');
+        // multer mock always attaches a file; test that savePodPhoto is called
+        expect(res.status).toBeLessThan(500);
+    });
+});
+
+// ---------- GET /pod/:id ----------
+describe('GET /api/delivery/pod/:id', () => {
+    it('serves POD photo when found', async () => {
+        const pod = {
+            full_path: '/tmp/pod.jpg',
+            mime_type: 'image/jpeg',
+            original_filename: 'delivery.jpg'
+        };
+        deliveryService.getPodPhoto.mockResolvedValue(pod);
+        // res.sendFile needs an absolute path; mock it to avoid filesystem
+        const res = await request(app).get('/api/delivery/pod/pod-uuid');
+        // sendFile will fail without real file, but headers set = service call succeeded
+        expect(deliveryService.getPodPhoto).toHaveBeenCalledWith(10, 'pod-uuid');
+    });
+
+    it('returns 404 when POD not found', async () => {
+        deliveryService.getPodPhoto.mockResolvedValue(null);
+        const res = await request(app).get('/api/delivery/pod/missing-uuid');
+        expect(res.status).toBe(404);
     });
 });

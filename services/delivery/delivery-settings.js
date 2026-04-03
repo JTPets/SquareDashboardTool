@@ -142,8 +142,27 @@ async function updateSettings(merchantId, settings) {
     return updatedSettings;
 }
 
+/**
+ * Get delivery settings, returning sensible defaults when no row exists yet.
+ * @param {number} merchantId
+ * @returns {Promise<Object>} Settings (real or defaults)
+ */
+async function getSettingsWithDefaults(merchantId) {
+    const settings = await getSettings(merchantId);
+    if (settings) return settings;
+    return {
+        merchant_id: merchantId,
+        start_address: null,
+        end_address: null,
+        same_day_cutoff: '17:00',
+        pod_retention_days: 180,
+        auto_ingest_ready_orders: true
+    };
+}
+
 module.exports = {
     getSettings,
+    getSettingsWithDefaults,
     _decryptOrsKey,
     updateSettings
 };

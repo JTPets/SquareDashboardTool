@@ -22,6 +22,15 @@ jest.mock('../../utils/token-encryption', () => ({
     isEncryptedToken: jest.fn(() => false)
 }));
 
+jest.mock('fs', () => ({
+    promises: {
+        access: jest.fn().mockResolvedValue(undefined),
+        mkdir: jest.fn().mockResolvedValue(undefined),
+        writeFile: jest.fn().mockResolvedValue(undefined),
+        unlink: jest.fn().mockResolvedValue(undefined)
+    }
+}));
+
 jest.mock('../../services/loyalty-admin/customer-identification-service', () => ({
     LoyaltyCustomerService: jest.fn()
 }));

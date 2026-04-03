@@ -30,7 +30,8 @@ jest.mock('../../../services/loyalty-admin/customer-details-service', () => ({
 const mockFs = {
     mkdir: jest.fn().mockResolvedValue(),
     writeFile: jest.fn().mockResolvedValue(),
-    unlink: jest.fn().mockResolvedValue()
+    unlink: jest.fn().mockResolvedValue(),
+    access: jest.fn().mockResolvedValue()
 };
 jest.mock('fs', () => ({ promises: mockFs }));
 
