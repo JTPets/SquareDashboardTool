@@ -12,6 +12,8 @@ module.exports = {
     ...require('./delivery-routes'),
     ...require('./delivery-tokens'),
     ...require('./delivery-square'),
+    ...require('./delivery-fulfillment'),
+    ...require('./delivery-sync'),
     ...require('./delivery-backfill'),
     ...require('./delivery-settings'),
     ...require('./delivery-audit'),

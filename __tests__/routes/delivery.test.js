@@ -31,6 +31,8 @@ jest.mock('../../services/delivery', () => ({
     ingestSquareOrder: jest.fn(),
     getOrderBySquareId: jest.fn(),
     backfillUnknownCustomers: jest.fn(),
+    completeDeliveryInSquare: jest.fn().mockResolvedValue({ squareSynced: false, squareSyncError: null }),
+    syncSquareOrders: jest.fn(),
 }));
 jest.mock('../../services/square', () => ({
     generateIdempotencyKey: jest.fn(() => 'idem-key'),
@@ -217,13 +219,13 @@ describe('POST /api/delivery/orders/:id/complete', () => {
         expect(res.status).toBe(200);
     });
 
-    it('completes order with square order id', async () => {
+    it('completes order with square order id and syncs to Square', async () => {
         deliveryService.getOrderById.mockResolvedValue({ id: 5, status: 'pending', square_order_id: 'sq-123' });
+        deliveryService.completeDeliveryInSquare.mockResolvedValue({ squareSynced: true, squareSyncError: null });
         deliveryService.completeOrder.mockResolvedValue({ id: 5, status: 'completed', square_order_id: 'sq-123' });
-        const res = await request(app)
-            .post('/api/delivery/orders/5/complete')
-            .send({ square_order_id: 'sq-123' });
+        const res = await request(app).post('/api/delivery/orders/5/complete');
         expect(res.status).toBe(200);
+        expect(res.body.square_synced).toBe(true);
     });
 });
 
@@ -360,12 +362,11 @@ describe('GET /api/delivery/stats', () => {
 // ---------- POST /sync ----------
 describe('POST /api/delivery/sync', () => {
     it('syncs orders from Square', async () => {
-        const mockClient = { orders: { search: jest.fn().mockResolvedValue({ orders: [] }) } };
-        getSquareClientForMerchant.mockResolvedValue(mockClient);
-        deliveryStats.getLocationIds.mockResolvedValue(['loc-1']);
-        deliveryService.ingestSquareOrder.mockResolvedValue({ id: 1 });
+        deliveryService.syncSquareOrders.mockResolvedValue({ found: 3, imported: 2, skipped: 1 });
         const res = await request(app).post('/api/delivery/sync');
         expect(res.status).toBe(200);
+        expect(res.body.found).toBe(3);
+        expect(res.body.imported).toBe(2);
     });
 });
 
