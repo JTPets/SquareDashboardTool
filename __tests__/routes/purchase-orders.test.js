@@ -455,7 +455,7 @@ describe('Purchase Orders Routes', () => {
 
         test('records received quantities successfully', async () => {
             // poCheck query
-            db.query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 1, status: 'SUBMITTED' }] });
 
             mockReceiveTransaction({ itemCount: 2, costDiffs: [] });
 
@@ -473,7 +473,7 @@ describe('Purchase Orders Routes', () => {
 
         test('PO receive updates vendor cost when PO cost differs (0b)', async () => {
             // poCheck query
-            db.query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 1, status: 'SUBMITTED' }] });
 
             const costDiffs = [
                 { variation_id: 'VAR1', unit_cost_cents: 1200, current_vendor_cost: 1000 }
@@ -518,7 +518,7 @@ describe('Purchase Orders Routes', () => {
         });
 
         test('PO receive skips vendor cost update when costs match (0b)', async () => {
-            db.query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 1, status: 'SUBMITTED' }] });
 
             const costDiffs = [
                 { variation_id: 'VAR1', unit_cost_cents: 1000, current_vendor_cost: 1000 }
@@ -554,7 +554,7 @@ describe('Purchase Orders Routes', () => {
 
         test('flags expiry-discounted items for re-audit on receive (EXPIRY-REORDER-AUDIT)', async () => {
             // poCheck query
-            db.query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 1, status: 'SUBMITTED' }] });
 
             mockReceiveTransaction({ itemCount: 1, costDiffs: [] });
 
@@ -578,7 +578,7 @@ describe('Purchase Orders Routes', () => {
 
         test('receive succeeds even if expiry flag query fails (EXPIRY-REORDER-AUDIT)', async () => {
             // poCheck query
-            db.query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 1, status: 'SUBMITTED' }] });
 
             mockReceiveTransaction({ itemCount: 1, costDiffs: [] });
 

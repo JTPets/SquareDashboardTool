@@ -2,8 +2,9 @@
 
 /**
  * Purchase Order Routes — CRUD, status transitions, receive, and exports.
- * CRUD/status logic delegated to services/purchase-orders/po-service.js.
- * TODO: receive → po-receive-service.js, exports → po-export-service.js
+ * CRUD/status: services/purchase-orders/po-service.js
+ * Receive: services/purchase-orders/po-receive-service.js
+ * TODO: exports → po-export-service.js
  */
 
 const express = require('express');
@@ -17,6 +18,7 @@ const { escapeCSVField, formatDateForSquare, formatMoney, formatGTIN, UTF8_BOM }
 const validators = require('../middleware/validators/purchase-orders');
 const { sendSuccess, sendError } = require('../utils/response-helper');
 const poService = require('../services/purchase-orders/po-service');
+const poReceiveService = require('../services/purchase-orders/po-receive-service');
 
 // POST /api/purchase-orders — Create PO
 router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, asyncHandler(async (req, res) => {
@@ -75,88 +77,15 @@ router.post('/:id/submit', requireAuth, requireMerchant, validators.submitPurcha
     sendSuccess(res, { status: 'success', purchase_order: po });
 }));
 
-// POST /api/purchase-orders/:id/receive — Record received quantities (TODO: po-receive-service)
+// POST /api/purchase-orders/:id/receive — Record received quantities
 router.post('/:id/receive', requireAuth, requireMerchant, validators.receivePurchaseOrder, asyncHandler(async (req, res) => {
-    const { id } = req.params;
-    const { items } = req.body;
-    const merchantId = req.merchantContext.id;
-
-    const poCheck = await db.query(
-        'SELECT id FROM purchase_orders WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
-    if (poCheck.rows.length === 0) return sendError(res, 'Purchase order not found', 404);
-
-    await db.transaction(async (client) => {
-        for (const item of items) {
-            await client.query(
-                'UPDATE purchase_order_items SET received_quantity = $1 WHERE id = $2 AND purchase_order_id = $3 AND merchant_id = $4',
-                [item.received_quantity, item.id, id, merchantId]);
-        }
-
-        // LOGIC CHANGE: PO receive updates vendor cost so reorder page reflects actual costs paid
-        const poVendorResult = await client.query(
-            'SELECT vendor_id FROM purchase_orders WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
-        const poVendorId = poVendorResult.rows[0]?.vendor_id;
-        if (poVendorId) {
-            const poItemIds = items.map(item => item.id).filter(Boolean);
-            const costDiffs = await client.query(`
-                SELECT poi.variation_id, poi.unit_cost_cents, vv.unit_cost_money as current_vendor_cost
-                FROM purchase_order_items poi
-                LEFT JOIN variation_vendors vv ON poi.variation_id = vv.variation_id
-                    AND vv.vendor_id = $3 AND vv.merchant_id = $4
-                WHERE poi.id = ANY($1) AND poi.purchase_order_id = $2 AND poi.merchant_id = $4
-            `, [poItemIds, id, poVendorId, merchantId]);
-            for (const row of costDiffs.rows) {
-                if (row.unit_cost_cents !== row.current_vendor_cost) {
-                    await client.query(`
-                        INSERT INTO variation_vendors (variation_id, vendor_id, unit_cost_money, currency, merchant_id, updated_at)
-                        VALUES ($1, $2, $3, 'CAD', $4, CURRENT_TIMESTAMP)
-                        ON CONFLICT (variation_id, vendor_id, merchant_id) DO UPDATE SET
-                            unit_cost_money = EXCLUDED.unit_cost_money, updated_at = CURRENT_TIMESTAMP
-                    `, [row.variation_id, poVendorId, row.unit_cost_cents, merchantId]);
-                }
-            }
-        }
-
-        const checkResult = await client.query(`
-            SELECT COUNT(*) as total,
-                   COUNT(CASE WHEN received_quantity >= quantity_ordered THEN 1 END) as received
-            FROM purchase_order_items WHERE purchase_order_id = $1 AND merchant_id = $2
-        `, [id, merchantId]);
-        const { total, received } = checkResult.rows[0];
-        if (parseInt(total) === parseInt(received)) {
-            await client.query(
-                "UPDATE purchase_orders SET status = 'RECEIVED', actual_delivery_date = CURRENT_DATE, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND merchant_id = $2",
-                [id, merchantId]);
-        } else {
-            await client.query(
-                "UPDATE purchase_orders SET status = 'PARTIAL', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND merchant_id = $2",
-                [id, merchantId]);
-        }
-    });
-
-    // LOGIC CHANGE: Flag items with active expiry discounts for re-audit (EXPIRY-REORDER-AUDIT)
-    const receivedItemIds = items.map(item => item.id).filter(Boolean);
-    if (receivedItemIds.length > 0) {
-        try {
-            const flagResult = await db.query(`
-                UPDATE variation_discount_status SET needs_manual_review = TRUE, updated_at = NOW()
-                WHERE variation_id IN (
-                    SELECT variation_id FROM purchase_order_items
-                    WHERE id = ANY($1) AND purchase_order_id = $2 AND merchant_id = $3
-                ) AND merchant_id = $3
-                  AND current_tier_id IN (SELECT id FROM expiry_discount_tiers WHERE tier_code IN ('AUTO25', 'AUTO50') AND merchant_id = $3)
-                  AND needs_manual_review = FALSE
-            `, [receivedItemIds, id, merchantId]);
-            if (flagResult.rowCount > 0) logger.info('Flagged expiry-discounted items for re-audit after PO receiving',
-                { merchantId, purchaseOrderId: id, flaggedCount: flagResult.rowCount });
-        } catch (flagError) {
-            logger.warn('Failed to flag items for expiry re-audit during PO receiving',
-                { merchantId, purchaseOrderId: id, error: flagError.message });
-        }
+    let po;
+    try {
+        po = await poReceiveService.receiveItems(req.merchantContext.id, req.params.id, req.body.items);
+    } catch (err) {
+        return sendError(res, err.message, err.statusCode || 500);
     }
-
-    const result = await db.query('SELECT * FROM purchase_orders WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
-    sendSuccess(res, { status: 'success', purchase_order: result.rows[0] });
+    sendSuccess(res, { status: 'success', purchase_order: po });
 }));
 
 // DELETE /api/purchase-orders/:id — Delete DRAFT PO
