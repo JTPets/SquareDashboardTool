@@ -55,6 +55,7 @@ const request = require('supertest');
 const express = require('express');
 const db = require('../../utils/database');
 const discountService = require('../../services/expiry/discount-service');
+const ExcelJS = require('exceljs');
 
 let app;
 
@@ -124,6 +125,15 @@ beforeEach(() => {
     // Re-apply default for discount service
     discountService.clearExpiryDiscountForReorder.mockResolvedValue({ cleared: false });
     discountService.applyDiscounts.mockResolvedValue();
+    // Re-apply ExcelJS mock (jest.resetAllMocks clears factory mock implementations)
+    ExcelJS.Workbook.mockImplementation(() => ({
+        addWorksheet: jest.fn(() => ({
+            getCell: jest.fn(() => ({ value: null, numFmt: null })),
+            getRow: jest.fn(() => ({ values: [], font: null, getCell: jest.fn(() => ({ numFmt: null })) })),
+            columns: null,
+        })),
+        xlsx: { writeBuffer: jest.fn().mockResolvedValue(Buffer.from('test')) },
+    }));
     app = buildApp();
 });
 
