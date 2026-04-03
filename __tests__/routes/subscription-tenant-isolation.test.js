@@ -42,7 +42,7 @@ jest.mock('../../middleware/auth', () => ({
     requireAdmin: (req, res, next) => next(),
 }));
 
-jest.mock('../../services/subscription-bridge', () => ({
+jest.mock('../../services/subscriptions/subscription-bridge', () => ({
     linkSubscriberToMerchant: jest.fn(),
     activateMerchantSubscription: jest.fn(),
     resolveMerchantId: jest.fn(),
@@ -290,7 +290,7 @@ describe('CRIT-2/CRIT-4: Subscription tenant isolation', () => {
             };
             subscriptionHandler.getSubscriberByEmail.mockResolvedValueOnce(subscriber);
             subscriptionHandler.cancelSubscription.mockResolvedValueOnce(subscriber);
-            const subscriptionBridge = require('../../services/subscription-bridge');
+            const subscriptionBridge = require('../../services/subscriptions/subscription-bridge');
             subscriptionBridge.resolveMerchantId.mockResolvedValueOnce(3);
             subscriptionBridge.cancelMerchantSubscription.mockResolvedValueOnce({});
             subscriptionHandler.logEvent.mockResolvedValueOnce({});

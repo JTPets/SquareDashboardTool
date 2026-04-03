@@ -14,7 +14,7 @@ jest.mock('../../middleware/security', () => ({
 }));
 
 jest.mock('../../utils/database', () => ({ query: jest.fn() }));
-jest.mock('../../services/ai-autofill-service', () => ({
+jest.mock('../../services/ai-autofill/ai-autofill-service', () => ({
     getItemsWithReadiness: jest.fn(),
     getItemsForGeneration: jest.fn(),
     validateReadiness: jest.fn(),

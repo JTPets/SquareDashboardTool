@@ -49,7 +49,7 @@ jest.mock('../../services/square', () => ({
     batchUpdateVariationPrices: jest.fn(),
 }));
 
-jest.mock('../../services/vendor-dashboard', () => ({
+jest.mock('../../services/vendor/vendor-dashboard', () => ({
     getVendorDashboard: jest.fn(),
     updateVendorSettings: jest.fn(),
 }));

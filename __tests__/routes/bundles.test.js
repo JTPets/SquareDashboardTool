@@ -11,7 +11,7 @@ jest.mock('../../utils/logger', () => ({
     debug: jest.fn(),
 }));
 
-jest.mock('../../services/bundle-service', () => ({
+jest.mock('../../services/bundles/bundle-service', () => ({
     listBundles: jest.fn(),
     createBundle: jest.fn(),
     updateBundle: jest.fn(),
@@ -31,7 +31,7 @@ jest.mock('../../middleware/merchant', () => ({
 const request = require('supertest');
 const express = require('express');
 const session = require('express-session');
-const bundleService = require('../../services/bundle-service');
+const bundleService = require('../../services/bundles/bundle-service');
 
 function createTestApp() {
     const app = express();

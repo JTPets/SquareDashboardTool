@@ -22,7 +22,7 @@ const mockSubscriptionBridge = {
     cancelMerchantSubscription: jest.fn(),
     suspendMerchantSubscription: jest.fn()
 };
-jest.mock('../../../services/subscription-bridge', () => mockSubscriptionBridge);
+jest.mock('../../../services/subscriptions/subscription-bridge', () => mockSubscriptionBridge);
 
 const SubscriptionHandler = require('../../../services/webhook-handlers/subscription-handler');
 

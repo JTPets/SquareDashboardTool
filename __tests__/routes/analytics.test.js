@@ -57,7 +57,7 @@ jest.mock('../../utils/image-utils', () => ({
     batchResolveImageUrls: jest.fn().mockResolvedValue(new Map()),
 }));
 
-jest.mock('../../services/bundle-calculator', () => ({
+jest.mock('../../services/bundles/bundle-calculator', () => ({
     calculateOrderOptions: jest.fn().mockReturnValue([]),
 }));
 

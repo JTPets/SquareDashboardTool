@@ -14,7 +14,7 @@ jest.mock('../../utils/subscription-handler', () => ({
     logEvent: jest.fn().mockResolvedValue()
 }));
 
-jest.mock('../../services/subscription-bridge', () => ({
+jest.mock('../../services/subscriptions/subscription-bridge', () => ({
     resolveMerchantId: jest.fn(),
     activateMerchantSubscription: jest.fn().mockResolvedValue({ id: 5, subscription_status: 'active' }),
     suspendMerchantSubscription: jest.fn().mockResolvedValue({ id: 5, subscription_status: 'suspended' }),
@@ -29,7 +29,7 @@ jest.mock('../../utils/logger', () => ({
 }));
 
 const subscriptionHandler = require('../../utils/subscription-handler');
-const subscriptionBridge = require('../../services/subscription-bridge');
+const subscriptionBridge = require('../../services/subscriptions/subscription-bridge');
 const SubscriptionHandler = require('../../services/webhook-handlers/subscription-handler');
 
 const handler = new SubscriptionHandler();

@@ -62,7 +62,7 @@ const mockVendorDashboard = {
     getVendorDashboard: jest.fn(),
     updateVendorSettings: jest.fn(),
 };
-jest.mock('../../services/vendor-dashboard', () => mockVendorDashboard);
+jest.mock('../../services/vendor/vendor-dashboard', () => mockVendorDashboard);
 
 jest.mock('../../middleware/auth', () => ({
     requireAuth: (req, res, next) => {
