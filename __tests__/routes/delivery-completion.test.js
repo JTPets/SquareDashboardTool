@@ -24,10 +24,14 @@ jest.mock('../../utils/database', () => ({
     query: jest.fn(),
 }));
 
-jest.mock('../../services/delivery', () => ({
-    getOrderById: jest.fn(),
-    completeOrder: jest.fn(),
-}));
+jest.mock('../../services/delivery', () => {
+    const { completeDeliveryInSquare } = jest.requireActual('../../services/delivery/delivery-fulfillment');
+    return {
+        getOrderById: jest.fn(),
+        completeOrder: jest.fn(),
+        completeDeliveryInSquare,
+    };
+});
 
 jest.mock('../../middleware/merchant', () => ({
     requireMerchant: (req, res, next) => {
