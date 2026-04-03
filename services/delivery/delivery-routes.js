@@ -260,6 +260,16 @@ async function generateRoute(merchantId, userId, options = {}) {
  * @returns {Promise<Object>} Finished route stats
  */
 async function finishRoute(merchantId, routeId, userId) {
+    if (!routeId) {
+        const active = await getActiveRoute(merchantId);
+        if (!active) {
+            const err = new Error('No active route found');
+            err.status = 400;
+            throw err;
+        }
+        routeId = active.id;
+    }
+
     const client = await db.getClient();
     try {
         await client.query('BEGIN');
@@ -442,10 +452,26 @@ async function optimizeRoute(settings, orders) {
     }
 }
 
+/**
+ * Get the active route for a date together with its GTIN-enriched orders.
+ * Combines getActiveRoute + getRouteWithOrders for use by the route handler.
+ * @param {number} merchantId
+ * @param {string} [routeDate] - Defaults to today
+ * @returns {Promise<{route: Object|null, orders: Array}>}
+ */
+async function getActiveRouteWithOrders(merchantId, routeDate) {
+    const route = await getActiveRoute(merchantId, routeDate);
+    if (!route) return { route: null, orders: [] };
+    const routeWithOrders = await getRouteWithOrders(merchantId, route.id);
+    const orders = routeWithOrders?.orders || [];
+    return { route, orders };
+}
+
 module.exports = {
     getActiveRoute,
     getRouteWithOrders,
     generateRoute,
     finishRoute,
-    optimizeRoute
+    optimizeRoute,
+    getActiveRouteWithOrders
 };

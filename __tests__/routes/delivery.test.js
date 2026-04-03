@@ -36,6 +36,8 @@ jest.mock('../../services/delivery', () => ({
     backfillUnknownCustomers: jest.fn(),
     completeDeliveryInSquare: jest.fn().mockResolvedValue({ squareSynced: false, squareSyncError: null }),
     syncSquareOrders: jest.fn(),
+    updateOrderNotes: jest.fn(),
+    getActiveRouteWithOrders: jest.fn(),
 }));
 jest.mock('../../services/square', () => ({
     generateIdempotencyKey: jest.fn(() => 'idem-key'),
@@ -268,13 +270,13 @@ describe('POST /api/delivery/route/generate', () => {
 // ---------- GET /route/active ----------
 describe('GET /api/delivery/route/active', () => {
     it('returns active route', async () => {
-        deliveryService.getActiveRoute.mockResolvedValue({ id: 1, status: 'active' });
+        deliveryService.getActiveRouteWithOrders.mockResolvedValue({ route: { id: 1, status: 'active' }, orders: [] });
         const res = await request(app).get('/api/delivery/route/active');
         expect(res.status).toBe(200);
     });
 
     it('returns empty when no active route', async () => {
-        deliveryService.getActiveRoute.mockResolvedValue(null);
+        deliveryService.getActiveRouteWithOrders.mockResolvedValue({ route: null, orders: [] });
         const res = await request(app).get('/api/delivery/route/active');
         expect(res.status).toBe(200);
         expect(res.body.route).toBeNull();
@@ -385,8 +387,7 @@ describe('POST /api/delivery/backfill-customers', () => {
 // ---------- PATCH /orders/:id/notes ----------
 describe('PATCH /api/delivery/orders/:id/notes', () => {
     it('updates notes successfully', async () => {
-        deliveryService.getOrderById.mockResolvedValue({ id: 5 });
-        deliveryService.updateOrder.mockResolvedValue({ id: 5, notes: 'Leave at door' });
+        deliveryService.updateOrderNotes.mockResolvedValue({ notes: 'Leave at door' });
         const res = await request(app)
             .patch('/api/delivery/orders/5/notes')
             .send({ notes: 'Leave at door' });
@@ -395,7 +396,7 @@ describe('PATCH /api/delivery/orders/:id/notes', () => {
     });
 
     it('returns 404 when order not found', async () => {
-        deliveryService.getOrderById.mockResolvedValue(null);
+        deliveryService.updateOrderNotes.mockResolvedValue(null);
         const res = await request(app)
             .patch('/api/delivery/orders/999/notes')
             .send({ notes: 'Leave at door' });
@@ -403,8 +404,7 @@ describe('PATCH /api/delivery/orders/:id/notes', () => {
     });
 
     it('clears notes when empty string sent', async () => {
-        deliveryService.getOrderById.mockResolvedValue({ id: 5 });
-        deliveryService.updateOrder.mockResolvedValue({ id: 5, notes: null });
+        deliveryService.updateOrderNotes.mockResolvedValue({ notes: null });
         const res = await request(app)
             .patch('/api/delivery/orders/5/notes')
             .send({ notes: '' });
