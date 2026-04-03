@@ -11,7 +11,7 @@ jest.mock('../../utils/logger', () => ({
     debug: jest.fn(),
 }));
 
-jest.mock('../../services/bundle-service', () => ({
+jest.mock('../../services/bundles/bundle-service', () => ({
     listBundles: jest.fn(),
     createBundle: jest.fn(),
     updateBundle: jest.fn(),

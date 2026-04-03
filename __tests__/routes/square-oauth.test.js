@@ -26,7 +26,7 @@ jest.mock('../../utils/token-encryption', () => ({
 jest.mock('../../services/square', () => ({
     initializeCustomAttributes: jest.fn().mockResolvedValue({ definitions: [] }),
 }));
-jest.mock('../../services/platform-settings', () => ({
+jest.mock('../../services/merchant/platform-settings', () => ({
     getSetting: jest.fn(),
     setSetting: jest.fn(),
 }));

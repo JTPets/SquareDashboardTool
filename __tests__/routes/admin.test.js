@@ -32,7 +32,7 @@ jest.mock('../../middleware/auth', () => ({
     getClientIp: jest.fn(() => '127.0.0.1'),
 }));
 
-jest.mock('../../services/platform-settings', () => ({
+jest.mock('../../services/merchant/platform-settings', () => ({
     getSetting: jest.fn(),
     setSetting: jest.fn(),
     getAllSettings: jest.fn(),

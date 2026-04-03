@@ -21,7 +21,7 @@ jest.mock('../../utils/token-encryption', () => ({
     decryptToken: jest.fn(token => token.replace('encrypted_', '')),
 }));
 
-jest.mock('../../services/platform-settings', () => ({
+jest.mock('../../services/merchant/platform-settings', () => ({
     getSetting: jest.fn(),
 }));
 

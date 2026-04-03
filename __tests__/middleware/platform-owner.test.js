@@ -17,7 +17,7 @@ jest.mock('../../utils/database', () => ({
     query: jest.fn(),
 }));
 
-jest.mock('../../services/platform-settings', () => ({
+jest.mock('../../services/merchant/platform-settings', () => ({
     getSetting: jest.fn(),
     setSetting: jest.fn(),
     getAllSettings: jest.fn(),

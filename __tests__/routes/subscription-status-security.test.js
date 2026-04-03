@@ -34,7 +34,7 @@ jest.mock('../../middleware/auth', () => ({
     requireAdmin: (req, res, next) => next(),
 }));
 
-jest.mock('../../services/subscription-bridge', () => ({
+jest.mock('../../services/subscriptions/subscription-bridge', () => ({
     linkSubscriberToMerchant: jest.fn(),
 }));
 
