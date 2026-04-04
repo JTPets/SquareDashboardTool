@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Work Items](./WORK-ITEMS.md) | [Roadmap](./ROADMAP.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Updated**: 2026-03-31
+**Last Updated**: 2026-04-03
 
 ---
 
@@ -17,6 +17,12 @@
 | BACKLOG-39 | Vendor bill-back tracking + promo engine — three connected pieces: (1) **Promo engine**: custom coupon/bundle creator outside Square's pricing rules (avoids Square's bug where timed sales show "on sale" on website even when dormant). Group items into named promos, set discount ($ or %), set active date range. (2) **Discount application**: apply discounts at order level, not catalog level, keeping Square catalog clean. (3) **Bill-back reporting**: tie promos to vendor agreements, aggregate sales during promo periods per vendor for claim submission. Two bill-back types: *promo bill-backs* (vendor-funded promos with date range, e.g., "Smack March Promo") and *seniors day bill-backs* (vendors like Smack cover the 10% seniors day discount on their items — recurring, tied to specific items/brands per vendor agreement). | CLAUDE.md | L |
 | BACKLOG-80 | Email alerts not visible — system sends from/to same email. Set up Cloudflare Email Routing + transactional sender | WORK-ITEMS | S |
 | BACKLOG-81 | Margin erosion tracking — unified dashboard for margin impact from cost/price changes, loyalty redemptions, and expiry discounts | WORK-ITEMS | L |
+
+### Testing
+
+| ID | Description | Source | Effort |
+|----|-------------|--------|--------|
+| BACKLOG-120 | Static security analysis test suite — SQL injection detection (no string concatenation in queries), `merchant_id` on every data query, `escapeHtml` on all frontend rendering, no raw user input in logs, all write routes have validation + auth, no inline event handlers, no hardcoded secrets. | WORK-ITEMS 2026-04-03 | M |
 
 ---
 
@@ -46,6 +52,13 @@
 | BACKLOG-104 | GMC product schema audit — compare `buildGmcProduct()` against v1 spec. Known gaps: identifierExists, isBundle, shipping weight, imageLink undefined. Output `docs/GMC-SCHEMA-AUDIT.md`. Prerequisite for BACKLOG-61 | Session 2026-03-31 | S |
 | CSS-5 | CSS shared components — extract stats-bar, tabs, empty-state, loading/spinner, controls from all inline styles into `shared.css`. ~12–22 pages per component | Session 2026-03-31 | M |
 
+### Testing
+
+| ID | Description | Source | Effort |
+|----|-------------|--------|--------|
+| BACKLOG-117 | Jest coverage reporting — configure `jest --coverage`, add to deploy output. Report coverage percentage per domain. Identify lowest-coverage service files. No target threshold yet — just visibility. | WORK-ITEMS 2026-04-03 | S |
+| BACKLOG-118 | Integration test framework — test suite that runs against a real test DB. Covers: actual SQL execution, transaction rollback, constraint enforcement, migration runner. Start with purchase-orders domain as template. | WORK-ITEMS 2026-04-03 | M |
+
 ### Data Integrity
 
 | ID | Description | Source | Effort |
@@ -64,6 +77,12 @@
 | BACKLOG-8 | Vendor API sync gaps — `contact_name`/`contact_phone` synced but not displayed in vendor dashboard (trivial fix). `account_number` and `address` not synced (needed for branded POs, BACKLOG-44). Only first contact synced, additional contacts dropped. Square vendor `note` not synced (local `notes` field exists separately). | CLAUDE.md | S (display fix) / M (full sync) |
 | BACKLOG-43 | Min/Max stock per item per location | CLAUDE.md | S |
 | BACKLOG-99 | PO inventory push — push received quantities to Square inventory on PO receive | Session 2026-03-25 | M |
+
+### Testing
+
+| ID | Description | Source | Effort |
+|----|-------------|--------|--------|
+| BACKLOG-119 | E2E browser test framework — Playwright or Cypress. Cover 3 critical smoke flows: login → dashboard, reorder → create PO → receive PO, delivery route generation → driver share link. | WORK-ITEMS 2026-04-03 | L |
 
 ### Code Quality
 
