@@ -351,6 +351,20 @@ async function completeOrder(merchantId, orderId, userId) {
     return order;
 }
 
+/**
+ * Update order notes (local only — order-specific instructions).
+ * @param {number} merchantId
+ * @param {string} orderId
+ * @param {string|null} notes
+ * @returns {Promise<{notes: string|null}|null>} null if order not found
+ */
+async function updateOrderNotes(merchantId, orderId, notes) {
+    const order = await getOrderById(merchantId, orderId);
+    if (!order) return null;
+    await updateOrder(merchantId, order.id, { notes: notes || null });
+    return { notes: notes || null };
+}
+
 module.exports = {
     getOrders,
     getOrderById,
@@ -360,5 +374,6 @@ module.exports = {
     deleteOrder,
     skipOrder,
     markDelivered,
-    completeOrder
+    completeOrder,
+    updateOrderNotes
 };

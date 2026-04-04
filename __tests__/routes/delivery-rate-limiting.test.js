@@ -10,8 +10,8 @@ const deliveryRouter = require('../../routes/delivery');
 const driverApiRouter = require('../../routes/driver-api');
 
 /**
- * Extract route definitions from an Express router.
- * Returns array of { method, path, middlewareCount }
+ * Extract route definitions from an Express router, recursing into sub-routers.
+ * Returns array of { method, path, handlers }
  */
 function getRoutes(router) {
     const routes = [];
@@ -25,6 +25,8 @@ function getRoutes(router) {
                     handlers: route.stack.length
                 });
             });
+        } else if (layer.handle && layer.handle.stack) {
+            routes.push(...getRoutes(layer.handle));
         }
     });
     return routes;
@@ -34,6 +36,7 @@ function getRoutes(router) {
  * Check if a route has a rate limiter middleware.
  * express-rate-limit v7 wraps the handler in an anonymous async function.
  * We detect it by matching the wrapper's toString() pattern.
+ * Recurses into sub-routers mounted via router.use().
  */
 function hasRateLimiter(router, method, path) {
     for (const layer of router.stack) {
@@ -44,6 +47,8 @@ function hasRateLimiter(router, method, path) {
                 const src = s.handle.toString();
                 return src.includes('await Promise.resolve(fn(request, response, next))');
             });
+        } else if (layer.handle && layer.handle.stack) {
+            if (hasRateLimiter(layer.handle, method, path)) return true;
         }
     }
     return false;
