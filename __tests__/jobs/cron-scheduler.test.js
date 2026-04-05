@@ -111,14 +111,15 @@ describe('CronScheduler', () => {
         it('should schedule all default cron jobs', () => {
             initializeCronJobs();
 
-            // Should schedule 20 jobs (without GMC which is optional)
+            // Should schedule 21 jobs (without GMC which is optional)
             // Jobs: cycle count, webhook retry, webhook cleanup, sync, backup,
             // expiry discount, loyalty catchup, loyalty audit, cart activity cleanup,
             // seniors discount, committed inventory reconciliation, trial expiry,
             // loyalty sync retry, catalog health, email heartbeat, pod cleanup,
             // auto min/max, vendor match backfill (BACKLOG-114),
-            // delivery auto-finish, delivery retention cleanup (BACKLOG-116)
-            expect(cron.schedule).toHaveBeenCalledTimes(20);
+            // delivery auto-finish, delivery retention cleanup (BACKLOG-116),
+            // promo expiry check (B3 fix)
+            expect(cron.schedule).toHaveBeenCalledTimes(21);
         });
 
         it('should use environment variable schedules when provided', () => {
@@ -136,8 +137,8 @@ describe('CronScheduler', () => {
 
             initializeCronJobs();
 
-            // Should schedule 21 jobs including GMC
-            expect(cron.schedule).toHaveBeenCalledTimes(21);
+            // Should schedule 22 jobs including GMC
+            expect(cron.schedule).toHaveBeenCalledTimes(22);
             expect(cron.schedule).toHaveBeenCalledWith('0 4 * * *', expect.any(Function));
 
             delete process.env.GMC_SYNC_CRON_SCHEDULE;

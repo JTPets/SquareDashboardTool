@@ -161,7 +161,7 @@ async function processFullSubscription({ squareCustomerId, cardId, selectedPlan,
 /**
  * Post-payment: update subscription ID, activate merchant access, log event, record promo use.
  */
-async function activateMerchantFeatures({ merchantId, subscriber, promoCodeId, discountCents, squareSubscription, plan, originalPrice, finalPrice, promoCode, payment }) {
+async function activateMerchantFeatures({ merchantId, subscriber, promoCodeId, discountCents, promoExpiresAt, squareSubscription, plan, originalPrice, finalPrice, promoCode, payment }) {
     if (squareSubscription) {
         await db.query(
             `UPDATE subscribers SET square_subscription_id = $1, subscription_status = 'active', updated_at = NOW() WHERE id = $2`,
@@ -184,22 +184,26 @@ async function activateMerchantFeatures({ merchantId, subscriber, promoCodeId, d
     });
 
     if (promoCodeId) {
-        try {
-            await db.query(
-                `INSERT INTO promo_code_uses (promo_code_id, subscriber_id, discount_applied_cents) VALUES ($1, $2, $3)`,
-                [promoCodeId, subscriber.id, discountCents]
-            );
-            await db.query(
-                `UPDATE promo_codes SET times_used = times_used + 1, updated_at = NOW() WHERE id = $1`,
-                [promoCodeId]
-            );
-            await db.query(
-                `UPDATE subscribers SET promo_code_id = $1, discount_applied_cents = $2 WHERE id = $3`,
-                [promoCodeId, discountCents, subscriber.id]
-            );
-        } catch (promoError) {
-            logger.error('Failed to record promo code usage', { error: promoError.message, merchantId });
+        // B4: Atomic increment — protects against concurrent redemptions exceeding max_uses
+        const claimed = await db.query(
+            `UPDATE promo_codes SET times_used = times_used + 1, updated_at = NOW()
+             WHERE id = $1 AND (max_uses IS NULL OR times_used < max_uses)
+             RETURNING id`,
+            [promoCodeId]
+        );
+        if (claimed.rows.length === 0) {
+            logger.error('Promo max_uses exceeded at redemption (race condition)', { promoCodeId, merchantId });
+            throw Object.assign(new Error('Promo code is no longer available'), { statusCode: 409, code: 'PROMO_MAXED' });
         }
+        await db.query(
+            `INSERT INTO promo_code_uses (promo_code_id, subscriber_id, discount_applied_cents) VALUES ($1, $2, $3)`,
+            [promoCodeId, subscriber.id, discountCents]
+        );
+        // B3: store promo_expires_at (NULL when duration_months is unset = unlimited)
+        await db.query(
+            `UPDATE subscribers SET promo_code_id = $1, discount_applied_cents = $2, promo_expires_at = $3 WHERE id = $4`,
+            [promoCodeId, discountCents, promoExpiresAt || null, subscriber.id]
+        );
     }
 }
 
@@ -265,6 +269,7 @@ async function createSubscription(merchantId, { email, businessName, plan, sourc
     let promoCodeId = null;
     let discountCents = 0;
     let finalPriceCents = selectedPlan.price_cents;
+    let promoExpiresAt = null;
 
     if (promoCode) {
         const promoResult = await validatePromoCode({ code: promoCode, merchantId, plan, priceCents: selectedPlan.price_cents });
@@ -272,9 +277,15 @@ async function createSubscription(merchantId, { email, businessName, plan, sourc
             promoCodeId = promoResult.promo.id;
             discountCents = promoResult.discount;
             finalPriceCents = promoResult.finalPrice;
+            // B3: compute expiry when promo has a finite duration
+            if (promoResult.promo.duration_months) {
+                promoExpiresAt = new Date();
+                promoExpiresAt.setMonth(promoExpiresAt.getMonth() + promoResult.promo.duration_months);
+            }
             logger.info('Promo code applied', {
                 code: promoResult.promo.code, discountCents,
-                originalPrice: selectedPlan.price_cents, finalPrice: finalPriceCents
+                originalPrice: selectedPlan.price_cents, finalPrice: finalPriceCents,
+                promoExpiresAt: promoExpiresAt || 'unlimited'
             });
         }
     }
@@ -297,7 +308,7 @@ async function createSubscription(merchantId, { email, businessName, plan, sourc
     }
 
     await activateMerchantFeatures({
-        merchantId, subscriber, promoCodeId, discountCents,
+        merchantId, subscriber, promoCodeId, discountCents, promoExpiresAt,
         squareSubscription: result.squareSubscription, plan,
         originalPrice: selectedPlan.price_cents, finalPrice: finalPriceCents,
         promoCode, payment: result.payment

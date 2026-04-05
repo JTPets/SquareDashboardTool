@@ -38,6 +38,7 @@
 // | 19 | Vendor match backfill       | 0 3 * * 0  (Sun 3AM)  | Batch  | BACKLOG-114: cross-vendor UPC scan |
 // | 20 | Delivery auto-finish        | 0 23 * * * (11:00 PM) | Batch  | BACKLOG-116: stale route cleanup   |
 // | 21 | Delivery retention cleanup  | 0 1 * * 0  (Sun 1AM)  | Batch  | BACKLOG-116: purge old routes/orders|
+// | 22 | Promo expiry check          | 0 7 * * 0  (Sun 7AM)  | Batch  | B3 fix: flag expired promo pricing  |
 
 const cron = require('node-cron');
 const logger = require('../utils/logger');
@@ -61,6 +62,7 @@ const { runScheduledPodCleanup } = require('./pod-cleanup-job');
 const { runScheduledAutoMinMax } = require('./auto-min-max-job');
 const { runScheduledVendorMatchBackfill } = require('./vendor-match-backfill-job');
 const { runScheduledDeliveryAutoFinish, runScheduledDeliveryRetentionCleanup } = require('./delivery-auto-finish-job');
+const { runScheduledPromoExpiryCheck } = require('./promo-expiry-job');
 const syncQueue = require('../services/infra/sync-queue');
 
 // Store cron task references for graceful shutdown
@@ -241,6 +243,15 @@ function initializeCronJobs() {
         timezone: 'America/Toronto'
     }));
     logger.info('Delivery retention cleanup cron job scheduled', { schedule: deliveryRetentionSchedule, timezone: 'America/Toronto' });
+
+    // 22. Promo expiry check (B3 fix)
+    // Runs every Sunday at 7:00 AM — flag subscribers whose promo pricing period has elapsed
+    // Detection only; does not auto-cancel or revert billing. Manual review required.
+    const promoExpirySchedule = process.env.PROMO_EXPIRY_CRON || '0 7 * * 0';
+    cronTasks.push(cron.schedule(promoExpirySchedule, runScheduledPromoExpiryCheck, {
+        timezone: 'America/Toronto'
+    }));
+    logger.info('Promo expiry check cron job scheduled', { schedule: promoExpirySchedule, timezone: 'America/Toronto' });
 
     return cronTasks;
 }
