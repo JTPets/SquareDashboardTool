@@ -43,6 +43,8 @@ const asyncHandler = require('../middleware/async-handler');
 const { getLocationById } = require('../services/catalog/location-service');
 const { sendSuccess, sendError } = require('../utils/response-helper');
 const { escapeLikePattern } = require('../utils/escape-like');
+const brandService = require('../services/gmc/brand-service');
+const { parseBasicAuth } = require('../utils/basic-auth');
 
 // Rate limiter for sensitive operations (token regeneration)
 const sensitiveOperationRateLimit = configureSensitiveOperationRateLimit();
@@ -83,18 +85,9 @@ router.get('/feed.tsv', asyncHandler(async (req, res) => {
     let feedToken = token;
 
     // Check for HTTP Basic Auth (GMC's preferred method)
-    const authHeader = req.headers.authorization;
-    if (!feedToken && authHeader && authHeader.startsWith('Basic ')) {
-        try {
-            const base64Credentials = authHeader.split(' ')[1];
-            const credentials = Buffer.from(base64Credentials, 'base64').toString('utf-8');
-            const [, password] = credentials.split(':');
-            if (password) {
-                feedToken = password;
-            }
-        } catch (e) {
-            logger.warn('Failed to parse Basic Auth header', { error: e.message });
-        }
+    if (!feedToken) {
+        const auth = parseBasicAuth(req);
+        if (auth?.password) feedToken = auth.password;
     }
 
     // Check for feed token (query param or Basic Auth)
@@ -197,19 +190,8 @@ router.get('/settings', requireAuth, requireMerchant, asyncHandler(async (req, r
  * Update GMC feed settings
  */
 router.put('/settings', requireAuth, requireMerchant, requireWriteAccess, validators.updateSettings, asyncHandler(async (req, res) => {
-    const { settings } = req.body;
     const merchantId = req.merchantContext.id;
-
-    for (const [key, value] of Object.entries(settings)) {
-        await db.query(`
-            INSERT INTO gmc_settings (setting_key, setting_value, updated_at, merchant_id)
-            VALUES ($1, $2, CURRENT_TIMESTAMP, $3)
-            ON CONFLICT (setting_key, merchant_id) DO UPDATE SET
-                setting_value = EXCLUDED.setting_value,
-                updated_at = CURRENT_TIMESTAMP
-        `, [key, value, merchantId]);
-    }
-
+    await gmcFeed.saveSettings(merchantId, req.body.settings);
     const updatedSettings = await gmcFeed.getSettings(merchantId);
     sendSuccess(res, { settings: updatedSettings });
 }));
@@ -221,9 +203,8 @@ router.put('/settings', requireAuth, requireMerchant, requireWriteAccess, valida
  * List all brands
  */
 router.get('/brands', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
-    const merchantId = req.merchantContext.id;
-    const result = await db.query('SELECT * FROM brands WHERE merchant_id = $1 ORDER BY name', [merchantId]);
-    sendSuccess(res, { count: result.rows.length, brands: result.rows });
+    const result = await brandService.listBrands(req.merchantContext.id);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -244,20 +225,8 @@ router.post('/brands/import', requireAuth, requireMerchant, requireWriteAccess, 
  */
 router.post('/brands', requireAuth, requireMerchant, requireWriteAccess, validators.createBrand, asyncHandler(async (req, res) => {
     const { name, logo_url, website } = req.body;
-    const merchantId = req.merchantContext.id;
-
-    try {
-        const result = await db.query(
-            'INSERT INTO brands (name, logo_url, website, merchant_id) VALUES ($1, $2, $3, $4) RETURNING *',
-            [name, logo_url, website, merchantId]
-        );
-        sendSuccess(res, { brand: result.rows[0] });
-    } catch (error) {
-        if (error.code === '23505') {
-            return sendError(res, 'Brand already exists', 409);
-        }
-        throw error;
-    }
+    const result = await brandService.createBrand(req.merchantContext.id, { name, logo_url, website });
+    sendSuccess(res, result);
 }));
 
 /**
@@ -268,61 +237,10 @@ router.post('/brands', requireAuth, requireMerchant, requireWriteAccess, validat
 router.put('/items/:itemId/brand', requireAuth, requireMerchant, requireWriteAccess, validators.assignItemBrand, asyncHandler(async (req, res) => {
     const { itemId } = req.params;
     const { brand_id } = req.body;
-    const merchantId = req.merchantContext.id;
-
-    // Verify item belongs to this merchant
-    const itemCheck = await db.query('SELECT id FROM items WHERE id = $1 AND merchant_id = $2', [itemId, merchantId]);
-    if (itemCheck.rows.length === 0) {
-        return sendError(res, 'Item not found', 404);
-    }
-
-    let squareSyncResult = null;
-    let brandName = null;
-
-    if (!brand_id) {
-        // Remove brand assignment
-        await db.query('DELETE FROM item_brands WHERE item_id = $1 AND merchant_id = $2', [itemId, merchantId]);
-
-        // Also remove from Square (set to empty string)
-        try {
-            squareSyncResult = await squareApi.updateCustomAttributeValues(itemId, {
-                brand: { string_value: '' }
-            }, { merchantId });
-            logger.info('Brand removed from Square', { item_id: itemId, merchantId });
-        } catch (syncError) {
-            logger.error('Failed to remove brand from Square', { item_id: itemId, merchantId, error: syncError.message });
-            squareSyncResult = { success: false, error: syncError.message };
-        }
-
-        return sendSuccess(res, { message: 'Brand removed from item', square_sync: squareSyncResult });
-    }
-
-    // Get brand name for Square sync
-    const brandResult = await db.query('SELECT name FROM brands WHERE id = $1 AND merchant_id = $2', [brand_id, merchantId]);
-    if (brandResult.rows.length === 0) {
-        return sendError(res, 'Brand not found', 404);
-    }
-    brandName = brandResult.rows[0].name;
-
-    // Save to local database
-    await db.query(`
-        INSERT INTO item_brands (item_id, brand_id, merchant_id)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (item_id, merchant_id) DO UPDATE SET brand_id = EXCLUDED.brand_id
-    `, [itemId, brand_id, merchantId]);
-
-    // Auto-sync brand to Square
-    try {
-        squareSyncResult = await squareApi.updateCustomAttributeValues(itemId, {
-            brand: { string_value: brandName }
-        }, { merchantId });
-        logger.info('Brand synced to Square', { item_id: itemId, brand: brandName, merchantId });
-    } catch (syncError) {
-        logger.error('Failed to sync brand to Square', { item_id: itemId, merchantId, error: syncError.message });
-        squareSyncResult = { success: false, error: syncError.message };
-    }
-
-    sendSuccess(res, { brand_name: brandName, square_sync: squareSyncResult });
+    const result = await brandService.assignItemBrand(req.merchantContext.id, itemId, brand_id);
+    if (result.notFound === 'item') return sendError(res, 'Item not found', 404);
+    if (result.notFound === 'brand') return sendError(res, 'Brand not found', 404);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -330,95 +248,9 @@ router.put('/items/:itemId/brand', requireAuth, requireMerchant, requireWriteAcc
  * Auto-detect brands from item names for items missing brand assignments
  */
 router.post('/brands/auto-detect', requireAuth, requireMerchant, requireWriteAccess, validators.autoDetectBrands, asyncHandler(async (req, res) => {
-    const { brands: brandList } = req.body;
-    const merchantId = req.merchantContext.id;
-
-    // Clean and normalize the master brand list
-    const cleanedBrands = brandList
-        .filter(b => b && typeof b === 'string' && b.trim())
-        .map(b => b.trim());
-
-    if (cleanedBrands.length === 0) {
-        return sendError(res, 'No valid brand names provided', 400);
-    }
-
-    // Ensure all brands exist in our brands table for this merchant
-    for (const brandName of cleanedBrands) {
-        await db.query(
-            'INSERT INTO brands (name, merchant_id) VALUES ($1, $2) ON CONFLICT (name, merchant_id) DO NOTHING',
-            [brandName, merchantId]
-        );
-    }
-
-    // Get the brands from the master list with their DB IDs
-    const brandsResult = await db.query(
-        `SELECT id, name FROM brands WHERE name = ANY($1) AND merchant_id = $2 ORDER BY LENGTH(name) DESC`,
-        [cleanedBrands, merchantId]
-    );
-
-    // Build matching structures
-    const masterBrands = brandsResult.rows.map(b => ({
-        id: b.id,
-        name: b.name,
-        nameLower: b.name.toLowerCase()
-    }));
-
-    // Get items without brand assignments
-    const itemsResult = await db.query(`
-        SELECT i.id, i.name, i.category_name
-        FROM items i
-        LEFT JOIN item_brands ib ON i.id = ib.item_id AND ib.merchant_id = $1
-        WHERE ib.item_id IS NULL
-          AND i.is_deleted = FALSE
-          AND i.merchant_id = $1
-        ORDER BY i.name
-    `, [merchantId]);
-
-    const detectedMatches = [];
-    const noMatch = [];
-
-    for (const item of itemsResult.rows) {
-        const itemNameLower = item.name.toLowerCase();
-        let matchedBrand = null;
-
-        for (const brand of masterBrands) {
-            if (itemNameLower.startsWith(brand.nameLower + ' ') ||
-                itemNameLower.startsWith(brand.nameLower + '-') ||
-                itemNameLower.startsWith(brand.nameLower + '_') ||
-                itemNameLower.startsWith(brand.nameLower + ':') ||
-                itemNameLower.startsWith(brand.nameLower + ',') ||
-                itemNameLower === brand.nameLower) {
-                matchedBrand = brand;
-                break;
-            }
-        }
-
-        if (matchedBrand) {
-            detectedMatches.push({
-                item_id: item.id,
-                item_name: item.name,
-                category: item.category_name,
-                detected_brand_id: matchedBrand.id,
-                detected_brand_name: matchedBrand.name,
-                selected: true
-            });
-        } else {
-            noMatch.push({
-                item_id: item.id,
-                item_name: item.name,
-                category: item.category_name
-            });
-        }
-    }
-
-    sendSuccess(res, {
-        master_brands_provided: cleanedBrands.length,
-        total_items_without_brand: itemsResult.rows.length,
-        detected_count: detectedMatches.length,
-        no_match_count: noMatch.length,
-        detected: detectedMatches,
-        no_match: noMatch
-    });
+    const result = await brandService.autoDetectBrands(req.merchantContext.id, req.body.brands);
+    if (!result) return sendError(res, 'No valid brand names provided', 400);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -426,88 +258,8 @@ router.post('/brands/auto-detect', requireAuth, requireMerchant, requireWriteAcc
  * Bulk assign brands to items and sync to Square
  */
 router.post('/brands/bulk-assign', requireAuth, requireMerchant, requireWriteAccess, validators.bulkAssignBrands, asyncHandler(async (req, res) => {
-    const { assignments } = req.body;
-    const merchantId = req.merchantContext.id;
-
-    const results = {
-        success: true,
-        assigned: 0,
-        synced_to_square: 0,
-        failed: 0,
-        errors: []
-    };
-
-    // Get brand names for Square sync
-    const brandIds = [...new Set(assignments.map(a => a.brand_id))];
-    const brandsResult = await db.query(
-        `SELECT id, name FROM brands WHERE id = ANY($1) AND merchant_id = $2`,
-        [brandIds, merchantId]
-    );
-    const brandNamesMap = new Map(brandsResult.rows.map(b => [b.id, b.name]));
-
-    // Prepare Square batch updates
-    const squareUpdates = [];
-
-    for (const assignment of assignments) {
-        const { item_id, brand_id } = assignment;
-
-        if (!item_id || !brand_id) {
-            results.failed++;
-            results.errors.push({ item_id, error: 'Missing item_id or brand_id' });
-            continue;
-        }
-
-        try {
-            // Save to local database
-            await db.query(`
-                INSERT INTO item_brands (item_id, brand_id, merchant_id)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (item_id, merchant_id) DO UPDATE SET brand_id = EXCLUDED.brand_id
-            `, [item_id, brand_id, merchantId]);
-
-            results.assigned++;
-
-            // Prepare Square update
-            const brandName = brandNamesMap.get(brand_id);
-            if (brandName) {
-                squareUpdates.push({
-                    catalogObjectId: item_id,
-                    customAttributeValues: {
-                        brand: { string_value: brandName }
-                    }
-                });
-            }
-        } catch (error) {
-            results.failed++;
-            results.errors.push({ item_id, error: error.message });
-        }
-    }
-
-    // Batch sync to Square
-    if (squareUpdates.length > 0) {
-        try {
-            const squareResult = await squareApi.batchUpdateCustomAttributeValues(squareUpdates);
-            results.synced_to_square = squareResult.updated || 0;
-            results.square_sync = squareResult;
-
-            if (squareResult.errors && squareResult.errors.length > 0) {
-                results.errors.push(...squareResult.errors.map(e => ({ type: 'square_sync', ...e })));
-            }
-        } catch (syncError) {
-            logger.error('Square batch sync failed', { error: syncError.message, merchantId });
-            results.errors.push({ type: 'square_batch_sync', error: syncError.message });
-        }
-    }
-
-    results.success = results.failed === 0;
-
-    logger.info('Bulk brand assignment complete', {
-        assigned: results.assigned,
-        synced: results.synced_to_square,
-        failed: results.failed
-    });
-
-    sendSuccess(res, results);
+    const result = await brandService.bulkAssignBrands(req.merchantContext.id, req.body.assignments);
+    sendSuccess(res, result);
 }));
 
 // ==================== TAXONOMY MANAGEMENT ====================
@@ -828,18 +580,9 @@ router.get('/local-inventory-feed.tsv', asyncHandler(async (req, res) => {
     let feedToken = token;
 
     // Check for HTTP Basic Auth
-    const authHeader = req.headers.authorization;
-    if (!feedToken && authHeader && authHeader.startsWith('Basic ')) {
-        try {
-            const base64Credentials = authHeader.split(' ')[1];
-            const credentials = Buffer.from(base64Credentials, 'base64').toString('utf-8');
-            const [, password] = credentials.split(':');
-            if (password) {
-                feedToken = password;
-            }
-        } catch (e) {
-            logger.warn('Failed to parse Basic Auth header', { error: e.message });
-        }
+    if (!feedToken) {
+        const auth = parseBasicAuth(req);
+        if (auth?.password) feedToken = auth.password;
     }
 
     // Check for feed token
