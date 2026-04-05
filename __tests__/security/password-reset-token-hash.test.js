@@ -60,21 +60,22 @@ describe('Password Reset Token Hashing (SEC-7)', () => {
     });
 
     describe('forgot-password stores hashed token', () => {
-        test('auth.js hashes token before INSERT', () => {
+        // LOGIC CHANGE: forgot-password logic extracted to services/auth/password-service.js
+        test('password-service.js hashes token before INSERT', () => {
             const fs = require('fs');
-            const authSource = fs.readFileSync(
-                require.resolve('../../routes/auth'),
+            const svcSource = fs.readFileSync(
+                require.resolve('../../services/auth/password-service'),
                 'utf8'
             );
 
             // Verify the token is hashed BEFORE the INSERT query
-            const hashLine = authSource.indexOf('const hashedToken = hashResetToken(resetToken)');
-            const insertLine = authSource.indexOf("INSERT INTO password_reset_tokens (user_id, token, expires_at)");
+            const hashLine = svcSource.indexOf('const hashedToken = hashResetToken(resetToken)');
+            const insertLine = svcSource.indexOf("INSERT INTO password_reset_tokens (user_id, token, expires_at)");
             expect(hashLine).toBeGreaterThan(-1);
             expect(insertLine).toBeGreaterThan(hashLine);
 
             // Verify the INSERT uses hashedToken, not resetToken
-            const insertBlock = authSource.substring(insertLine, insertLine + 200);
+            const insertBlock = svcSource.substring(insertLine, insertLine + 200);
             expect(insertBlock).toContain('hashedToken');
         });
     });
@@ -101,24 +102,24 @@ describe('Password Reset Token Hashing (SEC-7)', () => {
     });
 
     describe('reset-password hashes token before lookup', () => {
+        // LOGIC CHANGE: reset-password/verify-reset-token logic extracted to services/auth/password-service.js
         test('queries DB with hashed token, not plaintext', async () => {
-            // Read the auth.js source to verify the pattern
             const fs = require('fs');
-            const authSource = fs.readFileSync(
-                require.resolve('../../routes/auth'),
+            const svcSource = fs.readFileSync(
+                require.resolve('../../services/auth/password-service'),
                 'utf8'
             );
 
-            // Verify hashResetToken is called before all token DB lookups in reset-password
-            expect(authSource).toContain('const hashedToken = hashResetToken(token)');
+            // Verify hashResetToken is called before all token DB lookups
+            expect(svcSource).toContain('const hashedToken = hashResetToken(token)');
 
-            // Verify all three endpoints use hashed token:
-            // 1. forgot-password stores hashed
-            expect(authSource).toContain('const hashedToken = hashResetToken(resetToken)');
-            // 2. reset-password lookups use hashed
-            // 3. verify-reset-token lookups use hashed
-            // Count occurrences of hashResetToken — should be at least 3 (forgot, reset, verify)
-            const matches = authSource.match(/hashResetToken\(/g);
+            // Verify all three operations use hashed token:
+            // 1. forgotPassword stores hashed (resetToken)
+            expect(svcSource).toContain('const hashedToken = hashResetToken(resetToken)');
+            // 2. resetPassword lookups use hashed (token)
+            // 3. verifyResetToken lookups use hashed (token)
+            // Count occurrences — should be at least 3 (forgotPassword, resetPassword, verifyResetToken)
+            const matches = svcSource.match(/hashResetToken\(/g);
             expect(matches.length).toBeGreaterThanOrEqual(3);
         });
 
