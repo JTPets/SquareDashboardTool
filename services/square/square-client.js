@@ -100,13 +100,11 @@ async function makeSquareRequest(endpoint, options = {}) {
 
     let lastError;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000);
         try {
             const response = await fetch(url, {
                 ...options,
                 headers,
-                signal: controller.signal
+                signal: AbortSignal.timeout(30000)
             });
 
             const data = await response.json();
@@ -176,8 +174,6 @@ async function makeSquareRequest(endpoint, options = {}) {
                 logger.warn(`Request failed, retrying in ${delay}ms`, { attempt: attempt + 1, max_retries: MAX_RETRIES });
                 await sleep(delay);
             }
-        } finally {
-            clearTimeout(timeout);
         }
     }
 
