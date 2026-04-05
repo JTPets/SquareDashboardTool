@@ -4,169 +4,36 @@
  */
 
 const express = require('express');
-const crypto = require('crypto');
 const router = express.Router();
-const db = require('../utils/database');
-const logger = require('../utils/logger');
-const { hashPassword, verifyPassword, validatePassword, generateRandomPassword } = require('../utils/password');
-// LOGIC CHANGE: extracted hashResetToken to shared utils/hash-utils.js (CQ-6)
-const { hashResetToken } = require('../utils/hash-utils');
+const { hashPassword, generateRandomPassword } = require('../utils/password');
 const { requireAuth, requireAdmin, logAuthEvent, getClientIp } = require('../middleware/auth');
 const { configureLoginRateLimit, configurePasswordResetRateLimit } = require('../middleware/security');
 const asyncHandler = require('../middleware/async-handler');
 const { sendSuccess, sendError } = require('../utils/response-helper');
 const validators = require('../middleware/validators/auth');
+const sessionService = require('../services/auth/session-service');
+const passwordService = require('../services/auth/password-service');
+const db = require('../utils/database');
+const logger = require('../utils/logger');
 
 // Apply rate limiting to sensitive routes
 const loginRateLimit = configureLoginRateLimit();
 const passwordResetRateLimit = configurePasswordResetRateLimit();
-
-// Account lockout settings
-const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_DURATION_MINUTES = 30;
 
 /**
  * POST /api/auth/login
  * Authenticate user with email and password
  */
 router.post('/login', loginRateLimit, validators.login, asyncHandler(async (req, res) => {
-    const { email, password } = req.body;
-    const ipAddress = getClientIp(req);
-    const userAgent = req.headers['user-agent'];
-
-    // Email is already normalized by validator
-    const normalizedEmail = email.toLowerCase().trim();
-
-    // Find user by email
-    const userResult = await db.query(
-        'SELECT * FROM users WHERE email = $1',
-        [normalizedEmail]
-    );
-
-    if (userResult.rows.length === 0) {
-        // Log failed attempt (user not found)
-        await logAuthEvent(db, {
-            email: normalizedEmail,
-            eventType: 'login_failed',
-            ipAddress,
-            userAgent,
-            details: { reason: 'user_not_found' }
+    try {
+        const result = await sessionService.loginUser(req.body.email, req.body.password, req, {
+            ipAddress: getClientIp(req),
+            userAgent: req.headers['user-agent']
         });
-
-        // Use generic error to prevent email enumeration
-        return sendError(res, 'Invalid email or password', 401);
+        sendSuccess(res, result);
+    } catch (err) {
+        sendError(res, err.message, err.statusCode || 500);
     }
-
-    const user = userResult.rows[0];
-
-    // Check if account is active
-    if (!user.is_active) {
-        await logAuthEvent(db, {
-            userId: user.id,
-            email: normalizedEmail,
-            eventType: 'login_failed',
-            ipAddress,
-            userAgent,
-            details: { reason: 'account_inactive' }
-        });
-
-        return sendError(res, 'This account has been deactivated', 401);
-    }
-
-    // Check if account is locked
-    if (user.locked_until && new Date(user.locked_until) > new Date()) {
-        const remainingMinutes = Math.ceil((new Date(user.locked_until) - new Date()) / 60000);
-
-        return sendError(res, `Account is locked. Try again in ${remainingMinutes} minutes.`, 401);
-    }
-
-    // Verify password
-    const passwordValid = await verifyPassword(password, user.password_hash);
-
-    if (!passwordValid) {
-        // Increment failed attempts
-        const newFailedAttempts = (user.failed_login_attempts || 0) + 1;
-        let lockUntil = null;
-
-        if (newFailedAttempts >= MAX_FAILED_ATTEMPTS) {
-            lockUntil = new Date(Date.now() + LOCKOUT_DURATION_MINUTES * 60 * 1000);
-            logger.warn('Account locked due to failed attempts', {
-                userId: user.id,
-                email: normalizedEmail,
-                attempts: newFailedAttempts
-            });
-        }
-
-        await db.query(
-            'UPDATE users SET failed_login_attempts = $1, locked_until = $2 WHERE id = $3',
-            [newFailedAttempts, lockUntil, user.id]
-        );
-
-        await logAuthEvent(db, {
-            userId: user.id,
-            email: normalizedEmail,
-            eventType: lockUntil ? 'account_locked' : 'login_failed',
-            ipAddress,
-            userAgent,
-            details: { reason: 'invalid_password', attempts: newFailedAttempts }
-        });
-
-        if (lockUntil) {
-            return sendError(res, `Too many failed attempts. Account locked for ${LOCKOUT_DURATION_MINUTES} minutes.`, 401);
-        }
-
-        return sendError(res, 'Invalid email or password', 401);
-    }
-
-    // Login successful - reset failed attempts and update last login
-    await db.query(
-        'UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login = CURRENT_TIMESTAMP WHERE id = $1',
-        [user.id]
-    );
-
-    // SECURITY: Regenerate session ID to prevent session fixation attacks
-    // This ensures any pre-existing session ID cannot be used by an attacker
-    req.session.regenerate(async (err) => {
-        if (err) {
-            logger.error('Session regeneration failed', { error: err.message, stack: err.stack, userId: user.id });
-            return sendError(res, 'Login failed. Please try again.', 500);
-        }
-
-        // Create session with user data after regeneration
-        req.session.user = {
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            role: user.role
-        };
-
-        // Save session to ensure it's persisted before responding
-        req.session.save(async (saveErr) => {
-            if (saveErr) {
-                logger.error('Session save failed', { error: saveErr.message, stack: saveErr.stack, userId: user.id });
-                return sendError(res, 'Login failed. Please try again.', 500);
-            }
-
-            await logAuthEvent(db, {
-                userId: user.id,
-                email: user.email,
-                eventType: 'login_success',
-                ipAddress,
-                userAgent
-            });
-
-            logger.info('User logged in', { userId: user.id, email: user.email });
-
-            sendSuccess(res, {
-                user: {
-                    id: user.id,
-                    email: user.email,
-                    name: user.name,
-                    role: user.role
-                }
-            });
-        });
-    });
 }));
 
 /**
@@ -174,30 +41,12 @@ router.post('/login', loginRateLimit, validators.login, asyncHandler(async (req,
  * Destroy user session
  */
 router.post('/logout', asyncHandler(async (req, res) => {
-    const user = req.session?.user;
-    const ipAddress = getClientIp(req);
-    const userAgent = req.headers['user-agent'];
-
-    if (user) {
-        await logAuthEvent(db, {
-            userId: user.id,
-            merchantId: req.session?.activeMerchantId,
-            email: user.email,
-            eventType: 'logout',
-            ipAddress,
-            userAgent
-        });
-
-        logger.info('User logged out', { userId: user.id, email: user.email });
-    }
-
-    req.session.destroy((err) => {
-        if (err) {
-            logger.error('Session destroy error', { error: err.message, stack: err.stack });
-        }
-        res.clearCookie('sid');
-        sendSuccess(res, {});
+    await sessionService.logoutUser(req, {
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent']
     });
+    res.clearCookie('sid');
+    sendSuccess(res, {});
 }));
 
 /**
@@ -221,47 +70,17 @@ router.get('/me', (req, res) => {
  */
 router.post('/change-password', requireAuth, validators.changePassword, asyncHandler(async (req, res) => {
     const { currentPassword, newPassword } = req.body;
-    const userId = req.session.user.id;
-    const ipAddress = getClientIp(req);
-    const userAgent = req.headers['user-agent'];
-
-    // Password strength validated by middleware
-
-    // Get current password hash
-    const userResult = await db.query(
-        'SELECT password_hash FROM users WHERE id = $1',
-        [userId]
-    );
-
-    if (userResult.rows.length === 0) {
-        return sendError(res, 'User not found', 404);
+    try {
+        await passwordService.changePassword(req.session.user.id, currentPassword, newPassword, {
+            merchantId: req.session.activeMerchantId,
+            email: req.session.user.email,
+            ipAddress: getClientIp(req),
+            userAgent: req.headers['user-agent']
+        });
+        sendSuccess(res, { message: 'Password changed successfully' });
+    } catch (err) {
+        sendError(res, err.message, err.statusCode || 500);
     }
-
-    // Verify current password
-    const currentPasswordValid = await verifyPassword(currentPassword, userResult.rows[0].password_hash);
-    if (!currentPasswordValid) {
-        return sendError(res, 'Current password is incorrect', 401);
-    }
-
-    // Hash new password and update
-    const newPasswordHash = await hashPassword(newPassword);
-    await db.query(
-        'UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-        [newPasswordHash, userId]
-    );
-
-    await logAuthEvent(db, {
-        userId,
-        merchantId: req.session.activeMerchantId,
-        email: req.session.user.email,
-        eventType: 'password_change',
-        ipAddress,
-        userAgent
-    });
-
-    logger.info('Password changed', { userId });
-
-    sendSuccess(res, { message: 'Password changed successfully' });
 }));
 
 // ==================== ADMIN ROUTES ====================
@@ -587,67 +406,8 @@ router.post('/users/:id/unlock', requireAuth, requireAdmin, validators.unlockUse
  * Request a password reset email/token
  */
 router.post('/forgot-password', validators.forgotPassword, asyncHandler(async (req, res) => {
-    const { email } = req.body;
-    const ipAddress = getClientIp(req);
-
-    // Email validated by middleware
-    const normalizedEmail = email.toLowerCase().trim();
-
-    // Find user by email
-    const userResult = await db.query(
-        'SELECT id, email FROM users WHERE email = $1',
-        [normalizedEmail]
-    );
-
-    // Always return success to prevent email enumeration
-    if (userResult.rows.length === 0) {
-        logger.info('Password reset requested for non-existent email', { email: normalizedEmail, ipAddress });
-        return sendSuccess(res, {
-            message: 'If an account exists with this email, you will receive a password reset link.'
-        });
-    }
-
-    const user = userResult.rows[0];
-
-    // Generate reset token — plaintext sent to user, SHA-256 hash stored in DB (SEC-7)
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    const hashedToken = hashResetToken(resetToken);
-    const tokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-
-    // Delete any existing tokens for this user
-    await db.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [user.id]);
-
-    // Insert hashed token (SEC-7: never store plaintext reset tokens)
-    await db.query(`
-        INSERT INTO password_reset_tokens (user_id, token, expires_at)
-        VALUES ($1, $2, $3)
-    `, [user.id, hashedToken, tokenExpiry]);
-
-    // Log the event
-    await logAuthEvent(db, {
-        userId: user.id,
-        email: user.email,
-        eventType: 'password_reset_requested',
-        ipAddress,
-        details: { token_expires: tokenExpiry.toISOString() }
-    });
-
-    logger.info('Password reset token generated', {
-        userId: user.id,
-        email: user.email,
-        expiresAt: tokenExpiry.toISOString()
-    });
-
-    // In production, you'd send an email here
-    // For now, we'll return the token in the response (development mode only)
-    // S-5: Positive opt-in — only expose token when NODE_ENV is explicitly 'development'
-    const isDev = process.env.NODE_ENV === 'development';
-
-    sendSuccess(res, {
-        message: 'If an account exists with this email, you will receive a password reset link.',
-        // Only include token in development for testing
-        ...(isDev && { resetToken, resetUrl: `/set-password.html?token=${resetToken}` })
-    });
+    const result = await passwordService.forgotPassword(req.body.email, getClientIp(req));
+    sendSuccess(res, result);
 }));
 
 /**
@@ -658,91 +418,17 @@ router.post('/forgot-password', validators.forgotPassword, asyncHandler(async (r
  * Each request with a valid token decrements attempts_remaining.
  */
 router.post('/reset-password', passwordResetRateLimit, validators.resetPassword, asyncHandler(async (req, res) => {
-    const { token, newPassword } = req.body;
-    const ipAddress = getClientIp(req);
-    const userAgent = req.headers['user-agent'];
-
-    // Token and password validated by middleware
-
-    // Hash incoming token to compare against stored hash (SEC-7)
-    const hashedToken = hashResetToken(token);
-
-    // Find valid token with attempt limiting
-    // COALESCE handles tokens created before migration (NULL attempts_remaining)
-    const tokenResult = await db.query(`
-        SELECT prt.*, u.email
-        FROM password_reset_tokens prt
-        JOIN users u ON u.id = prt.user_id
-        WHERE prt.token = $1
-          AND prt.expires_at > NOW()
-          AND prt.used_at IS NULL
-          AND COALESCE(prt.attempts_remaining, 5) > 0
-    `, [hashedToken]);
-
-    if (tokenResult.rows.length === 0) {
-        // Check if token exists but has exhausted attempts
-        const exhaustedCheck = await db.query(`
-            SELECT id, attempts_remaining FROM password_reset_tokens
-            WHERE token = $1 AND used_at IS NULL AND expires_at > NOW()
-        `, [hashedToken]);
-
-        if (exhaustedCheck.rows.length > 0 && exhaustedCheck.rows[0].attempts_remaining <= 0) {
-            logger.warn('Password reset token exhausted all attempts', {
-                token: token.substring(0, 10) + '...',
-                ipAddress
-            });
-        } else {
-            logger.warn('Invalid or expired password reset token', {
-                token: token.substring(0, 10) + '...',
-                ipAddress
-            });
-        }
-
-        return sendError(res, 'Invalid or expired reset token. Please request a new password reset.', 400);
+    try {
+        await passwordService.resetPassword(req.body.token, req.body.newPassword, {
+            ipAddress: getClientIp(req),
+            userAgent: req.headers['user-agent']
+        });
+        sendSuccess(res, {
+            message: 'Password has been reset successfully. You can now log in with your new password.'
+        });
+    } catch (err) {
+        sendError(res, err.message, err.statusCode || 500);
     }
-
-    const resetRecord = tokenResult.rows[0];
-    const userId = resetRecord.user_id;
-
-    // Decrement attempts atomically BEFORE processing
-    // This ensures attempt is consumed even if something fails later
-    await db.query(`
-        UPDATE password_reset_tokens
-        SET attempts_remaining = COALESCE(attempts_remaining, 5) - 1
-        WHERE id = $1
-    `, [resetRecord.id]);
-
-    // Hash new password and update user
-    const passwordHash = await hashPassword(newPassword);
-    await db.query(`
-        UPDATE users SET
-            password_hash = $1,
-            failed_login_attempts = 0,
-            locked_until = NULL,
-            password_changed_at = NOW(),
-            updated_at = NOW()
-        WHERE id = $2
-    `, [passwordHash, userId]);
-
-    // Mark token as used
-    await db.query(`
-        UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1
-    `, [resetRecord.id]);
-
-    // Log the event
-    await logAuthEvent(db, {
-        userId,
-        email: resetRecord.email,
-        eventType: 'password_reset_completed',
-        ipAddress,
-        userAgent
-    });
-
-    logger.info('Password reset completed', { userId, email: resetRecord.email });
-
-    sendSuccess(res, {
-        message: 'Password has been reset successfully. You can now log in with your new password.'
-    });
 }));
 
 /**
@@ -750,36 +436,8 @@ router.post('/reset-password', passwordResetRateLimit, validators.resetPassword,
  * Check if a reset token is valid
  */
 router.get('/verify-reset-token', validators.verifyResetToken, asyncHandler(async (req, res) => {
-    const { token } = req.query;
-
-    // Token validated by middleware
-
-    // Hash incoming token to compare against stored hash (SEC-7)
-    const hashedToken = hashResetToken(token);
-
-    // Check token validity including attempt limit
-    const tokenResult = await db.query(`
-        SELECT prt.id, prt.expires_at, prt.attempts_remaining, u.email
-        FROM password_reset_tokens prt
-        JOIN users u ON u.id = prt.user_id
-        WHERE prt.token = $1
-          AND prt.expires_at > NOW()
-          AND prt.used_at IS NULL
-          AND COALESCE(prt.attempts_remaining, 5) > 0
-    `, [hashedToken]);
-
-    if (tokenResult.rows.length === 0) {
-        return sendSuccess(res, {
-            valid: false,
-            message: 'Invalid or expired token'
-        });
-    }
-
-    sendSuccess(res, {
-        valid: true,
-        email: tokenResult.rows[0].email,
-        expiresAt: tokenResult.rows[0].expires_at
-    });
+    const result = await passwordService.verifyResetToken(req.query.token);
+    sendSuccess(res, result);
 }));
 
 module.exports = router;

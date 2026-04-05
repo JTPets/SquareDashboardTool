@@ -133,18 +133,19 @@ describe('S-4: CSP unsafe-inline removed', () => {
 // ==================== S-5: Dev Token Positive Opt-In ====================
 
 describe('S-5: Password reset token not exposed unless NODE_ENV=development', () => {
+    // LOGIC CHANGE: dev-token guard extracted to services/auth/password-service.js
     test('source code uses positive opt-in check', () => {
         const fs = require('fs');
         const path = require('path');
-        const authSource = fs.readFileSync(
-            path.join(__dirname, '..', '..', 'routes', 'auth.js'),
+        const svcSource = fs.readFileSync(
+            path.join(__dirname, '..', '..', 'services', 'auth', 'password-service.js'),
             'utf8'
         );
 
         // Should use === 'development' (positive opt-in)
-        expect(authSource).toContain("process.env.NODE_ENV === 'development'");
+        expect(svcSource).toContain("process.env.NODE_ENV === 'development'");
         // Should NOT use !== 'production' (negative check)
-        expect(authSource).not.toContain("process.env.NODE_ENV !== 'production'");
+        expect(svcSource).not.toContain("process.env.NODE_ENV !== 'production'");
     });
 });
 
