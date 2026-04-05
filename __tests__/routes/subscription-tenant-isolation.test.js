@@ -238,7 +238,7 @@ describe('CRIT-2/CRIT-4: Subscription tenant isolation', () => {
 
     describe('admin endpoints scoped to merchant', () => {
         test('GET /admin/list passes merchantId to getAllSubscribers', async () => {
-            subscriptionHandler.getAllSubscribers.mockResolvedValueOnce([]);
+            subscriptionHandler.getAllSubscribers.mockResolvedValueOnce({ rows: [], total: 0 });
             subscriptionHandler.getSubscriptionStats.mockResolvedValueOnce({});
 
             await request(app)
