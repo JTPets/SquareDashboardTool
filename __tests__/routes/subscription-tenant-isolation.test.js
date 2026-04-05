@@ -271,12 +271,27 @@ describe('CRIT-2/CRIT-4: Subscription tenant isolation', () => {
             expect(subscriptionHandler.getPlans).toHaveBeenCalledWith(7);
         });
 
-        test('GET /plans requires merchant context', async () => {
+        test('GET /plans uses platform owner plans when no merchant context', async () => {
+            // Unauthenticated (public pricing page) — falls back to platform owner's plans
+            db.query.mockResolvedValueOnce({ rows: [{ id: 1 }] }); // platform_owner lookup
+            subscriptionHandler.getPlans.mockResolvedValueOnce([{ plan_key: 'monthly' }]);
+
             const res = await request(app)
                 .get('/api/subscriptions/plans')
-                .expect(400);
+                .expect(200);
 
-            expect(res.body.code).toBe('NO_MERCHANT');
+            expect(res.body.success).toBe(true);
+            expect(subscriptionHandler.getPlans).toHaveBeenCalledWith(1);
+        });
+
+        test('GET /plans returns 503 when no platform owner is configured', async () => {
+            db.query.mockResolvedValueOnce({ rows: [] }); // no platform_owner found
+
+            const res = await request(app)
+                .get('/api/subscriptions/plans')
+                .expect(503);
+
+            expect(res.body.code).toBe('NO_PLANS');
         });
     });
 
