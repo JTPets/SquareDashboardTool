@@ -292,6 +292,9 @@ const apiAuthMiddleware = (req, res, next) => {
         '/subscriptions/create',
         '/subscriptions/status',
         '/subscriptions/promo/validate',
+        // Public pricing + promo endpoints (no auth required)
+        '/public/pricing',
+        '/public/promo/check',
         // Auth routes (login, password reset)
         '/auth/login',
         '/auth/forgot-password',
