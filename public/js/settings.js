@@ -641,15 +641,183 @@ async function resetMerchantSettingsToDefaults() {
   }
 }
 
+// ==================== SUBSCRIPTION TAB FUNCTIONS ====================
+
+let subscriptionEmail = null;
+
+async function loadSubscriptionStatus() {
+  const statusContainer = document.getElementById('subscription-status-content');
+  const featuresContainer = document.getElementById('subscription-features-list');
+  if (!statusContainer) return;
+
+  try {
+    const [statusRes, featuresRes] = await Promise.all([
+      fetch('/api/subscriptions/merchant-status'),
+      fetch('/api/merchant/features')
+    ]);
+
+    if (!statusRes.ok) {
+      statusContainer.innerHTML = '<div class="alert warning">No subscription data found. <a href="/subscribe.html">Subscribe now</a> to unlock all features.</div>';
+      featuresContainer.innerHTML = '';
+      return;
+    }
+
+    const statusData = await statusRes.json();
+    const featuresData = featuresRes.ok ? await featuresRes.json() : null;
+
+    renderSubscriptionStatus(statusData, statusContainer);
+    renderFeaturesList(featuresData, featuresContainer);
+  } catch (e) {
+    statusContainer.innerHTML = '<div class="alert error">Failed to load subscription details: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function renderSubscriptionStatus(data, container) {
+  const sub = data.subscription || {};
+  const billing = data.billing || null;
+  const status = sub.status || 'unknown';
+
+  const statusLabels = {
+    trial: 'Free Trial',
+    active: 'Active',
+    cancelled: 'Cancelled',
+    expired: 'Expired',
+    suspended: 'Suspended',
+    platform_owner: 'Platform Owner'
+  };
+  const statusColors = {
+    trial: 'info',
+    active: 'success',
+    cancelled: 'warning',
+    expired: 'error',
+    suspended: 'error',
+    platform_owner: 'success'
+  };
+
+  let html = '<div class="connection-card ' + (statusColors[status] === 'success' ? 'connected' : statusColors[status] === 'error' ? 'disconnected' : 'warning') + '">';
+  html += '<div class="connection-header"><span class="connection-icon">💳</span>';
+  html += '<span class="connection-name">' + escapeHtml(statusLabels[status] || status) + '</span></div>';
+
+  if (status === 'trial' && sub.trialDaysRemaining !== null) {
+    html += '<div class="connection-status">' + escapeHtml(String(sub.trialDaysRemaining)) + ' day' + (sub.trialDaysRemaining !== 1 ? 's' : '') + ' remaining in free trial</div>';
+  }
+
+  if (billing) {
+    const planName = escapeHtml(billing.plan || 'Standard');
+    html += '<div class="connection-status">Plan: ' + planName + '</div>';
+    if (billing.nextBillingDate) {
+      html += '<div class="connection-status">Next billing: ' + escapeHtml(formatDate(billing.nextBillingDate)) + '</div>';
+    }
+    if (billing.cardBrand && billing.cardLastFour) {
+      html += '<div class="connection-status">Payment: ' + escapeHtml(billing.cardBrand) + ' ending ' + escapeHtml(billing.cardLastFour) + '</div>';
+    }
+    // Store email for cancel flow (from subscriber record via merchant-status)
+  }
+
+  html += '</div>';
+  container.innerHTML = html;
+
+  // Show cancel button only for active paid subscriptions
+  const mgmtSection = document.getElementById('subscription-management-section');
+  if (mgmtSection && billing && billing.plan && status === 'active') {
+    mgmtSection.style.display = '';
+  }
+
+  // Fetch email for cancel from /api/auth/me (already loaded in currentUser)
+  if (currentUser) {
+    subscriptionEmail = currentUser.email;
+  }
+}
+
+function renderFeaturesList(featuresData, container) {
+  if (!featuresData || !featuresData.success) {
+    container.innerHTML = '<div class="alert info">Feature data unavailable.</div>';
+    return;
+  }
+
+  const enabled = featuresData.enabled || [];
+  const available = featuresData.available || [];
+
+  if (featuresData.is_platform_owner) {
+    container.innerHTML = '<div class="alert success">Platform owner — all features enabled.</div>';
+    return;
+  }
+
+  if (enabled.length === 0) {
+    container.innerHTML = '<div class="alert info">No paid features enabled. <a href="/subscribe.html">Subscribe</a> to unlock modules.</div>';
+    return;
+  }
+
+  let html = '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px;">';
+  available.forEach(function (mod) {
+    const isEnabled = featuresData.is_platform_owner || mod.enabled;
+    html += '<div class="connection-card ' + (isEnabled ? 'connected' : '') + '" style="padding: 12px 16px;">';
+    html += '<div style="font-weight: 600; font-size: 14px;">' + escapeHtml(mod.name) + '</div>';
+    html += '<div style="font-size: 12px; color: #6b7280;">' + (isEnabled ? 'Enabled' : '$' + (mod.price_cents / 100).toFixed(2) + '/mo') + '</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function showCancelSubscriptionModal() {
+  const modal = document.getElementById('cancel-subscription-modal');
+  if (modal) {
+    document.getElementById('cancel-reason').value = '';
+    modal.classList.add('active');
+  }
+}
+
+function hideCancelSubscriptionModal() {
+  const modal = document.getElementById('cancel-subscription-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+async function confirmCancelSubscription() {
+  const email = subscriptionEmail || (currentUser && currentUser.email);
+  if (!email) {
+    showToast('Unable to determine account email. Please refresh.', 'error');
+    return;
+  }
+
+  const reason = document.getElementById('cancel-reason').value.trim();
+  const btn = document.getElementById('confirm-cancel-btn');
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/subscriptions/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, reason: reason || 'Cancelled via settings' })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      showToast(data.error || 'Failed to cancel subscription.', 'error');
+    } else {
+      hideCancelSubscriptionModal();
+      showToast('Subscription cancelled. Paid features remain active until end of billing period.', 'success');
+      loadSubscriptionStatus();
+    }
+  } catch (e) {
+    showToast('Network error: ' + e.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-  // Tab switching
+  // Tab switching — load subscription data when tab activated
   document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
       tab.classList.add('active');
       document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      if (tab.dataset.tab === 'subscription') {
+        loadSubscriptionStatus();
+      }
     });
   });
 
@@ -677,3 +845,6 @@ window.unlockUser = unlockUser;
 window.resetUserPassword = resetUserPassword;
 window.toggleUserActive = toggleUserActive;
 window.logoutUser = logoutUser;
+window.showCancelSubscriptionModal = showCancelSubscriptionModal;
+window.hideCancelSubscriptionModal = hideCancelSubscriptionModal;
+window.confirmCancelSubscription = confirmCancelSubscription;

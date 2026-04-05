@@ -468,10 +468,20 @@ app.get('/api/merchant/features', requireMerchant, async (req, res) => {
             enabled: isPlatformOwner || enabledFeatures.includes(mod.key)
         }));
 
+        const mc = req.merchantContext;
+        let trialDaysRemaining = null;
+        if (mc.subscriptionStatus === 'trial' && mc.trialEndsAt) {
+            const msLeft = new Date(mc.trialEndsAt) - new Date();
+            trialDaysRemaining = Math.max(0, Math.ceil(msLeft / (1000 * 60 * 60 * 24)));
+        }
+
         sendSuccess(res, {
             enabled: enabledFeatures,
             available,
-            is_platform_owner: isPlatformOwner
+            is_platform_owner: isPlatformOwner,
+            subscription_status: mc.subscriptionStatus,
+            trial_ends_at: mc.trialEndsAt || null,
+            trial_days_remaining: trialDaysRemaining
         });
     } catch (error) {
         logger.error('Failed to load merchant features', { error: error.message, merchantId: req.merchantContext.id });
