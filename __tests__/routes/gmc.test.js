@@ -13,6 +13,7 @@ jest.mock('../../services/gmc/feed-service', () => ({
     generateFeedData: jest.fn(),
     generateTsvContent: jest.fn(() => 'tsv-content'),
     getSettings: jest.fn(),
+    saveSettings: jest.fn(),
     importBrands: jest.fn(),
     importGoogleTaxonomy: jest.fn(),
     generateLocalInventoryFeed: jest.fn(),
