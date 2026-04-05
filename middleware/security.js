@@ -64,7 +64,10 @@ function configureHelmet() {
                     "https://web.squarecdn.com",
                     "https://*.squarecdn.com"
                 ],
-                fontSrc: ["'self'", "https://fonts.gstatic.com", "https://*.squarecdn.com"],
+                // Square SDK loads fonts from its CDN and from CloudFront (d1g145x70srn7h).
+                // The card iframe sets its own CSP (Square-controlled), so these only apply
+                // to fonts loaded in our top-level document context.
+                fontSrc: ["'self'", "https://fonts.gstatic.com", "https://*.squarecdn.com", "https://d1g145x70srn7h.cloudfront.net"],
                 imgSrc: ["'self'", "data:", "https:", "blob:"],  // Allow images from HTTPS sources
                 connectSrc: [
                     "'self'",

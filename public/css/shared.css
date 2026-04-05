@@ -574,6 +574,58 @@ tr:hover {
   box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
 }
 
+/* Modal size variants — padding: 30px overrides the default padded body approach */
+.modal-content--sm { max-width: 420px; padding: 30px; }
+.modal-content--md { max-width: 650px; padding: 30px; }
+.modal-content--lg { max-width: 700px; padding: 30px; }
+
+/* Modal interior layout helpers */
+.modal-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.modal-title { margin: 0; font-size: 18px; font-weight: 600; }
+.modal-subtitle { margin-bottom: 16px; font-size: 14px; color: #6b7280; }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.modal-body-text { margin-bottom: 20px; font-size: 14px; color: #374151; }
+/* Modal form input spacing */
+.modal-input { margin-bottom: 20px; }
+
+/* Page subsection h3 headings (within a section, before a sub-list) */
+.subsection-title { font-size: 15px; font-weight: 600; color: #374151; margin: 16px 0 14px; }
+.subsection-title--gap { margin-top: 24px; }
+
+/* Generic muted text */
+.text-muted { color: #6b7280; }
+
+/* Table cell utilities for dynamically built rows */
+.td-nowrap { white-space: nowrap; }
+.td-notes  { max-width: 200px; font-size: 12px; color: #6b7280; }
+.td-period { font-size: 12px; color: #6b7280; }
+.td-meta   { font-size: 12px; color: #6b7280; margin-top: 8px; }
+.row-refunded { color: #9ca3af; text-decoration: line-through; }
+
+/* Admin feature override badge */
+.badge-admin-override { background: #dbeafe; color: #1d4ed8; }
+
+/* Feature module toggle row */
+.feature-toggle-label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.feature-key-text { font-size: 12px; color: #6b7280; }
+
+/* Inline button spacing in action columns */
+.btn-row-item { margin-right: 4px; }
+
+/* Alert with top spacing (e.g. config warnings below a form) */
+.alert-spaced { margin-top: 15px; margin-bottom: 0; }
+
+/* Input transform */
+.input-uppercase { text-transform: uppercase; }
+
+/* Required field indicator */
+.text-required { color: #dc2626; }
+
 /* =============================================================
    Alerts
    Canonical color scheme derived from admin-subscriptions.html.
