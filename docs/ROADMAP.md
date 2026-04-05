@@ -32,6 +32,9 @@ Replace the current Orders API-based velocity calculation with an `inventory_cha
 
 Oversized files to split when next modified. Not proactive — triggered by touching the file.
 
+**Phase B route thinning COMPLETE (2026-04-05)**: 7 fat routes extracted — 5,698 → 1,645 lines across entry points.
+`gmc` (1,009→300), `delivery` (942→287), `purchase-orders` (894→212), `subscriptions` (870→292), `auth` (785→196), `vendor-catalog` (610→262), `sync` (588→96).
+
 | File | Lines | Suggested Split |
 |------|-------|----------------|
 | `routes/loyalty.js` | 2,134 | 5 thin route files + loyalty services |

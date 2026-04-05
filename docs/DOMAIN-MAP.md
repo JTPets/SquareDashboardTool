@@ -147,17 +147,22 @@
 | `services/staff/staff-service.js` | 303 | Split into: invitation-service, user-role-service |
 | `services/loyalty-admin/purchase-service.js` | 302 | Split into: purchase-recorder, purchase-query |
 
-### Routes (all exceed 300 lines — routes should be thin)
+### Routes — Phase B Completed (was oversized, now thinned)
+
+| File | Was | Now | Status |
+|------|-----|-----|--------|
+| `routes/gmc.js` → `routes/gmc/` | 1,009 | 300 (5 files) | **DONE** |
+| `routes/delivery.js` → `routes/delivery/` | 942 | 287 (6 files) | **DONE** |
+| `routes/purchase-orders.js` | 894 | 212 | **DONE** |
+| `routes/subscriptions.js` → `routes/subscriptions/` | 870 | 292 (6 files) | **DONE** |
+| `routes/auth.js` → `routes/auth/` | 785 | 196 (4 files) | **DONE** |
+| `routes/vendor-catalog.js` → `routes/vendor-catalog/` | 610 | 262 (5 files) | **DONE** |
+| `routes/sync.js` | 588 | 96 | **DONE** — logic in `services/square/sync-orchestrator.js` |
+
+### Routes — Still Oversized
 
 | File | Lines | Note |
 |------|-------|------|
-| `routes/gmc.js` | 1,009 | Move business logic to `services/gmc/` |
-| `routes/delivery.js` | 942 | Move business logic to `services/delivery/` |
-| `routes/purchase-orders.js` | 894 | Create `services/purchase-orders/` |
-| `routes/subscriptions.js` | 870 | Move business logic to `services/subscriptions/` |
-| `routes/auth.js` | 785 | Move session/token logic to `services/auth/` |
-| `routes/vendor-catalog.js` | 610 | Move business logic to `services/vendor/` |
-| `routes/sync.js` | 588 | Move orchestration logic to `services/square/` |
 | `routes/square-oauth.js` | 539 | Move oauth logic to `services/square/oauth-service.js` |
 | `routes/expiry-discounts.js` | 488 | Move business logic to `services/expiry/` |
 | `routes/cycle-counts.js` | 473 | Move business logic to `services/inventory/` |

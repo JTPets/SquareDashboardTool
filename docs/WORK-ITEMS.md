@@ -2,8 +2,24 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
-**Last Validated**: 2026-04-03
+**Last Validated**: 2026-04-05
 **Total Open Items**: ~55
+
+### Purge Log — 2026-04-05 Phase B Route Extraction Complete
+
+**Phase B fat route extraction DONE** — 7 oversized routes extracted. 5,698 → 1,645 lines across entry points. Business logic moved to service layer; routes now thin callers only.
+
+| Route | Was | Now |
+|-------|-----|-----|
+| `routes/gmc.js` → `routes/gmc/` (5 files) | 1,009 | 300 |
+| `routes/delivery.js` → `routes/delivery/` (6 files) | 942 | 287 |
+| `routes/purchase-orders.js` | 894 | 212 |
+| `routes/subscriptions.js` → `routes/subscriptions/` (6 files) | 870 | 292 |
+| `routes/auth.js` → `routes/auth/` (4 files) | 785 | 196 |
+| `routes/vendor-catalog.js` → `routes/vendor-catalog/` (5 files) | 610 | 262 |
+| `routes/sync.js` | 588 | 96 |
+
+`sync.js` logic extracted to `services/square/sync-orchestrator.js` (235 lines). `server.js` import updated to pull `runSmartSync`/`isSyncNeeded` from the service directly. 268 suites / 5,464 tests passing.
 
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
@@ -34,7 +50,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 **L-2 FIXED** — 10 logger call sites now include `merchantId` in error log metadata.
 
-**BACKLOG-101 FIXED** — Toast CSS centralized. Removed runtime style injection IIFE from `toast.js`. Created `public/css/shared.css` as single source of truth. Removed local `.toast` CSS blocks from 8 HTML pages (purchase-orders, vendor-dashboard, expiry-audit, bundle-manager, cycle-count, delivery-route, driver, reorder). Added `<link rel="stylesheet" href="/css/shared.css">` to all 11 pages using toast.js. Sets pattern for future shared component styles. 239 suites / 4,852 tests passing.
+**BACKLOG-101 FIXED** — Toast CSS centralized. Removed runtime style injection IIFE from `toast.js`. Created `public/css/shared.css` as single source of truth. Removed local `.toast` CSS blocks from 8 HTML pages (purchase-orders, vendor-dashboard, expiry-audit, bundle-manager, cycle-count, delivery-route, driver, reorder). Added `<link rel="stylesheet" href="/css/shared.css">` to all 11 pages using toast.js. Sets pattern for future shared component styles. 239 suites / 4,852 tests passing at time of entry.
 
 **BACKLOG-80 PARTIAL** — Alert recipients helper built (`utils/alert-recipients.js`, 135 tests). Email delivery infrastructure (Cloudflare Email Routing + transactional sender) not yet configured — remains open.
 
