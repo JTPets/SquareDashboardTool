@@ -156,18 +156,19 @@ describe('S-6: Admin user listing scoped by merchant', () => {
         jest.clearAllMocks();
     });
 
+    // LOGIC CHANGE: listUsers extracted to services/auth/account-service.js
     test('user listing query joins user_merchants and filters by merchant_id', () => {
         const fs = require('fs');
         const path = require('path');
-        const authSource = fs.readFileSync(
-            path.join(__dirname, '..', '..', 'routes', 'auth.js'),
+        const svcSource = fs.readFileSync(
+            path.join(__dirname, '..', '..', 'services', 'auth', 'account-service.js'),
             'utf8'
         );
 
-        // The GET /users query must join user_merchants
-        expect(authSource).toMatch(/JOIN\s+user_merchants\s+um\s+ON\s+um\.user_id\s*=\s*u\.id/);
+        // The listUsers query must join user_merchants
+        expect(svcSource).toMatch(/JOIN\s+user_merchants\s+um\s+ON\s+um\.user_id\s*=\s*u\.id/);
         // And filter by merchant_id
-        expect(authSource).toMatch(/WHERE\s+um\.merchant_id\s*=\s*\$1/);
+        expect(svcSource).toMatch(/WHERE\s+um\.merchant_id\s*=\s*\$1/);
     });
 });
 
