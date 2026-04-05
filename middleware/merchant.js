@@ -124,7 +124,7 @@ async function loadMerchantContext(req, res, next) {
         // Check subscription status
         if (m.subscription_status === 'platform_owner') {
             req.merchantContext.isSubscriptionValid = true;
-        } else if (m.subscription_status === 'expired' || m.subscription_status === 'suspended') {
+        } else if (['expired', 'suspended', 'cancelled'].includes(m.subscription_status)) {
             req.merchantContext.isSubscriptionValid = false;
         } else if (m.subscription_status === 'trial' && m.trial_ends_at) {
             req.merchantContext.isSubscriptionValid = new Date(m.trial_ends_at) > new Date();

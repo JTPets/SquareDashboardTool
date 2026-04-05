@@ -126,19 +126,26 @@ describe('Subscription Enforcement Middleware (System A)', () => {
             expect(next).not.toHaveBeenCalled();
         });
 
-        it('should allow cancelled subscription (still valid until subscription_ends_at)', () => {
-            // 'cancelled' means user cancelled but still valid until end of period
+        it('should block cancelled subscription with 402 (B2 fix)', () => {
+            // loadMerchantContext now sets isSubscriptionValid=false for 'cancelled'
             req = {
                 merchantContext: {
                     id: 2,
-                    isSubscriptionValid: true,
+                    isSubscriptionValid: false,
                     subscriptionStatus: 'cancelled',
                 }
             };
 
             requireValidSubscription(req, res, next);
 
-            expect(next).toHaveBeenCalled();
+            expect(res.status).toHaveBeenCalledWith(402);
+            expect(res.json).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    success: false,
+                    code: 'SUBSCRIPTION_EXPIRED',
+                })
+            );
+            expect(next).not.toHaveBeenCalled();
         });
 
         it('should block trial that has expired (trial_ends_at in the past)', () => {
@@ -226,6 +233,50 @@ describe('Subscription Enforcement Middleware (System A)', () => {
             expect(isExcluded('/analytics/reorder')).toBe(false);
             expect(isExcluded('/loyalty/offers')).toBe(false);
             expect(isExcluded('/delivery/orders')).toBe(false);
+        });
+    });
+
+    describe('loadMerchantContext — cancelled status (B2 fix)', () => {
+        const db = require('../../utils/database');
+        let loadMerchantContext;
+
+        beforeEach(() => {
+            jest.clearAllMocks();
+            loadMerchantContext = require('../../middleware/merchant').loadMerchantContext;
+        });
+
+        it('sets isSubscriptionValid=false for cancelled merchants', async () => {
+            const merchantRow = {
+                id: 7,
+                square_merchant_id: 'sq_cancelled',
+                business_name: 'Cancelled Shop',
+                business_email: 'cancelled@test.com',
+                subscription_status: 'cancelled',
+                trial_ends_at: null,
+                subscription_ends_at: null,
+                timezone: 'America/Toronto',
+                currency: 'CAD',
+                locale: 'en-CA',
+                settings: {},
+                last_sync_at: null,
+                square_token_expires_at: null,
+                user_role: 'owner'
+            };
+
+            db.query
+                .mockResolvedValueOnce({ rows: [{ merchant_id: 7 }] })
+                .mockResolvedValueOnce({ rows: [merchantRow] })
+                .mockResolvedValueOnce({ rows: [] }); // features query
+
+            const req = { session: { user: { id: 1 } }, merchantContext: null };
+            const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+            const nextFn = jest.fn();
+
+            await loadMerchantContext(req, res, nextFn);
+
+            expect(nextFn).toHaveBeenCalled();
+            expect(req.merchantContext.subscriptionStatus).toBe('cancelled');
+            expect(req.merchantContext.isSubscriptionValid).toBe(false);
         });
     });
 });
