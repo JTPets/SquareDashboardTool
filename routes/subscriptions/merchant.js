@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const subscriptionHandler = require('../../utils/subscription-handler');
 const { requireAuth } = require('../../middleware/auth');
@@ -15,8 +16,15 @@ const subscriptionRateLimit = configureSubscriptionRateLimit();
 
 router.post('/subscriptions/promo/validate', promoRateLimit, validators.validatePromo, asyncHandler(async (req, res) => {
     const { code, plan, priceCents } = req.body;
-    const merchantId = req.merchantContext?.id || req.session?.activeMerchantId;
-    if (!merchantId) return sendError(res, 'Merchant context required', 400);
+    let merchantId = req.merchantContext?.id || req.session?.activeMerchantId;
+    if (!merchantId) {
+        // Public checkout (unauthenticated) — validate against platform owner's promo codes
+        const ownerRow = await db.query(
+            `SELECT id FROM merchants WHERE subscription_status = 'platform_owner' LIMIT 1`
+        );
+        if (ownerRow.rows.length === 0) return sendError(res, 'Service unavailable', 503, 'NO_PLATFORM');
+        merchantId = ownerRow.rows[0].id;
+    }
     const result = await validatePromoCode({ code, merchantId, plan, priceCents });
     if (!result.valid) return sendSuccess(res, { valid: false, error: result.error });
     const promo = result.promo;
@@ -31,10 +39,10 @@ router.post('/subscriptions/promo/validate', promoRateLimit, validators.validate
 
 router.post('/subscriptions/create', subscriptionRateLimit, validators.createSubscription, asyncHandler(async (req, res) => {
     const { email, businessName, plan, sourceId, promoCode, termsAcceptedAt } = req.body;
-    const merchantId = req.session?.activeMerchantId || req.merchantContext?.id;
-    if (!merchantId) return sendError(res, 'Merchant context required', 400, 'NO_MERCHANT');
+    // For public signups, merchantId is null — createSubscription resolves plans from platform owner
+    const merchantId = req.session?.activeMerchantId || req.merchantContext?.id || null;
     if (!process.env.SQUARE_LOCATION_ID) {
-        logger.error('SQUARE_LOCATION_ID not configured', { merchantId });
+        logger.error('SQUARE_LOCATION_ID not configured');
         return sendError(res, 'Payment system not configured. Please contact support.', 500);
     }
     const existing = await subscriptionHandler.getSubscriberByEmail(email);

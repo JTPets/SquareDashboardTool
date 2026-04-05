@@ -115,30 +115,77 @@ describe('CRIT-2/CRIT-4: Subscription tenant isolation', () => {
             expect(params).toContain('BETA100'); // code
         });
 
-        test('cross-tenant promo code rejected — no merchant context', async () => {
+        test('promo/validate with no merchant context falls back to platform owner', async () => {
+            db.query
+                .mockResolvedValueOnce({ rows: [{ id: 1 }] }) // platform_owner lookup
+                .mockResolvedValueOnce({ rows: [] });           // promo lookup returns nothing
+
             const res = await request(app)
                 .post('/api/subscriptions/promo/validate')
                 .send({ code: 'BETA100', plan: 'monthly', priceCents: 2999 })
-                .expect(400);
+                .expect(200);
 
-            expect(res.body.error).toContain('Merchant context required');
+            expect(res.body.success).toBe(true);
+            expect(res.body.valid).toBe(false);
+            // Verify promo query was scoped to platform owner merchant_id
+            const promoCalls = db.query.mock.calls;
+            expect(promoCalls[1][1]).toContain(1); // platform owner id passed to promo query
+        });
+
+        test('promo/validate returns 503 when no platform owner configured', async () => {
+            db.query.mockResolvedValueOnce({ rows: [] }); // no platform_owner found
+
+            const res = await request(app)
+                .post('/api/subscriptions/promo/validate')
+                .send({ code: 'BETA100', plan: 'monthly', priceCents: 2999 })
+                .expect(503);
+
+            expect(res.body.code).toBe('NO_PLATFORM');
         });
     });
 
     describe('subscription creation scopes to correct merchant', () => {
-        test('POST /create requires merchant context', async () => {
+        test('POST /create without merchant context uses platform owner plans (public signup)', async () => {
+            process.env.SQUARE_LOCATION_ID = 'test-location';
+            // platform_owner lookup in createSubscription service
+            db.query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
+
+            subscriptionHandler.getSubscriberByEmail.mockResolvedValueOnce(null);
+            subscriptionHandler.getPlans.mockResolvedValueOnce([
+                { plan_key: 'monthly', price_cents: 2999, square_plan_id: 'plan_123', name: 'Monthly' }
+            ]);
+
+            const squareApi = require('../../services/square');
+            squareApi.makeSquareRequest
+                .mockResolvedValueOnce({ customer: { id: 'sq_cust_pub' } })
+                .mockResolvedValueOnce({ card: { id: 'sq_card_pub', card_brand: 'VISA', last_4: '9999' } });
+
+            subscriptionHandler.createSubscriber.mockResolvedValueOnce({
+                id: 99, email: 'new@example.com', subscription_plan: 'monthly',
+                subscription_status: 'trial', trial_end_date: new Date()
+            });
+
+            const squareSubscriptions = require('../../utils/square-subscriptions');
+            squareSubscriptions.createSubscription.mockResolvedValueOnce({ id: 'sq_sub_pub' });
+
+            db.query.mockResolvedValue({ rows: [] });
+            subscriptionHandler.logEvent.mockResolvedValueOnce({});
+
             const res = await request(app)
                 .post('/api/subscriptions/create')
                 .send({
-                    email: 'test@example.com',
-                    businessName: 'Test',
+                    email: 'new@example.com',
+                    businessName: 'New Shop',
                     plan: 'monthly',
                     sourceId: 'cnon:card-nonce',
                     termsAcceptedAt: new Date().toISOString()
-                })
-                .expect(400);
+                });
 
-            expect(res.body.code).toBe('NO_MERCHANT');
+            // Should succeed (2xx) or fail on Square API issues — NOT 400 NO_MERCHANT
+            expect(res.status).not.toBe(400);
+            expect(res.body.code).not.toBe('NO_MERCHANT');
+            // Confirm platform owner (id=1) was used for plan lookup
+            expect(subscriptionHandler.getPlans).toHaveBeenCalledWith(1);
         });
 
         test('POST /create passes merchantId to getPlans', async () => {

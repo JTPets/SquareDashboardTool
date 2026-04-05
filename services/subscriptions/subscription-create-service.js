@@ -244,7 +244,7 @@ async function createUserAccount({ email, businessName, subscriberId, termsAccep
 /**
  * Create a new subscription end-to-end.
  *
- * @param {number} merchantId
+ * @param {number|null} merchantId - Existing merchant ID, or null for public signups (merchant created later via OAuth)
  * @param {Object} params
  * @param {string} params.email
  * @param {string} [params.businessName]
@@ -256,13 +256,25 @@ async function createUserAccount({ email, businessName, subscriberId, termsAccep
  * @throws {Error} with .statusCode and .code for expected failures
  */
 async function createSubscription(merchantId, { email, businessName, plan, sourceId, promoCode, termsAcceptedAt }) {
-    const plans = await subscriptionHandler.getPlans(merchantId);
+    // For public signups (no merchantId), use platform owner's plans — same fallback as plans.js
+    let planMerchantId = merchantId;
+    if (!planMerchantId) {
+        const ownerRow = await db.query(
+            `SELECT id FROM merchants WHERE subscription_status = 'platform_owner' LIMIT 1`
+        );
+        if (ownerRow.rows.length === 0) {
+            throw Object.assign(new Error('Subscription plans not available. Please contact support.'), { statusCode: 503 });
+        }
+        planMerchantId = ownerRow.rows[0].id;
+    }
+
+    const plans = await subscriptionHandler.getPlans(planMerchantId);
     const selectedPlan = plans.find(p => p.plan_key === plan);
     if (!selectedPlan) {
         throw Object.assign(new Error('Invalid plan selected'), { statusCode: 400 });
     }
     if (!selectedPlan.square_plan_id) {
-        logger.error('Square plan not configured', { plan, merchantId });
+        logger.error('Square plan not configured', { plan, planMerchantId });
         throw Object.assign(new Error('Subscription plan not configured. Please contact support.'), { statusCode: 500 });
     }
 
@@ -272,7 +284,7 @@ async function createSubscription(merchantId, { email, businessName, plan, sourc
     let promoExpiresAt = null;
 
     if (promoCode) {
-        const promoResult = await validatePromoCode({ code: promoCode, merchantId, plan, priceCents: selectedPlan.price_cents });
+        const promoResult = await validatePromoCode({ code: promoCode, merchantId: planMerchantId, plan, priceCents: selectedPlan.price_cents });
         if (promoResult.valid) {
             promoCodeId = promoResult.promo.id;
             discountCents = promoResult.discount;
@@ -292,21 +304,24 @@ async function createSubscription(merchantId, { email, businessName, plan, sourc
 
     const { squareCustomerId, cardId, cardBrand, cardLastFour } = await createSquareCustomerAndCard(email, businessName, sourceId);
 
+    // planMerchantId required for price lookup in createSubscriber SQL
     const subscriber = await subscriptionHandler.createSubscriber({
         email: email.toLowerCase(), businessName, plan,
-        squareCustomerId, cardBrand, cardLastFour, cardId, merchantId
+        squareCustomerId, cardBrand, cardLastFour, cardId, merchantId: planMerchantId
     });
 
     const locationId = process.env.SQUARE_LOCATION_ID;
     let result;
     if (discountCents > 0 && finalPriceCents > 0) {
-        result = await processDiscountedPayment({ merchantId, subscriberId: subscriber.id, squareCustomerId, cardId, selectedPlan, plan, finalPriceCents, discountCents, promoCode, locationId });
+        result = await processDiscountedPayment({ merchantId: planMerchantId, subscriberId: subscriber.id, squareCustomerId, cardId, selectedPlan, plan, finalPriceCents, discountCents, promoCode, locationId });
     } else if (finalPriceCents === 0) {
         result = await processFreePromo({ squareCustomerId, cardId, selectedPlan, plan, locationId, subscriberId: subscriber.id, promoCode });
     } else {
         result = await processFullSubscription({ squareCustomerId, cardId, selectedPlan, locationId, subscriberId: subscriber.id });
     }
 
+    // merchantId (original, may be null for public signups) — activateMerchantFeatures
+    // already guards the bridge call with `if (merchantId)`, so null is safe here
     await activateMerchantFeatures({
         merchantId, subscriber, promoCodeId, discountCents, promoExpiresAt,
         squareSubscription: result.squareSubscription, plan,
