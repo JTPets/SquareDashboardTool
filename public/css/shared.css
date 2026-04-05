@@ -1728,3 +1728,38 @@ tr:hover {
   .pricing-grid { grid-template-columns: 1fr; }
   .pricing-promo-row { flex-direction: column; }
 }
+
+/* ==================== TRIAL COUNTDOWN BANNER ==================== */
+/* Shown below page header when merchant is in a free trial.
+ * Builds on .alert.warning; adds flex layout and Subscribe button. */
+.trial-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 0 0;
+  border-radius: 0;
+  padding: 10px 24px;
+}
+
+/* Elevated urgency when ≤ 3 days remain */
+.trial-banner.trial-banner-urgent {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #7f1d1d;
+}
+
+/* When injected by feature-gate.js on pages without a header */
+.trial-banner.trial-banner-injected {
+  border-radius: 6px;
+  margin: 12px 0;
+}
+
+/* Small subscribe button inside the banner */
+.btn-sm {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}

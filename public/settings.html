@@ -209,6 +209,7 @@
       <div class="tab" data-tab="business-rules">Business Rules</div>
       <div class="tab" data-tab="sync">Sync Settings</div>
       <div class="tab" data-tab="security">Security</div>
+      <div class="tab" data-tab="subscription">Subscription</div>
     </div>
 
     <!-- Connections Tab -->
@@ -591,6 +592,84 @@
       <!-- Database backups should be managed at the infrastructure level -->
     </div>
 
+    <!-- Subscription Tab -->
+    <div class="tab-content" id="tab-subscription">
+
+      <!-- Trial / status banner placeholder (feature-gate.js injects here if < 3 days) -->
+      <div class="trial-banner alert warning" id="trial-banner" style="display: none;">
+        <span id="trial-banner-text"></span>
+        <a href="/subscribe.html" class="btn-primary btn-sm">Subscribe Now</a>
+      </div>
+
+      <!-- Plan Status -->
+      <div class="section" id="subscription-status-section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Subscription Status</div>
+            <div class="section-desc">Your current plan and billing details</div>
+          </div>
+          <a href="/upgrade.html" class="btn-secondary">Change Plan</a>
+        </div>
+
+        <div id="subscription-status-content">
+          <div class="alert info">Loading subscription details...</div>
+        </div>
+      </div>
+
+      <!-- Enabled Features -->
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Active Features</div>
+            <div class="section-desc">Features currently enabled on your plan</div>
+          </div>
+        </div>
+        <div id="subscription-features-list">
+          <div class="alert info">Loading features...</div>
+        </div>
+      </div>
+
+      <!-- Subscription Management (cancel) -->
+      <div class="section" id="subscription-management-section" style="display: none;">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Subscription Management</div>
+            <div class="section-desc">Manage or cancel your paid subscription</div>
+          </div>
+        </div>
+        <div class="alert warning" style="margin-bottom: 16px;">
+          Cancelling will disable paid features at the end of your current billing period.
+        </div>
+        <button class="btn-danger" data-action="showCancelSubscriptionModal">Cancel Subscription</button>
+      </div>
+
+    </div>
+
+    <!-- Cancel Subscription Modal -->
+    <div id="cancel-subscription-modal" class="modal">
+      <div class="modal-content" style="padding: 30px;">
+        <h3 style="margin-bottom: 16px;">Cancel Subscription</h3>
+        <p style="margin-bottom: 16px; color: #374151;">
+          Are you sure? Your paid features will be disabled at the end of your current billing period.
+        </p>
+        <div style="margin-bottom: 20px;">
+          <label style="display: block; margin-bottom: 6px; font-weight: 500;">
+            Reason for cancelling (optional)
+          </label>
+          <textarea id="cancel-reason" class="form-input" rows="3"
+            style="width: 100%; resize: vertical;"
+            placeholder="e.g. no longer needed, switching platforms..."></textarea>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button class="btn-secondary" data-action="hideCancelSubscriptionModal">Keep Subscription</button>
+          <button class="btn-danger" id="confirm-cancel-btn" data-action="confirmCancelSubscription">Yes, Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div class="toast" id="toast"></div>
+
     <!-- Change Password Modal -->
     <div id="change-password-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
       <div style="background: white; padding: 30px; border-radius: 8px; max-width: 400px; width: 90%;">
@@ -665,6 +744,9 @@
   <!-- HTML escaping utility -->
   <script src="/js/utils/escape.js"></script>
   <script src="/js/utils/date-format.js"></script>
+  <script src="/js/utils/toast.js"></script>
   <script src="/js/settings.js"></script>
+  <!-- Feature gate: trial banner injection when < 3 days remain -->
+  <script src="/js/feature-gate.js"></script>
 </body>
 </html>
