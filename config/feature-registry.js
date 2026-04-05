@@ -71,6 +71,7 @@ const modules = {
     cycle_counts: {
         key: 'cycle_counts',
         name: 'Cycle Counts',
+        description: 'Count and reconcile inventory against Square',
         routes: [
             '/api/cycle-counts',
         ],
@@ -84,6 +85,7 @@ const modules = {
     reorder: {
         key: 'reorder',
         name: 'Reorder Intelligence',
+        description: 'Auto-generate POs with velocity-based min/max',
         routes: [
             '/api/analytics',
             '/api/min-max/suppressed',
@@ -114,6 +116,7 @@ const modules = {
     expiry: {
         key: 'expiry',
         name: 'Expiry Automation',
+        description: 'Track expiry dates and automate markdowns',
         routes: [
             '/api/expiry-discounts',
             '/api/expirations',
@@ -129,6 +132,7 @@ const modules = {
     delivery: {
         key: 'delivery',
         name: 'Delivery',
+        description: 'Local delivery routing and driver dispatch',
         routes: [
             '/api/delivery',
             '/api/driver',
@@ -146,6 +150,7 @@ const modules = {
     loyalty: {
         key: 'loyalty',
         name: 'Loyalty Engine',
+        description: 'Custom rewards, senior discounts, cart monitoring',
         routes: [
             '/api/loyalty',
             '/api/seniors',
@@ -163,6 +168,7 @@ const modules = {
     ai_tools: {
         key: 'ai_tools',
         name: 'AI Tools',
+        description: 'AI-assisted catalog enrichment and autofill',
         routes: [
             '/api/ai-autofill',
         ],
@@ -175,6 +181,7 @@ const modules = {
     gmc: {
         key: 'gmc',
         name: 'Google Shopping',
+        description: 'Sync your catalog to Google Shopping',
         routes: [
             '/api/gmc',
             '/api/google',
@@ -185,6 +192,12 @@ const modules = {
         price_cents: 999,
         free: false,
     },
+};
+
+// Public subscription plans (displayed on pricing page; authoritative prices for public UI)
+const publicPlans = {
+    monthly: { key: 'monthly', name: 'Monthly', price_cents: 2999, billing_frequency: 'MONTHLY' },
+    annual:  { key: 'annual',  name: 'Annual',  price_cents: 29999, billing_frequency: 'ANNUAL' },
 };
 
 const bundles = {
@@ -264,6 +277,7 @@ function getModulePrice(moduleKey) {
 module.exports = {
     modules,
     bundles,
+    publicPlans,
     getModuleForRoute,
     getModuleForPage,
     getAllModules,

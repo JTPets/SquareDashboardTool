@@ -98,18 +98,54 @@ describe('activateMerchantSubscription', () => {
 
 describe('suspendMerchantSubscription', () => {
     it('should update merchant subscription_status to suspended', async () => {
-        // First query: check if platform_owner
-        db.query.mockResolvedValueOnce({
-            rows: [{ id: 5, subscription_status: 'active' }]
-        });
-        // Second query: update
-        db.query.mockResolvedValueOnce({
-            rows: [{ id: 5, subscription_status: 'suspended', business_name: 'Test Shop' }]
-        });
+        // SELECT check, UPDATE merchants, UPDATE merchant_features
+        db.query
+            .mockResolvedValueOnce({ rows: [{ id: 5, subscription_status: 'active' }] })
+            .mockResolvedValueOnce({ rows: [{ id: 5, subscription_status: 'suspended', business_name: 'Test Shop' }] })
+            .mockResolvedValueOnce({ rows: [] });
 
         const result = await suspendMerchantSubscription(1, 5);
 
         expect(result).toEqual({ id: 5, subscription_status: 'suspended', business_name: 'Test Shop' });
+    });
+
+    it('should deactivate merchant_features rows on suspension', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [{ id: 5, subscription_status: 'active' }] })
+            .mockResolvedValueOnce({ rows: [{ id: 5, subscription_status: 'suspended', business_name: 'Test Shop' }] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        await suspendMerchantSubscription(1, 5);
+
+        expect(db.query).toHaveBeenCalledWith(
+            expect.stringContaining('UPDATE merchant_features'),
+            [5]
+        );
+        expect(db.query).toHaveBeenCalledWith(
+            expect.stringContaining('enabled = FALSE'),
+            [5]
+        );
+        expect(db.query).toHaveBeenCalledWith(
+            expect.stringContaining("source = 'subscription'"),
+            [5]
+        );
+    });
+
+    it('should disable features only for source=subscription, not admin_override', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [{ id: 5, subscription_status: 'active' }] })
+            .mockResolvedValueOnce({ rows: [{ id: 5, subscription_status: 'suspended', business_name: 'Test Shop' }] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        await suspendMerchantSubscription(1, 5);
+
+        // The merchant_features UPDATE must filter by source = 'subscription'
+        // so admin_override rows are preserved
+        const featureUpdateCall = db.query.mock.calls.find(
+            call => typeof call[0] === 'string' && call[0].includes('UPDATE merchant_features')
+        );
+        expect(featureUpdateCall).toBeDefined();
+        expect(featureUpdateCall[0]).toContain("source = 'subscription'");
     });
 
     it('should NOT suspend platform owners', async () => {
