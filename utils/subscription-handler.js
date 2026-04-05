@@ -5,6 +5,7 @@
 
 const logger = require('./logger');
 const db = require('./database');
+const emailNotifier = require('./email-notifier');
 
 // Trial period in days
 const TRIAL_DAYS = 30;
@@ -34,18 +35,17 @@ async function createSubscriber({ email, businessName, plan, squareCustomerId, c
         [plan, merchantId]
     );
 
-    let priceCents;
-    if (planResult.rows[0]?.price_cents) {
-        priceCents = planResult.rows[0].price_cents;
-    } else {
-        // Fallback prices - log warning for audit trail
-        priceCents = plan === 'annual' ? 9999 : 999;
-        logger.warn('Using fallback subscription price - plan not found in database', {
-            plan,
-            priceCents,
-            email
-        });
+    if (!planResult.rows[0]?.price_cents) {
+        const errorContext = { plan, merchantId, email };
+        logger.error('Subscription plan lookup failed — refusing to create subscriber with unknown price', errorContext);
+        await emailNotifier.sendAlert(
+            'Subscription plan lookup failed',
+            `Plan "${plan}" not found for merchantId ${merchantId}. Subscriber creation aborted to prevent incorrect billing.\n\nContext: ${JSON.stringify(errorContext, null, 2)}`
+        );
+        throw new Error(`Subscription plan "${plan}" not found for merchant ${merchantId} — cannot determine price`);
     }
+
+    const priceCents = planResult.rows[0].price_cents;
 
     const result = await db.query(`
         INSERT INTO subscribers (
