@@ -9,6 +9,15 @@ jest.mock('../../middleware/merchant', () => ({
     getSquareClientForMerchant: jest.fn(),
 }));
 jest.mock('../../utils/database', () => ({ query: jest.fn() }));
+jest.mock('../../services/gmc/taxonomy-service', () => ({
+    listTaxonomies: jest.fn(),
+    getMappings: jest.fn(),
+    setMapping: jest.fn(),
+    deleteMapping: jest.fn(),
+    fetchGoogleTaxonomy: jest.fn(),
+    setMappingByName: jest.fn(),
+    deleteMappingByName: jest.fn(),
+}));
 jest.mock('../../services/gmc/feed-service', () => ({
     generateFeedData: jest.fn(),
     generateTsvContent: jest.fn(() => 'tsv-content'),
@@ -63,6 +72,7 @@ const express = require('express');
 const db = require('../../utils/database');
 const feedService = require('../../services/gmc/feed-service');
 const merchantService = require('../../services/gmc/merchant-service');
+const taxonomyService = require('../../services/gmc/taxonomy-service');
 const squareService = require('../../services/square');
 
 function buildApp() {
@@ -257,18 +267,20 @@ describe('POST /api/gmc/brands/auto-detect', () => {
 // ---------- GET /taxonomy ----------
 describe('GET /api/gmc/taxonomy', () => {
     it('returns taxonomy with search', async () => {
-        db.query.mockResolvedValue({ rows: [{ id: 1, name: 'Animals & Pet Supplies' }] });
+        taxonomyService.listTaxonomies.mockResolvedValue({ count: 1, taxonomy: [{ id: 1, name: 'Animals & Pet Supplies' }] });
         const res = await request(app).get('/api/gmc/taxonomy?search=pet');
         expect(res.status).toBe(200);
+        expect(taxonomyService.listTaxonomies).toHaveBeenCalledWith({ search: 'pet', limit: undefined });
     });
 });
 
 // ---------- GET /category-mappings ----------
 describe('GET /api/gmc/category-mappings', () => {
     it('returns category mappings', async () => {
-        db.query.mockResolvedValue({ rows: [{ category_id: 'cat-1', taxonomy_id: 100 }] });
+        taxonomyService.getMappings.mockResolvedValue({ count: 1, mappings: [{ category_id: 'cat-1', taxonomy_id: 100 }] });
         const res = await request(app).get('/api/gmc/category-mappings');
         expect(res.status).toBe(200);
+        expect(taxonomyService.getMappings).toHaveBeenCalledWith(10);
     });
 });
 
@@ -403,6 +415,104 @@ describe('POST /api/gmc/brands/bulk-assign', () => {
         const brandQuery = db.query.mock.calls[0];
         expect(brandQuery[0]).toContain('merchant_id');
         expect(brandQuery[1]).toEqual([[1], 10]); // 10 is the merchantContext.id from buildApp
+    });
+});
+
+// ---------- GET /taxonomy/fetch-google ----------
+describe('GET /api/gmc/taxonomy/fetch-google', () => {
+    it('returns imported count on success', async () => {
+        taxonomyService.fetchGoogleTaxonomy.mockResolvedValue({ imported: 42 });
+        const res = await request(app).get('/api/gmc/taxonomy/fetch-google');
+        expect(res.status).toBe(200);
+        expect(res.body.imported).toBe(42);
+    });
+
+    it('returns 500 when HTTP fetch fails', async () => {
+        taxonomyService.fetchGoogleTaxonomy.mockRejectedValue(new Error('Failed to fetch taxonomy: 503 Service Unavailable'));
+        const res = await request(app).get('/api/gmc/taxonomy/fetch-google');
+        expect(res.status).toBe(500);
+        expect(res.body.error).toMatch(/503/);
+    });
+});
+
+// ---------- PUT /categories/:categoryId/taxonomy ----------
+describe('PUT /api/gmc/categories/:categoryId/taxonomy', () => {
+    it('returns 404 when category not found', async () => {
+        taxonomyService.setMapping.mockResolvedValue({ notFound: 'category' });
+        const res = await request(app).put('/api/gmc/categories/cat-x/taxonomy').send({ google_taxonomy_id: 5 });
+        expect(res.status).toBe(404);
+    });
+
+    it('maps category to taxonomy', async () => {
+        taxonomyService.setMapping.mockResolvedValue({});
+        const res = await request(app).put('/api/gmc/categories/cat-1/taxonomy').send({ google_taxonomy_id: 5 });
+        expect(res.status).toBe(200);
+    });
+
+    it('removes mapping when taxonomy_id is falsy', async () => {
+        taxonomyService.setMapping.mockResolvedValue({ removed: true });
+        const res = await request(app).put('/api/gmc/categories/cat-1/taxonomy').send({ google_taxonomy_id: null });
+        expect(res.status).toBe(200);
+        expect(res.body.message).toMatch(/removed/i);
+    });
+});
+
+// ---------- DELETE /categories/:categoryId/taxonomy ----------
+describe('DELETE /api/gmc/categories/:categoryId/taxonomy', () => {
+    it('removes mapping', async () => {
+        taxonomyService.deleteMapping.mockResolvedValue(undefined);
+        const res = await request(app).delete('/api/gmc/categories/cat-1/taxonomy');
+        expect(res.status).toBe(200);
+        expect(taxonomyService.deleteMapping).toHaveBeenCalledWith(10, 'cat-1');
+    });
+});
+
+// ---------- PUT /category-taxonomy ----------
+describe('PUT /api/gmc/category-taxonomy', () => {
+    it('maps category by name', async () => {
+        taxonomyService.setMappingByName.mockResolvedValue({ category_id: 'cat-1' });
+        const res = await request(app).put('/api/gmc/category-taxonomy').send({ category_name: 'Dogs', google_taxonomy_id: 7 });
+        expect(res.status).toBe(200);
+        expect(res.body.category_id).toBe('cat-1');
+    });
+});
+
+// ---------- DELETE /category-taxonomy ----------
+describe('DELETE /api/gmc/category-taxonomy', () => {
+    it('removes mapping by category name', async () => {
+        taxonomyService.deleteMappingByName.mockResolvedValue({});
+        const res = await request(app).delete('/api/gmc/category-taxonomy').send({ category_name: 'Dogs' });
+        expect(res.status).toBe(200);
+    });
+
+    it('returns 404 when category not found', async () => {
+        taxonomyService.deleteMappingByName.mockResolvedValue({ notFound: 'category' });
+        const res = await request(app).delete('/api/gmc/category-taxonomy').send({ category_name: 'Unknown' });
+        expect(res.status).toBe(404);
+    });
+});
+
+// ---------- GET /local-inventory-feed.tsv — auth failures ----------
+describe('GET /api/gmc/local-inventory-feed.tsv auth', () => {
+    function buildNoAuthApp() {
+        const a = express();
+        a.use(express.json());
+        a.use((req, res, next) => { req.session = {}; next(); });
+        a.use('/api/gmc', require('../../routes/gmc'));
+        a.use((err, req, res, _next) => res.status(err.status || 500).json({ success: false, error: err.message }));
+        return a;
+    }
+
+    it('returns 401 with WWW-Authenticate when no auth provided', async () => {
+        const res = await request(buildNoAuthApp()).get('/api/gmc/local-inventory-feed.tsv');
+        expect(res.status).toBe(401);
+        expect(res.headers['www-authenticate']).toMatch(/Basic/);
+    });
+
+    it('returns 401 for an invalid feed token', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] }); // token lookup fails
+        const res = await request(buildNoAuthApp()).get('/api/gmc/local-inventory-feed.tsv?token=bad-token');
+        expect(res.status).toBe(401);
     });
 });
 
