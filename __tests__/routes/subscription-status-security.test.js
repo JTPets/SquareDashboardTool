@@ -145,8 +145,8 @@ describe('CRIT-1: GET /api/subscriptions/status security', () => {
 
     describe('rate limiting', () => {
         test('rate limiter is applied to GET /subscriptions/status', () => {
-            const router = require('../../routes/subscriptions');
-            const route = router.stack.find(layer =>
+            const merchantRouter = require('../../routes/subscriptions/merchant');
+            const route = merchantRouter.stack.find(layer =>
                 layer.route && layer.route.path === '/subscriptions/status' && layer.route.methods.get
             );
             expect(route).toBeDefined();
@@ -156,8 +156,8 @@ describe('CRIT-1: GET /api/subscriptions/status security', () => {
         });
 
         test('rate limiter is the FIRST middleware on GET /subscriptions/status', () => {
-            const router = require('../../routes/subscriptions');
-            const route = router.stack.find(layer =>
+            const merchantRouter = require('../../routes/subscriptions/merchant');
+            const route = merchantRouter.stack.find(layer =>
                 layer.route && layer.route.path === '/subscriptions/status' && layer.route.methods.get
             );
             const firstHandler = route.route.stack[0].handle;
