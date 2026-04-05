@@ -1193,6 +1193,7 @@ CREATE TABLE IF NOT EXISTS subscribers (
     -- Promo code tracking
     promo_code_id INTEGER REFERENCES promo_codes(id),
     discount_applied_cents INTEGER DEFAULT 0,
+    promo_expires_at TIMESTAMPTZ,  -- NULL = unlimited; set when promo has duration_months
 
     -- Link to merchant (bridges System B billing to System A enforcement)
     merchant_id INTEGER NOT NULL REFERENCES merchants(id),

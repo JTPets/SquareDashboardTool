@@ -1589,6 +1589,17 @@ async function ensureSchema() {
             logger.info('Added merchant_id column to subscribers');
             appliedCount++;
         }
+
+        // Add promo_expires_at column to subscribers (B3: enforce duration_months on promo codes)
+        const promoExpiresAtCheck = await query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'subscribers' AND column_name = 'promo_expires_at'
+        `);
+        if (promoExpiresAtCheck.rows.length === 0) {
+            await query('ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS promo_expires_at TIMESTAMPTZ');
+            logger.info('Added promo_expires_at column to subscribers');
+            appliedCount++;
+        }
     }
 
     // ==================== PROMO CODES TABLES ====================

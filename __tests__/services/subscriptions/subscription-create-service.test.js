@@ -179,6 +179,10 @@ describe('discounted payment path', () => {
         squareApi.makeSquareRequest.mockResolvedValueOnce({
             payment: { id: 'sq-pay-1', status: 'COMPLETED', receipt_url: 'https://receipt' }
         });
+        // Atomic promo UPDATE must return a row to confirm claim
+        db.query
+            .mockResolvedValueOnce({ rows: [] })           // UPDATE subscribers sq_sub_id
+            .mockResolvedValueOnce({ rows: [{ id: 5 }] }); // Atomic UPDATE promo_codes
 
         const result = await createSubscription(MERCHANT_ID, { ...BASE_PARAMS, promoCode: 'SAVE50' });
 
@@ -192,17 +196,33 @@ describe('discounted payment path', () => {
         }));
     });
 
-    it('records promo code usage after successful payment', async () => {
+    it('records promo code usage after successful payment (B4: atomic increment)', async () => {
         squareApi.makeSquareRequest.mockResolvedValueOnce({
             payment: { id: 'sq-pay-1', status: 'COMPLETED', receipt_url: null }
         });
+        db.query
+            .mockResolvedValueOnce({ rows: [] })           // UPDATE subscribers sq_sub_id
+            .mockResolvedValueOnce({ rows: [{ id: 5 }] }); // Atomic UPDATE promo_codes
 
         await createSubscription(MERCHANT_ID, { ...BASE_PARAMS, promoCode: 'SAVE50' });
 
-        // promo_code_uses insert, promo_codes times_used update, subscribers promo_code_id update
         const queryCalls = db.query.mock.calls.map(c => c[0]);
         expect(queryCalls.some(q => q.includes('promo_code_uses'))).toBe(true);
+        // B4: atomic query includes max_uses guard in WHERE clause
         expect(queryCalls.some(q => q.includes('times_used = times_used + 1'))).toBe(true);
+        expect(queryCalls.some(q => q.includes('max_uses IS NULL OR times_used < max_uses'))).toBe(true);
+    });
+
+    it('throws PROMO_MAXED when atomic increment returns no rows (B4: race condition guard)', async () => {
+        squareApi.makeSquareRequest.mockResolvedValueOnce({
+            payment: { id: 'sq-pay-1', status: 'COMPLETED', receipt_url: null }
+        });
+        db.query
+            .mockResolvedValueOnce({ rows: [] })   // UPDATE subscribers sq_sub_id
+            .mockResolvedValueOnce({ rows: [] });   // Atomic UPDATE promo_codes → no row = maxed
+
+        await expect(createSubscription(MERCHANT_ID, { ...BASE_PARAMS, promoCode: 'SAVE50' }))
+            .rejects.toMatchObject({ code: 'PROMO_MAXED', statusCode: 409 });
     });
 
     it('throws PAYMENT_FAILED if Square payment call fails', async () => {
@@ -210,6 +230,71 @@ describe('discounted payment path', () => {
 
         await expect(createSubscription(MERCHANT_ID, { ...BASE_PARAMS, promoCode: 'SAVE50' }))
             .rejects.toMatchObject({ code: 'PAYMENT_FAILED', statusCode: 400 });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// B3: promo_expires_at population
+// ---------------------------------------------------------------------------
+describe('promo duration enforcement (B3)', () => {
+    beforeEach(() => { setupSquareMocks(); });
+
+    it('sets promo_expires_at = NOW() + duration_months when promo has duration', async () => {
+        validatePromoCode.mockResolvedValue({
+            valid: true,
+            promo: { id: 7, code: 'BETA12', discount_type: 'fixed_price', fixed_price_cents: 99, duration_months: 12 },
+            discount: 900,
+            finalPrice: 99
+        });
+        // Free promo path (finalPrice > 0 but discountCents > 0 → discounted payment)
+        // Actually finalPrice=99 > 0 and discount=900 > 0 → discounted payment path
+        squareApi.makeSquareRequest.mockResolvedValueOnce({
+            payment: { id: 'sq-pay-x', status: 'COMPLETED', receipt_url: null }
+        });
+        db.query
+            .mockResolvedValueOnce({ rows: [] })           // UPDATE subscribers sq_sub_id
+            .mockResolvedValueOnce({ rows: [{ id: 7 }] }); // Atomic UPDATE promo_codes
+
+        const before = new Date();
+        await createSubscription(MERCHANT_ID, { ...BASE_PARAMS, promoCode: 'BETA12' });
+        const after = new Date();
+
+        // Find the UPDATE subscribers SET promo_code_id call and verify promo_expires_at
+        const promoSubUpdate = db.query.mock.calls.find(c =>
+            typeof c[0] === 'string' && c[0].includes('promo_expires_at') && c[0].includes('UPDATE subscribers')
+        );
+        expect(promoSubUpdate).toBeTruthy();
+        const expiresAt = promoSubUpdate[1][2]; // third param = promoExpiresAt
+        expect(expiresAt).toBeInstanceOf(Date);
+        // Should be roughly NOW + 12 months (within a minute of test execution)
+        const expectedMin = new Date(before); expectedMin.setMonth(expectedMin.getMonth() + 12);
+        const expectedMax = new Date(after); expectedMax.setMonth(expectedMax.getMonth() + 12);
+        expect(expiresAt.getTime()).toBeGreaterThanOrEqual(expectedMin.getTime());
+        expect(expiresAt.getTime()).toBeLessThanOrEqual(expectedMax.getTime());
+    });
+
+    it('sets promo_expires_at = null when promo has no duration_months (unlimited)', async () => {
+        validatePromoCode.mockResolvedValue({
+            valid: true,
+            promo: { id: 8, code: 'UNLIMITED', discount_type: 'percent', discount_value: 20, duration_months: null },
+            discount: 200,
+            finalPrice: 799
+        });
+        squareApi.makeSquareRequest.mockResolvedValueOnce({
+            payment: { id: 'sq-pay-y', status: 'COMPLETED', receipt_url: null }
+        });
+        db.query
+            .mockResolvedValueOnce({ rows: [] })           // UPDATE subscribers sq_sub_id
+            .mockResolvedValueOnce({ rows: [{ id: 8 }] }); // Atomic UPDATE promo_codes
+
+        await createSubscription(MERCHANT_ID, { ...BASE_PARAMS, promoCode: 'UNLIMITED' });
+
+        const promoSubUpdate = db.query.mock.calls.find(c =>
+            typeof c[0] === 'string' && c[0].includes('promo_expires_at') && c[0].includes('UPDATE subscribers')
+        );
+        expect(promoSubUpdate).toBeTruthy();
+        const expiresAt = promoSubUpdate[1][2];
+        expect(expiresAt).toBeNull();
     });
 });
 
@@ -225,6 +310,10 @@ describe('free promo path (100% discount)', () => {
             finalPrice: 0
         });
         setupSquareMocks();
+        // Atomic promo UPDATE must return a row in activateMerchantFeatures
+        db.query
+            .mockResolvedValueOnce({ rows: [] })           // UPDATE subscribers sq_sub_id
+            .mockResolvedValueOnce({ rows: [{ id: 7 }] }); // Atomic UPDATE promo_codes
     });
 
     it('creates Square subscription without charging', async () => {
