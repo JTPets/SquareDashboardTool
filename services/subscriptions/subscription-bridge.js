@@ -12,6 +12,7 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
+const subscriptionHandler = require('../../utils/subscription-handler');
 
 /**
  * Activate a merchant's subscription after successful payment.
@@ -184,9 +185,70 @@ async function resolveMerchantId(subscriber) {
     return null;
 }
 
+/**
+ * Cancel a Square subscription, swallowing errors (best-effort).
+ * Use before cancelling locally so a Square API failure doesn't block the user.
+ *
+ * @param {string} squareSubscriptionId
+ */
+async function cancelWithSquare(squareSubscriptionId) {
+    const squareSubscriptions = require('../../utils/square-subscriptions');
+    try {
+        await squareSubscriptions.cancelSubscription(squareSubscriptionId);
+        logger.info('Square subscription canceled', { squareSubscriptionId });
+    } catch (squareError) {
+        logger.warn('Failed to cancel Square subscription', {
+            error: squareError.message, squareSubscriptionId
+        });
+    }
+}
+
+/**
+ * Assemble the combined System A + System B status summary for a merchant.
+ * Used by GET /subscriptions/merchant-status.
+ *
+ * @param {Object} merchantContext - req.merchantContext
+ * @returns {Promise<Object>} { subscription, billing, plans, merchantId, businessName }
+ */
+async function getMerchantStatusSummary(merchantContext) {
+    const mc = merchantContext;
+    const plans = await subscriptionHandler.getPlans(mc.id);
+    const subscriber = await subscriptionHandler.getSubscriberByMerchantId(mc.id);
+
+    let trialDaysRemaining = null;
+    if (mc.subscriptionStatus === 'trial' && mc.trialEndsAt) {
+        const now = new Date();
+        const trialEnd = new Date(mc.trialEndsAt);
+        trialDaysRemaining = Math.max(0, Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24)));
+    }
+
+    return {
+        subscription: {
+            status: mc.subscriptionStatus,
+            isValid: mc.isSubscriptionValid,
+            trialEndsAt: mc.trialEndsAt,
+            trialDaysRemaining,
+            subscriptionEndsAt: mc.subscriptionEndsAt
+        },
+        billing: subscriber ? {
+            plan: subscriber.subscription_plan,
+            priceCents: subscriber.price_cents,
+            cardBrand: subscriber.card_brand,
+            cardLastFour: subscriber.card_last_four,
+            nextBillingDate: subscriber.next_billing_date,
+            squareSubscriptionId: subscriber.square_subscription_id
+        } : null,
+        plans,
+        merchantId: mc.id,
+        businessName: mc.businessName
+    };
+}
+
 module.exports = {
     activateMerchantSubscription,
     suspendMerchantSubscription,
     cancelMerchantSubscription,
-    resolveMerchantId
+    resolveMerchantId,
+    cancelWithSquare,
+    getMerchantStatusSummary
 };

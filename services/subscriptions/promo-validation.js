@@ -98,4 +98,49 @@ async function validatePromoCode({ code, merchantId, plan, priceCents }) {
     };
 }
 
-module.exports = { validatePromoCode };
+/**
+ * Check a platform-owner promo code for the public pricing page.
+ * Only looks up codes owned by the platform_owner merchant (site-wide promos).
+ *
+ * @param {string} code - Promo code to check
+ * @returns {Promise<Object>} { valid: false } or { valid: true, code, description, discountType, discountDisplay, durationMonths }
+ */
+async function checkPublicPromo(code) {
+    const result = await db.query(`
+        SELECT pc.code, pc.description, pc.discount_type, pc.discount_value,
+               pc.fixed_price_cents, pc.duration_months
+        FROM promo_codes pc
+        JOIN merchants m ON m.id = pc.merchant_id
+        WHERE UPPER(pc.code) = UPPER($1)
+          AND m.subscription_status = 'platform_owner'
+          AND pc.is_active = TRUE
+          AND (pc.valid_from IS NULL OR pc.valid_from <= NOW())
+          AND (pc.valid_until IS NULL OR pc.valid_until >= NOW())
+          AND (pc.max_uses IS NULL OR pc.times_used < pc.max_uses)
+    `, [code]);
+
+    if (result.rows.length === 0) {
+        return { valid: false };
+    }
+
+    const promo = result.rows[0];
+    let discountDisplay;
+    if (promo.discount_type === 'fixed_price') {
+        discountDisplay = `$${(promo.fixed_price_cents / 100).toFixed(2)}/mo`;
+    } else if (promo.discount_type === 'percent') {
+        discountDisplay = `${promo.discount_value}% off`;
+    } else {
+        discountDisplay = `$${(promo.discount_value / 100).toFixed(2)} off`;
+    }
+
+    return {
+        valid: true,
+        code: promo.code,
+        description: promo.description,
+        discountType: promo.discount_type,
+        discountDisplay,
+        durationMonths: promo.duration_months || null
+    };
+}
+
+module.exports = { validatePromoCode, checkPublicPromo };
