@@ -66,7 +66,7 @@ describe('FIX 2 — Subscription admin routes use requirePermission', () => {
     const fs = require('fs');
     const path = require('path');
     const subscriptionsSource = fs.readFileSync(
-        path.join(__dirname, '..', '..', 'routes', 'subscriptions.js'), 'utf8'
+        path.join(__dirname, '..', '..', 'routes', 'subscriptions', 'admin.js'), 'utf8'
     );
 
     test('admin/list uses requirePermission(subscription, admin)', () => {
@@ -95,17 +95,17 @@ describe('FIX 2 — Subscription admin routes use requirePermission', () => {
     });
 
     test('admin routes do NOT use requireAdmin directly', () => {
-        // Extract just the admin route definitions
+        // Extract just the admin route definitions (list/plans/setup-plans — not refund)
         const adminSection = subscriptionsSource.substring(
             subscriptionsSource.indexOf("'/subscriptions/admin/list'"),
-            subscriptionsSource.indexOf("'/webhooks/events'")
+            subscriptionsSource.length
         );
         // requireAdmin should not appear in the admin route middleware chains
         expect(adminSection).not.toMatch(/,\s*requireAdmin\s*,/);
     });
 
     test('requirePermission is imported from require-permission middleware', () => {
-        expect(subscriptionsSource).toContain("require('../middleware/require-permission')");
+        expect(subscriptionsSource).toContain("require('../../middleware/require-permission')");
     });
 
     test('subscription permission matrix: owner gets admin, manager does not', () => {
