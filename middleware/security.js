@@ -64,7 +64,7 @@ function configureHelmet() {
                     "https://web.squarecdn.com",
                     "https://*.squarecdn.com"
                 ],
-                fontSrc: ["'self'", "https://fonts.gstatic.com"],
+                fontSrc: ["'self'", "https://fonts.gstatic.com", "https://*.squarecdn.com"],
                 imgSrc: ["'self'", "data:", "https:", "blob:"],  // Allow images from HTTPS sources
                 connectSrc: [
                     "'self'",
@@ -76,6 +76,8 @@ function configureHelmet() {
                     "https://*.ingest.sentry.io",
                     // Cloudflare analytics beacons
                     "https://*.cloudflareinsights.com",
+                    // Square Web Payments SDK (XHR for card frame init and telemetry)
+                    "https://*.squarecdn.com",
                     // Zebra Browser Print agent (runs on user's local machine)
                     "http://127.0.0.1:9100",
                     "https://127.0.0.1:9101"
