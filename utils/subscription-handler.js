@@ -411,24 +411,48 @@ async function updateCardOnFile(subscriberId, { cardId, cardBrand, cardLastFour 
 }
 
 /**
- * Get all subscribers (admin)
- * @param {Object} filters - Optional filters
- * @returns {Promise<Array>} Subscribers list
+ * Get all subscribers (admin) with optional search, status filter, and pagination.
+ * @param {Object} filters
+ * @param {number}  filters.merchantId  - Required: platform-owner merchant_id
+ * @param {string}  [filters.status]    - Filter by subscription_status
+ * @param {string}  [filters.search]    - ILIKE search on email or business_name
+ * @param {number}  [filters.limit]     - Page size (default 10, max 100)
+ * @param {number}  [filters.offset]    - Page offset (default 0)
+ * @returns {Promise<{rows: Array, total: number}>}
  */
 // LOGIC CHANGE: merchant_id required for tenant isolation (CRIT-2 audit)
 async function getAllSubscribers(filters = {}) {
-    let sql = 'SELECT * FROM subscribers WHERE merchant_id = $1';
-    const params = [filters.merchantId];
+    const limit = Math.min(Number(filters.limit) || 10, 100);
+    const offset = Math.max(Number(filters.offset) || 0, 0);
+
+    const whereClauses = ['merchant_id = $1'];
+    const whereParams = [filters.merchantId];
 
     if (filters.status) {
-        params.push(filters.status);
-        sql += ` AND subscription_status = $${params.length}`;
+        whereParams.push(filters.status);
+        whereClauses.push(`subscription_status = $${whereParams.length}`);
     }
 
-    sql += ' ORDER BY created_at DESC';
+    if (filters.search) {
+        const term = `%${filters.search}%`;
+        whereParams.push(term);
+        whereClauses.push(`(email ILIKE $${whereParams.length} OR business_name ILIKE $${whereParams.length})`);
+    }
 
-    const result = await db.query(sql, params);
-    return result.rows;
+    const where = whereClauses.join(' AND ');
+
+    const [countResult, dataResult] = await Promise.all([
+        db.query(`SELECT COUNT(*) FROM subscribers WHERE ${where}`, whereParams),
+        db.query(
+            `SELECT * FROM subscribers WHERE ${where} ORDER BY created_at DESC LIMIT $${whereParams.length + 1} OFFSET $${whereParams.length + 2}`,
+            [...whereParams, limit, offset]
+        )
+    ]);
+
+    return {
+        rows: dataResult.rows,
+        total: parseInt(countResult.rows[0].count, 10)
+    };
 }
 
 /**
