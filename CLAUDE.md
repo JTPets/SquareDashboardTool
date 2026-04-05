@@ -123,7 +123,7 @@ npm test                     # Run tests
 
 **Security Audit Grade**: B+ (13-section audit, 2026-03-22)
 **Core Security**: A+ (multi-tenant isolation, auth, injection prevention, data integrity)
-**Test Coverage**: 4,852 tests / 239 suites / 0 failures
+**Test Coverage**: 5,464 tests / 268 suites / 0 failures
 **Last Audit**: 2026-03-25
 
 See [docs/WORK-ITEMS.md](./docs/WORK-ITEMS.md) for the complete backlog and open items.
