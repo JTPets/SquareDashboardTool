@@ -31,6 +31,7 @@ const emailNotifier = require('../utils/email-notifier');
 const { sendSuccess, sendError } = require('../utils/response-helper');
 const requireSuperAdmin = require('../middleware/require-super-admin');
 const subscriptionHandler = require('../utils/subscription-handler');
+const featureRegistry = require('../config/feature-registry');
 
 /**
  * GET /api/admin/merchants
@@ -54,13 +55,13 @@ router.get('/merchants', requireAuth, requireAdmin, validators.listMerchants, as
  * Extend a merchant's trial by N days from NOW
  * If no trial exists, sets trial_ends_at = NOW() + days
  */
-router.post('/merchants/:merchantId/extend-trial', requireAuth, requireAdmin, requireMerchantAccess, validators.extendTrial, asyncHandler(async (req, res) => {
+router.post('/merchants/:merchantId/extend-trial', requireAuth, requireAdmin, requireSuperAdmin, requireMerchantAccess, validators.extendTrial, asyncHandler(async (req, res) => {
     const merchantId = parseInt(req.params.merchantId, 10);
     const { days } = req.body;
 
     const result = await db.query(`
         UPDATE merchants
-        SET trial_ends_at = NOW() + INTERVAL '1 day' * $1,
+        SET trial_ends_at = GREATEST(COALESCE(trial_ends_at, NOW()), NOW()) + INTERVAL '1 day' * $1,
             subscription_status = CASE
                 WHEN subscription_status IN ('expired', 'suspended') THEN 'trial'
                 ELSE subscription_status
@@ -310,6 +311,114 @@ router.get('/merchants/:merchantId/payments', requireAuth, requireAdmin, require
         payments: result.rows,
         total: parseInt(countResult.rows[0].count, 10)
     });
+}));
+
+/**
+ * GET /api/admin/merchants/:merchantId/features
+ * Returns merchant's current feature states plus all available paid modules.
+ */
+router.get('/merchants/:merchantId/features', requireAuth, requireAdmin, requireSuperAdmin, validators.getMerchantFeatures, asyncHandler(async (req, res) => {
+    const merchantId = parseInt(req.params.merchantId, 10);
+
+    const result = await db.query(
+        `SELECT feature_key, enabled, source, enabled_at, disabled_at
+         FROM merchant_features
+         WHERE merchant_id = $1`,
+        [merchantId]
+    );
+
+    const featureMap = {};
+    result.rows.forEach(row => { featureMap[row.feature_key] = row; });
+
+    const features = featureRegistry.getPaidModules().map(mod => {
+        const row = featureMap[mod.key] || null;
+        return {
+            feature_key: mod.key,
+            name: mod.name,
+            price_cents: mod.price_cents,
+            enabled: row ? row.enabled : false,
+            source: row ? row.source : null,
+            enabled_at: row ? row.enabled_at : null,
+            disabled_at: row ? row.disabled_at : null,
+        };
+    });
+
+    sendSuccess(res, { features });
+}));
+
+/**
+ * PUT /api/admin/merchants/:merchantId/features/:featureKey
+ * Upsert a merchant_features row with source = 'admin_override'.
+ */
+router.put('/merchants/:merchantId/features/:featureKey', requireAuth, requireAdmin, requireSuperAdmin, validators.updateMerchantFeature, asyncHandler(async (req, res) => {
+    const merchantId = parseInt(req.params.merchantId, 10);
+    const { featureKey } = req.params;
+    const enabled = req.body.enabled === true || req.body.enabled === 'true';
+    const disabledAt = enabled ? null : new Date().toISOString();
+
+    const result = await db.query(
+        `INSERT INTO merchant_features (merchant_id, feature_key, enabled, source, enabled_at, disabled_at)
+         VALUES ($1, $2, $3, 'admin_override', NOW(), $4)
+         ON CONFLICT (merchant_id, feature_key)
+         DO UPDATE SET
+             enabled = EXCLUDED.enabled,
+             source = 'admin_override',
+             enabled_at = NOW(),
+             disabled_at = EXCLUDED.disabled_at
+         RETURNING feature_key, enabled, source`,
+        [merchantId, featureKey, enabled, disabledAt]
+    );
+
+    logger.info('Merchant feature toggled by admin', {
+        merchantId, featureKey, enabled,
+        adminUserId: req.session.user.id
+    });
+
+    sendSuccess(res, { feature: result.rows[0] });
+}));
+
+/**
+ * POST /api/admin/merchants/:merchantId/activate
+ * Manually comp-activate a merchant: sets subscription_status = 'active'
+ * and grants all paid modules with source = 'admin_override'.
+ */
+router.post('/merchants/:merchantId/activate', requireAuth, requireAdmin, requireSuperAdmin, validators.activateMerchant, asyncHandler(async (req, res) => {
+    const merchantId = parseInt(req.params.merchantId, 10);
+
+    const merchantResult = await db.query(
+        `UPDATE merchants
+         SET subscription_status = 'active', updated_at = NOW()
+         WHERE id = $1
+         RETURNING id, business_name, subscription_status`,
+        [merchantId]
+    );
+
+    if (merchantResult.rows.length === 0) {
+        return sendError(res, 'Merchant not found', 404);
+    }
+
+    const paidModules = featureRegistry.getPaidModules();
+    for (const mod of paidModules) {
+        await db.query(
+            `INSERT INTO merchant_features (merchant_id, feature_key, enabled, source, enabled_at, disabled_at)
+             VALUES ($1, $2, TRUE, 'admin_override', NOW(), NULL)
+             ON CONFLICT (merchant_id, feature_key)
+             DO UPDATE SET
+                 enabled = TRUE,
+                 source = 'admin_override',
+                 enabled_at = NOW(),
+                 disabled_at = NULL`,
+            [merchantId, mod.key]
+        );
+    }
+
+    logger.info('Merchant manually activated by admin', {
+        merchantId,
+        modulesGranted: paidModules.length,
+        adminUserId: req.session.user.id
+    });
+
+    sendSuccess(res, { merchant: merchantResult.rows[0], modulesGranted: paidModules.length });
 }));
 
 module.exports = router;

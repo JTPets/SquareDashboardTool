@@ -153,6 +153,49 @@ const listMerchantPayments = [
     handleValidationErrors
 ];
 
+const getMerchantFeatures = [
+    param('merchantId')
+        .custom((value) => {
+            const num = Number(value);
+            if (!Number.isInteger(num) || num < 1) {
+                throw new Error('merchantId must be a positive integer');
+            }
+            return true;
+        }),
+    handleValidationErrors
+];
+
+const updateMerchantFeature = [
+    param('merchantId')
+        .custom((value) => {
+            const num = Number(value);
+            if (!Number.isInteger(num) || num < 1) {
+                throw new Error('merchantId must be a positive integer');
+            }
+            return true;
+        }),
+    param('featureKey')
+        .trim()
+        .notEmpty().withMessage('featureKey is required')
+        .matches(/^[a-z0-9_]+$/).withMessage('featureKey must be lowercase alphanumeric with underscores'),
+    body('enabled')
+        .exists({ checkNull: true }).withMessage('enabled is required')
+        .isBoolean().withMessage('enabled must be a boolean'),
+    handleValidationErrors
+];
+
+const activateMerchant = [
+    param('merchantId')
+        .custom((value) => {
+            const num = Number(value);
+            if (!Number.isInteger(num) || num < 1) {
+                throw new Error('merchantId must be a positive integer');
+            }
+            return true;
+        }),
+    handleValidationErrors
+];
+
 module.exports = {
     listMerchants,
     extendTrial,
@@ -163,5 +206,8 @@ module.exports = {
     createPromoCode,
     listPromoCodes,
     deactivatePromoCode,
-    listMerchantPayments
+    listMerchantPayments,
+    getMerchantFeatures,
+    updateMerchantFeature,
+    activateMerchant
 };
