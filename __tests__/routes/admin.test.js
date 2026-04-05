@@ -54,6 +54,9 @@ jest.mock('../../middleware/merchant-access', () => ({
     requireMerchantAccess: (req, res, next) => next(),
 }));
 
+// Mock requireSuperAdmin — pass through in route-level tests
+jest.mock('../../middleware/require-super-admin', () => (req, res, next) => next());
+
 const request = require('supertest');
 const express = require('express');
 const session = require('express-session');

@@ -24,7 +24,7 @@ jest.mock('../../utils/subscription-handler', () => ({
     recordPayment: jest.fn(),
     logEvent: jest.fn(),
     getPaymentHistory: jest.fn().mockResolvedValue([]),
-    getAllSubscribers: jest.fn().mockResolvedValue([]),
+    getAllSubscribers: jest.fn().mockResolvedValue({ rows: [], total: 0 }),
     getSubscriptionStats: jest.fn().mockResolvedValue({}),
     processRefund: jest.fn(),
     cancelSubscription: jest.fn(),
