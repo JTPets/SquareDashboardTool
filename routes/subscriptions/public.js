@@ -12,15 +12,16 @@ router.get('/public/pricing', (req, res) => {
     const modules = featureRegistry.getPaidModules().map(m => ({
         key: m.key,
         name: m.name,
+        description: m.description,
         price_cents: m.price_cents,
     }));
-    const bundles = Object.values(featureRegistry.bundles).map(b => ({
-        key: b.key,
-        name: b.name,
-        includes: b.includes,
-        price_cents: b.price_cents,
+    const plans = Object.values(featureRegistry.publicPlans).map(p => ({
+        key: p.key,
+        name: p.name,
+        price_cents: p.price_cents,
+        billing_frequency: p.billing_frequency,
     }));
-    sendSuccess(res, { modules, bundles });
+    sendSuccess(res, { modules, plans });
 });
 
 router.get('/public/promo/check', promoRateLimit, asyncHandler(async (req, res) => {

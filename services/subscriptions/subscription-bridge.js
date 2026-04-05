@@ -97,6 +97,13 @@ async function suspendMerchantSubscription(subscriberId, merchantId) {
         RETURNING id, subscription_status, business_name
     `, [merchantId]);
 
+    // Deactivate all subscription-granted features (mirrors cancel behaviour)
+    await db.query(`
+        UPDATE merchant_features
+        SET enabled = FALSE, disabled_at = NOW()
+        WHERE merchant_id = $1 AND source = 'subscription'
+    `, [merchantId]);
+
     logger.warn('Merchant subscription suspended due to payment failure', {
         merchantId,
         subscriberId,
