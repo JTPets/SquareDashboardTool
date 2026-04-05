@@ -118,6 +118,16 @@
       font-size: 14px;
     }
 
+    /* Modal form input (standalone, not in promo grid) */
+    .modal-form-input {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+      margin-bottom: 20px;
+    }
+
     @media (max-width: 768px) {
       .stats-grid { grid-template-columns: repeat(2, 1fr); }
       .promo-form-grid { grid-template-columns: 1fr; }
@@ -186,15 +196,15 @@
           </div>
 
           <!-- Create Form -->
-          <h3 style="font-size: 15px; font-weight: 600; margin: 16px 0 14px; color: #374151;">Create Promo Code</h3>
+          <h3 class="subsection-title">Create Promo Code</h3>
           <div class="promo-form-grid">
             <div>
-              <label for="promo-code">Code <span style="color:#dc2626">*</span></label>
+              <label for="promo-code">Code <span class="text-required">*</span></label>
               <input type="text" id="promo-code" placeholder="e.g. BETA99"
-                autocomplete="off" style="text-transform: uppercase;">
+                autocomplete="off" class="input-uppercase">
             </div>
             <div>
-              <label for="promo-discount-type">Discount Type <span style="color:#dc2626">*</span></label>
+              <label for="promo-discount-type">Discount Type <span class="text-required">*</span></label>
               <select id="promo-discount-type" data-action="onPromoTypeChange">
                 <option value="percent">Percentage off</option>
                 <option value="fixed">Fixed amount off (cents)</option>
@@ -202,7 +212,7 @@
               </select>
             </div>
             <div>
-              <label for="promo-value" id="promo-value-label">Value (%) <span style="color:#dc2626">*</span></label>
+              <label for="promo-value" id="promo-value-label">Value (%) <span class="text-required">*</span></label>
               <input type="number" id="promo-value" min="0" placeholder="e.g. 20">
             </div>
             <div>
@@ -222,7 +232,7 @@
           <button class="btn btn-primary" data-action="createPromoCode">Create Promo Code</button>
 
           <!-- Promo Codes List -->
-          <h3 style="font-size: 15px; font-weight: 600; margin: 24px 0 14px; color: #374151;">All Promo Codes</h3>
+          <h3 class="subsection-title subsection-title--gap">All Promo Codes</h3>
           <div id="promo-list-container">
             <div class="loading"><div class="spinner"></div><p>Loading promo codes...</p></div>
           </div>
@@ -267,13 +277,12 @@
 
   <!-- Features Modal -->
   <div id="features-modal" class="modal">
-    <div class="modal-content" style="padding: 30px; max-width: 650px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h3 style="margin: 0;">Feature Overrides</h3>
-        <button data-action="hideFeaturesModal"
-          style="background: none; border: none; font-size: 24px; cursor: pointer; line-height: 1;">&times;</button>
+    <div class="modal-content modal-content--md">
+      <div class="modal-top">
+        <h3 class="modal-title">Feature Overrides</h3>
+        <button class="modal-close" data-action="hideFeaturesModal">&times;</button>
       </div>
-      <div id="features-merchant-info" style="margin-bottom: 16px; font-size: 14px; color: #6b7280;"></div>
+      <div id="features-merchant-info" class="modal-subtitle"></div>
       <div id="features-content">
         <div class="loading"><div class="spinner"></div><p>Loading features...</p></div>
       </div>
@@ -282,19 +291,16 @@
 
   <!-- Extend Trial Modal -->
   <div id="extend-trial-modal" class="modal">
-    <div class="modal-content" style="padding: 30px; max-width: 420px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h3 style="margin: 0;">Extend Trial</h3>
-        <button data-action="hideExtendTrialModal"
-          style="background: none; border: none; font-size: 24px; cursor: pointer; line-height: 1;">&times;</button>
+    <div class="modal-content modal-content--sm">
+      <div class="modal-top">
+        <h3 class="modal-title">Extend Trial</h3>
+        <button class="modal-close" data-action="hideExtendTrialModal">&times;</button>
       </div>
-      <div id="extend-trial-merchant-info" style="margin-bottom: 16px; font-size: 14px; color: #6b7280;"></div>
-      <label style="display:block; font-size:13px; font-weight:500; color:#374151; margin-bottom:6px;">
-        Days to add
-      </label>
+      <div id="extend-trial-merchant-info" class="modal-subtitle"></div>
+      <label class="form-label" for="extend-trial-days">Days to add</label>
       <input type="number" id="extend-trial-days" min="1" max="3650" value="14"
-        style="width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:14px; margin-bottom:20px;">
-      <div style="display:flex; gap:10px; justify-content:flex-end;">
+        class="modal-form-input">
+      <div class="modal-actions">
         <button class="btn btn-secondary" data-action="hideExtendTrialModal">Cancel</button>
         <button class="btn btn-primary" data-action="confirmExtendTrial">Extend Trial</button>
       </div>
@@ -303,18 +309,17 @@
 
   <!-- Activate Modal -->
   <div id="activate-modal" class="modal">
-    <div class="modal-content" style="padding: 30px; max-width: 420px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h3 style="margin: 0;">Manual Activation</h3>
-        <button data-action="hideActivateModal"
-          style="background: none; border: none; font-size: 24px; cursor: pointer; line-height: 1;">&times;</button>
+    <div class="modal-content modal-content--sm">
+      <div class="modal-top">
+        <h3 class="modal-title">Manual Activation</h3>
+        <button class="modal-close" data-action="hideActivateModal">&times;</button>
       </div>
-      <div id="activate-merchant-info" style="margin-bottom: 16px; font-size: 14px; color: #6b7280;"></div>
-      <p style="margin-bottom:20px; font-size:14px; color:#374151;">
+      <div id="activate-merchant-info" class="modal-subtitle"></div>
+      <p class="modal-body-text">
         This will set the merchant status to <strong>active</strong> and grant all paid feature modules
         with <code>admin_override</code> source. These overrides survive subscription cancellation.
       </p>
-      <div style="display:flex; gap:10px; justify-content:flex-end;">
+      <div class="modal-actions">
         <button class="btn btn-secondary" data-action="hideActivateModal">Cancel</button>
         <button class="btn btn-primary" data-action="confirmActivate">Activate Merchant</button>
       </div>
@@ -323,13 +328,12 @@
 
   <!-- Billing History Modal -->
   <div id="billing-modal" class="modal">
-    <div class="modal-content" style="padding: 30px; max-width: 700px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h3 style="margin: 0;">Billing History</h3>
-        <button data-action="hideBillingModal"
-          style="background: none; border: none; font-size: 24px; cursor: pointer; line-height: 1;">&times;</button>
+    <div class="modal-content modal-content--lg">
+      <div class="modal-top">
+        <h3 class="modal-title">Billing History</h3>
+        <button class="modal-close" data-action="hideBillingModal">&times;</button>
       </div>
-      <div id="billing-merchant-info" style="margin-bottom: 16px; font-size: 14px; color: #6b7280;"></div>
+      <div id="billing-merchant-info" class="modal-subtitle"></div>
       <div id="billing-content">
         <div class="loading"><div class="spinner"></div><p>Loading payment history...</p></div>
       </div>
@@ -347,7 +351,10 @@
   <script src="/js/utils/date-format.js"></script>
   <!-- Toast utility -->
   <script src="/js/utils/toast.js"></script>
-  <!-- Admin subscriptions page logic -->
+  <!-- Admin subscriptions page logic (split into 4 files for maintainability) -->
   <script src="/js/admin-subscriptions.js"></script>
+  <script src="/js/admin-promo.js"></script>
+  <script src="/js/admin-subscribers.js"></script>
+  <script src="/js/admin-modals.js"></script>
 </body>
 </html>
