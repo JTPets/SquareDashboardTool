@@ -2,8 +2,8 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
-**Last Validated**: 2026-03-31
-**Total Open Items**: ~51
+**Last Validated**: 2026-04-03
+**Total Open Items**: ~55
 
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
@@ -308,6 +308,15 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 | BACKLOG-109 | Merchant-configurable auto min/max settings — all thresholds currently hardcoded (overstock_threshold_days, soldout_min_velocity, circuit_breaker_pct, stale_velocity_days, etc.). New `merchant_min_max_settings` table with per-merchant config; fallback to hardcoded defaults when no row exists. API: `GET/PUT /api/min-max/settings`. Feature gate: read-only recommendations always free, auto-apply gated behind `reorder_intelligence` feature flag. | `services/inventory/auto-min-max-service.js`, new table + migration, `config/feature-registry.js`, new route | M | 2026-03-31 |
 | CSS-5 | CSS shared components unification — extract `.stats-bar`, `.stat-card`, `.tabs`, `.empty-state`, `.loading`, `.spinner`, `.controls` from inline `<style>` blocks across all HTML pages into `public/css/shared.css`. Affects ~12–22 pages per component. Remove matching selectors from each page; keep only genuine page-specific overrides with comments. Report before/after inline CSS line count per page. | `public/css/shared.css`, all `public/*.html` | M | 2026-03-31 |
 
+### Testing Infrastructure
+
+| ID | Description | File(s) | Effort | Discovered |
+|----|-------------|---------|--------|------------|
+| BACKLOG-117 | Jest coverage reporting — configure `jest --coverage`, add to deploy output. Report coverage percentage per domain. Identify lowest-coverage service files. No target threshold yet — just visibility. | `jest.config.js`, `package.json` | S | 2026-04-03 |
+| BACKLOG-118 | Integration test framework — test suite that runs against a real test DB (separate from prod). Covers: actual SQL execution, transaction rollback behavior, constraint enforcement, migration runner. Docker Compose or local PG test instance. Start with 1 domain (purchase-orders) as template. | New test infrastructure | M | 2026-04-03 |
+| BACKLOG-119 | E2E browser test framework — Playwright or Cypress setup. Cover critical user flows: login → dashboard, reorder suggestions → create PO → receive PO, delivery route generation → driver share link. Start with 3 smoke tests. | New test infrastructure | L | 2026-04-03 |
+| BACKLOG-120 | Static security analysis test suite — SQL injection detection (no string concatenation in queries), `merchant_id` on every data query, `escapeHtml` on all frontend rendering, no raw user input in logs, all write routes have validation + auth, no inline event handlers, no hardcoded secrets. | `__tests__/security/security-static-analysis.test.js` | M | 2026-04-03 |
+
 ### Multi-Tenant Gaps
 
 | ID | Description | Effort | Discovered |
@@ -366,9 +375,9 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 |------|-------|
 | Critical | 0 |
 | High | 4 |
-| Medium | ~35 |
+| Medium | ~39 |
 | Low | ~10 |
 | Nice to Have | 4 |
-| **Total** | **~51** |
+| **Total** | **~55** |
 
-**Validation delta**: ~95 → ~65 → ~49 → ~44 → ~37 → ~34 → ~31 → ~53 → ~49 → ~50 → ~44 → ~51 items. **95+ items purged** across ten validations. 2026-03-25: BACKLOG-12/29/73/97/98/101 fixed, AUDIT-4.5.1/5.2.1/2.3.1/5.8.1 fixed, L-2 fixed, O-4 confirmed. BACKLOG-99 discovered. Net −6. 2026-03-31: BACKLOG-107/108/109/104/105/CSS-5 added (reorder audit, stale PO UX, min/max config, GMC schema audit, GMC 401 shelved, CSS components). Net +7.
+**Validation delta**: ~95 → ~65 → ~49 → ~44 → ~37 → ~34 → ~31 → ~53 → ~49 → ~50 → ~44 → ~51 → ~55 items. **95+ items purged** across ten validations. 2026-03-25: BACKLOG-12/29/73/97/98/101 fixed, AUDIT-4.5.1/5.2.1/2.3.1/5.8.1 fixed, L-2 fixed, O-4 confirmed. BACKLOG-99 discovered. Net −6. 2026-03-31: BACKLOG-107/108/109/104/105/CSS-5 added (reorder audit, stale PO UX, min/max config, GMC schema audit, GMC 401 shelved, CSS components). Net +7. 2026-04-03: BACKLOG-117/118/119/120 added (testing infrastructure). Net +4.
