@@ -202,6 +202,26 @@ describe('Feature Gate Middleware', () => {
 
             expect(next).toHaveBeenCalled();
         });
+
+        test('cancelled merchant with deactivated features gets 403 (B2 fix)', () => {
+            // After cancellation, merchant_features are disabled → features array is empty
+            const middleware = requireFeature('cycle_counts');
+            const req = mockRequest({
+                merchantContext: {
+                    id: 5,
+                    subscriptionStatus: 'cancelled',
+                    features: [] // cleared by cancelMerchantSubscription
+                }
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+
+            middleware(req, res, next);
+
+            expect(next).not.toHaveBeenCalled();
+            expect(res.status).toHaveBeenCalledWith(403);
+            expect(res.jsonData.code).toBe('FEATURE_REQUIRED');
+        });
     });
 
     describe('loadMerchantContext feature population', () => {

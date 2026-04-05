@@ -12,9 +12,21 @@ jest.mock('../../utils/logger', () => ({
     error: jest.fn(),
     debug: jest.fn()
 }));
+jest.mock('../../config/feature-registry', () => ({
+    getPaidModules: jest.fn(() => [
+        { key: 'cycle_counts' },
+        { key: 'reorder' },
+        { key: 'expiry' },
+        { key: 'delivery' },
+        { key: 'loyalty' },
+        { key: 'ai_tools' },
+        { key: 'gmc' },
+    ])
+}));
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
+const { getPaidModules } = require('../../config/feature-registry');
 const {
     activateMerchantSubscription,
     suspendMerchantSubscription,
@@ -28,9 +40,10 @@ beforeEach(() => {
 
 describe('activateMerchantSubscription', () => {
     it('should update merchant subscription_status to active', async () => {
-        db.query.mockResolvedValueOnce({
-            rows: [{ id: 5, subscription_status: 'active', business_name: 'Test Shop' }]
-        });
+        // First: UPDATE merchants; Second: INSERT merchant_features
+        db.query
+            .mockResolvedValueOnce({ rows: [{ id: 5, subscription_status: 'active', business_name: 'Test Shop' }] })
+            .mockResolvedValueOnce({ rows: [] });
 
         const result = await activateMerchantSubscription(1, 5);
 
@@ -38,6 +51,24 @@ describe('activateMerchantSubscription', () => {
         expect(db.query).toHaveBeenCalledWith(
             expect.stringContaining("SET subscription_status = 'active'"),
             [5]
+        );
+    });
+
+    it('should insert all paid modules into merchant_features on activation', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [{ id: 5, subscription_status: 'active', business_name: 'Test Shop' }] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        await activateMerchantSubscription(1, 5);
+
+        const expectedKeys = getPaidModules().map(m => m.key);
+        expect(db.query).toHaveBeenCalledWith(
+            expect.stringContaining('INSERT INTO merchant_features'),
+            [5, expectedKeys]
+        );
+        expect(db.query).toHaveBeenCalledWith(
+            expect.stringContaining('ON CONFLICT (merchant_id, feature_key)'),
+            expect.anything()
         );
     });
 
@@ -105,16 +136,33 @@ describe('suspendMerchantSubscription', () => {
 
 describe('cancelMerchantSubscription', () => {
     it('should update merchant subscription_status to cancelled', async () => {
-        db.query.mockResolvedValueOnce({
-            rows: [{ id: 5, subscription_status: 'active' }]
-        });
-        db.query.mockResolvedValueOnce({
-            rows: [{ id: 5, subscription_status: 'cancelled', business_name: 'Test Shop' }]
-        });
+        // SELECT check, UPDATE merchants, UPDATE merchant_features
+        db.query
+            .mockResolvedValueOnce({ rows: [{ id: 5, subscription_status: 'active' }] })
+            .mockResolvedValueOnce({ rows: [{ id: 5, subscription_status: 'cancelled', business_name: 'Test Shop' }] })
+            .mockResolvedValueOnce({ rows: [] });
 
         const result = await cancelMerchantSubscription(1, 5);
 
         expect(result).toEqual({ id: 5, subscription_status: 'cancelled', business_name: 'Test Shop' });
+    });
+
+    it('should deactivate merchant_features rows on cancellation', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [{ id: 5, subscription_status: 'active' }] })
+            .mockResolvedValueOnce({ rows: [{ id: 5, subscription_status: 'cancelled', business_name: 'Test Shop' }] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        await cancelMerchantSubscription(1, 5);
+
+        expect(db.query).toHaveBeenCalledWith(
+            expect.stringContaining('UPDATE merchant_features'),
+            [5]
+        );
+        expect(db.query).toHaveBeenCalledWith(
+            expect.stringContaining("enabled = FALSE"),
+            [5]
+        );
     });
 
     it('should NOT cancel platform owners', async () => {
@@ -176,11 +224,10 @@ describe('resolveMerchantId', () => {
 });
 
 describe('payment success updates merchant to active', () => {
-    it('full flow: subscriber pays → merchant becomes active', async () => {
-        // Simulate: subscriber with merchant_id pays, merchant status should update
-        db.query.mockResolvedValueOnce({
-            rows: [{ id: 10, subscription_status: 'active', business_name: 'Pet Store' }]
-        });
+    it('full flow: subscriber pays → merchant becomes active + features granted', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [{ id: 10, subscription_status: 'active', business_name: 'Pet Store' }] })
+            .mockResolvedValueOnce({ rows: [] }); // merchant_features insert
 
         const result = await activateMerchantSubscription(42, 10);
 
@@ -188,6 +235,10 @@ describe('payment success updates merchant to active', () => {
         expect(db.query).toHaveBeenCalledWith(
             expect.stringContaining("subscription_status = 'active'"),
             [10]
+        );
+        expect(db.query).toHaveBeenCalledWith(
+            expect.stringContaining('INSERT INTO merchant_features'),
+            expect.anything()
         );
     });
 });

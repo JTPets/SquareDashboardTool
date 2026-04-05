@@ -13,6 +13,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const subscriptionHandler = require('../../utils/subscription-handler');
+const { getPaidModules } = require('../../config/feature-registry');
 
 /**
  * Activate a merchant's subscription after successful payment.
@@ -41,10 +42,20 @@ async function activateMerchantSubscription(subscriberId, merchantId) {
         return null;
     }
 
+    // Grant all paid feature modules to this merchant
+    const moduleKeys = getPaidModules().map(m => m.key);
+    await db.query(`
+        INSERT INTO merchant_features (merchant_id, feature_key, enabled, enabled_at, source)
+        SELECT $1, unnest($2::text[]), TRUE, NOW(), 'subscription'
+        ON CONFLICT (merchant_id, feature_key)
+        DO UPDATE SET enabled = TRUE, enabled_at = NOW(), disabled_at = NULL, source = 'subscription'
+    `, [merchantId, moduleKeys]);
+
     logger.info('Merchant subscription activated via payment', {
         merchantId,
         subscriberId,
-        businessName: result.rows[0].business_name
+        businessName: result.rows[0].business_name,
+        featuresGranted: moduleKeys
     });
 
     return result.rows[0];
@@ -129,6 +140,13 @@ async function cancelMerchantSubscription(subscriberId, merchantId) {
             updated_at = NOW()
         WHERE id = $1
         RETURNING id, subscription_status, business_name
+    `, [merchantId]);
+
+    // Deactivate all subscription-granted features
+    await db.query(`
+        UPDATE merchant_features
+        SET enabled = FALSE, disabled_at = NOW()
+        WHERE merchant_id = $1 AND source = 'subscription'
     `, [merchantId]);
 
     logger.info('Merchant subscription cancelled', {
