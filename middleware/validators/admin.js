@@ -2,7 +2,7 @@
  * Admin Route Validators
  */
 
-const { param, body } = require('express-validator');
+const { param, query, body } = require('express-validator');
 const { handleValidationErrors } = require('./index');
 
 const listMerchants = [handleValidationErrors];
@@ -119,6 +119,40 @@ const createPromoCode = [
     handleValidationErrors
 ];
 
+const listPromoCodes = [handleValidationErrors];
+
+const deactivatePromoCode = [
+    param('id')
+        .custom((value) => {
+            const num = Number(value);
+            if (!Number.isInteger(num) || num < 1) {
+                throw new Error('id must be a positive integer');
+            }
+            return true;
+        }),
+    handleValidationErrors
+];
+
+const listMerchantPayments = [
+    param('merchantId')
+        .custom((value) => {
+            const num = Number(value);
+            if (!Number.isInteger(num) || num < 1) {
+                throw new Error('merchantId must be a positive integer');
+            }
+            return true;
+        }),
+    query('limit')
+        .optional()
+        .isInt({ min: 1, max: 100 })
+        .withMessage('limit must be between 1 and 100'),
+    query('offset')
+        .optional()
+        .isInt({ min: 0 })
+        .withMessage('offset must be a non-negative integer'),
+    handleValidationErrors
+];
+
 module.exports = {
     listMerchants,
     extendTrial,
@@ -126,5 +160,8 @@ module.exports = {
     listSettings,
     updateSetting,
     testEmail,
-    createPromoCode
+    createPromoCode,
+    listPromoCodes,
+    deactivatePromoCode,
+    listMerchantPayments
 };

@@ -8,7 +8,7 @@
   <style>
     .header-subtitle { font-size: 14px; opacity: 0.9; margin-top: 4px; }
 
-    /* Page-specific: flex row with icon gap; larger padding/radius than shared (12px 16px / 6px) */
+    /* Page-specific: flex row with icon gap; larger padding/radius than shared */
     .alert {
       padding: 15px 20px;
       border-radius: 8px;
@@ -18,10 +18,8 @@
       gap: 12px;
     }
 
-    /* Page-specific: .section-header uses 2px border (shared has 1px) */
-    .section-header {
-      border-bottom: 2px solid #e5e7eb;
-    }
+    /* Page-specific: .section-header uses 2px border */
+    .section-header { border-bottom: 2px solid #e5e7eb; }
 
     /* Stats Grid */
     .stats-grid {
@@ -30,11 +28,7 @@
       gap: 15px;
       margin-bottom: 25px;
     }
-    /* Page-specific: larger stat-value 32px (shared has 28px) */
-    .stat-value {
-      font-size: 32px;
-    }
-    /* Page-specific: purple highlight variant */
+    .stat-value { font-size: 32px; }
     .stat-card.highlight {
       background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
       color: white;
@@ -42,29 +36,12 @@
     .stat-card.highlight .stat-value,
     .stat-card.highlight .stat-label { color: white; }
 
-    /* Page-specific: wider cell padding than shared 12px */
     th, td { padding: 12px 15px; }
-    /* Page-specific: no sticky header; colour #374151; 13px font */
     th { position: static; color: #374151; font-size: 13px; letter-spacing: 0; }
 
-    /* Page-specific: button overrides for purple theme */
-    .btn {
-      padding: 10px 18px; /* Page-specific: shared has 10px 16px */
-      border-radius: 6px; /* Page-specific: shared has 4px */
-      gap: 8px; /* Page-specific: shared has 6px */
-      transition: all 0.2s; /* Page-specific: shared has background 0.2s */
-    }
-    /* .btn-primary, .btn-success from shared.css */
-
-    /* Page-specific: purple spinner */
-    .spinner {
-      border-top-color: #7c3aed;
-    }
-
-    /* Page-specific: less vertical padding than shared 60px */
-    .empty-state {
-      padding: 40px;
-    }
+    .btn { padding: 10px 18px; border-radius: 6px; gap: 8px; transition: all 0.2s; }
+    .spinner { border-top-color: #7c3aed; }
+    .empty-state { padding: 40px; }
 
     /* Configuration Card */
     .config-card {
@@ -82,41 +59,69 @@
       border-bottom: 1px solid #e5e7eb;
     }
     .config-item:last-child { border-bottom: none; }
-    .config-label {
-      font-weight: 500;
-      color: #374151;
-    }
-    .config-value {
-      font-family: monospace;
-      font-size: 13px;
-      color: #6b7280;
-    }
+    .config-label { font-weight: 500; color: #374151; }
+    .config-value { font-family: monospace; font-size: 13px; color: #6b7280; }
     .config-value.set { color: #059669; }
     .config-value.missing { color: #dc2626; }
 
-    /* Subscriber List */
-    .subscriber-row {
+    /* Subscriber rows */
+    .subscriber-email { font-weight: 500; color: #111827; }
+    .subscriber-business { font-size: 13px; color: #6b7280; }
+    .subscriber-row-clickable { cursor: pointer; }
+    .subscriber-row-clickable:hover td { background: #f0f9ff; }
+
+    /* Promo form */
+    .promo-form-grid {
       display: grid;
-      grid-template-columns: 2fr 1fr 1fr 1fr 1fr auto;
-      gap: 15px;
-      align-items: center;
-      padding: 12px 0;
-      border-bottom: 1px solid #f3f4f6;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
     }
-    .subscriber-row:hover { background: #f9fafb; margin: 0 -15px; padding: 12px 15px; }
-    .subscriber-email {
-      font-weight: 500;
-      color: #111827;
-    }
-    .subscriber-business {
+    .promo-form-grid label {
+      display: block;
       font-size: 13px;
-      color: #6b7280;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 4px;
+    }
+    .promo-form-grid input,
+    .promo-form-grid select,
+    .promo-form-grid textarea {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .promo-form-grid .full-width { grid-column: 1 / -1; }
+
+    /* Filters bar */
+    .filters-bar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .filters-bar input[type="text"] {
+      flex: 1;
+      min-width: 180px;
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .filters-bar select {
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
     }
 
-    /* Responsive */
     @media (max-width: 768px) {
       .stats-grid { grid-template-columns: repeat(2, 1fr); }
-      .subscriber-row { grid-template-columns: 1fr; gap: 8px; }
+      .promo-form-grid { grid-template-columns: 1fr; }
+      .filters-bar { flex-direction: column; align-items: stretch; }
     }
   </style>
 </head>
@@ -125,7 +130,7 @@
     <div class="header">
       <div>
         <h1>Subscription Management</h1>
-        <div class="header-subtitle">Super Admin - Manage subscription plans and subscribers</div>
+        <div class="header-subtitle">Super Admin — Manage plans, promo codes, and subscribers</div>
       </div>
       <a href="/settings.html" class="back-button">Back to Settings</a>
     </div>
@@ -134,11 +139,12 @@
       <!-- Access Check -->
       <div id="access-denied" style="display: none;">
         <div class="alert alert-error">
-          <strong>Access Denied</strong> - This page requires super admin privileges.
+          <strong>Access Denied</strong> — This page requires super admin privileges.
         </div>
       </div>
 
       <div id="main-content">
+
         <!-- Configuration Status -->
         <div class="section">
           <div class="section-header">
@@ -173,18 +179,109 @@
           </div>
         </div>
 
-        <!-- Recent Subscribers -->
+        <!-- Promo Codes -->
         <div class="section">
           <div class="section-header">
-            <h2 class="section-title">Recent Subscribers</h2>
+            <h2 class="section-title">Promo Codes</h2>
           </div>
+
+          <!-- Create Form -->
+          <h3 style="font-size: 15px; font-weight: 600; margin: 16px 0 14px; color: #374151;">Create Promo Code</h3>
+          <div class="promo-form-grid">
+            <div>
+              <label for="promo-code">Code <span style="color:#dc2626">*</span></label>
+              <input type="text" id="promo-code" placeholder="e.g. BETA99"
+                autocomplete="off" style="text-transform: uppercase;">
+            </div>
+            <div>
+              <label for="promo-discount-type">Discount Type <span style="color:#dc2626">*</span></label>
+              <select id="promo-discount-type" data-action="onPromoTypeChange">
+                <option value="percent">Percentage off</option>
+                <option value="fixed">Fixed amount off (cents)</option>
+                <option value="fixed_price">Fixed monthly price (cents)</option>
+              </select>
+            </div>
+            <div>
+              <label for="promo-value" id="promo-value-label">Value (%) <span style="color:#dc2626">*</span></label>
+              <input type="number" id="promo-value" min="0" placeholder="e.g. 20">
+            </div>
+            <div>
+              <label for="promo-duration">Duration (months)</label>
+              <input type="number" id="promo-duration" min="1" placeholder="blank = unlimited">
+            </div>
+            <div>
+              <label for="promo-max-uses">Max Uses</label>
+              <input type="number" id="promo-max-uses" min="1" placeholder="blank = unlimited">
+            </div>
+            <div class="full-width">
+              <label for="promo-notes">Notes / Description</label>
+              <textarea id="promo-notes" rows="2"
+                placeholder="Internal notes or customer-facing description"></textarea>
+            </div>
+          </div>
+          <button class="btn btn-primary" data-action="createPromoCode">Create Promo Code</button>
+
+          <!-- Promo Codes List -->
+          <h3 style="font-size: 15px; font-weight: 600; margin: 24px 0 14px; color: #374151;">All Promo Codes</h3>
+          <div id="promo-list-container">
+            <div class="loading"><div class="spinner"></div><p>Loading promo codes...</p></div>
+          </div>
+        </div>
+
+        <!-- Subscribers -->
+        <div class="section">
+          <div class="section-header">
+            <h2 class="section-title">Subscribers</h2>
+            <button class="btn btn-secondary btn-sm" data-action="reloadSubscribers">Refresh</button>
+          </div>
+
+          <div class="filters-bar">
+            <input type="text" id="subscriber-search"
+              placeholder="Search by email or business name…"
+              data-action="onSubscriberSearch">
+            <select id="subscriber-status-filter" data-action="onSubscriberFilterChange">
+              <option value="">All statuses</option>
+              <option value="active">Active</option>
+              <option value="trial">Trial</option>
+              <option value="canceled">Canceled</option>
+              <option value="expired">Expired</option>
+            </select>
+          </div>
+
           <div id="subscribers-container">
             <div class="loading"><div class="spinner"></div><p>Loading subscribers...</p></div>
           </div>
+
+          <div class="pagination" id="subscribers-pagination" style="display: none;">
+            <span class="pagination-info" id="pagination-info"></span>
+            <div class="pagination-buttons">
+              <button class="pagination-btn" id="prev-page-btn" data-action="prevPage" disabled>&#8592; Prev</button>
+              <button class="pagination-btn" id="next-page-btn" data-action="nextPage">Next &#8594;</button>
+            </div>
+          </div>
         </div>
+
+      </div><!-- /main-content -->
+    </div><!-- /content -->
+  </div><!-- /container -->
+
+  <!-- Billing History Modal -->
+  <div id="billing-modal" class="modal">
+    <div class="modal-content" style="padding: 30px; max-width: 700px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h3 style="margin: 0;">Billing History</h3>
+        <button data-action="hideBillingModal"
+          style="background: none; border: none; font-size: 24px; cursor: pointer; line-height: 1;">&times;</button>
+      </div>
+      <div id="billing-merchant-info" style="margin-bottom: 16px; font-size: 14px; color: #6b7280;"></div>
+      <div id="billing-content">
+        <div class="loading"><div class="spinner"></div><p>Loading payment history...</p></div>
       </div>
     </div>
   </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
 
   <!-- Event delegation for CSP compliance -->
   <script src="/js/event-delegation.js"></script>
@@ -192,6 +289,8 @@
   <script src="/js/utils/escape.js"></script>
   <!-- Shared date formatting utility -->
   <script src="/js/utils/date-format.js"></script>
+  <!-- Toast utility -->
+  <script src="/js/utils/toast.js"></script>
   <!-- Admin subscriptions page logic -->
   <script src="/js/admin-subscriptions.js"></script>
 </body>

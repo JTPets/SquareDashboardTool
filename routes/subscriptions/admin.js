@@ -61,10 +61,10 @@ router.get('/subscriptions/admin/list', requirePermission('subscription', 'admin
     if (!merchantId) {
         return sendError(res, 'No merchant connected', 403, 'NO_MERCHANT');
     }
-    const { status } = req.query;
-    const subscribers = await subscriptionHandler.getAllSubscribers({ merchantId, status });
+    const { status, search, limit, offset } = req.query;
+    const data = await subscriptionHandler.getAllSubscribers({ merchantId, status, search, limit, offset });
     const stats = await subscriptionHandler.getSubscriptionStats(merchantId);
-    sendSuccess(res, { count: subscribers.length, subscribers, stats });
+    sendSuccess(res, { count: data.rows.length, total: data.total, subscribers: data.rows, stats });
 }));
 
 router.get('/subscriptions/admin/plans', requirePermission('subscription', 'admin'), asyncHandler(async (req, res) => {

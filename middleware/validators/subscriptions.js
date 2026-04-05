@@ -109,13 +109,26 @@ const processRefund = [
 
 /**
  * GET /api/subscriptions/admin/list
- * List all subscribers (admin)
+ * List all subscribers (admin) — supports search, status filter, and pagination
  */
 const listSubscribers = [
     query('status')
         .optional()
-        .isIn(['active', 'canceled', 'expired', 'trial'])
+        .isIn(['active', 'canceled', 'expired', 'trial', 'cancelled'])
         .withMessage('status must be one of: active, canceled, expired, trial'),
+    query('search')
+        .optional()
+        .trim()
+        .isLength({ max: 200 })
+        .withMessage('search cannot exceed 200 characters'),
+    query('limit')
+        .optional()
+        .isInt({ min: 1, max: 100 })
+        .withMessage('limit must be between 1 and 100'),
+    query('offset')
+        .optional()
+        .isInt({ min: 0 })
+        .withMessage('offset must be a non-negative integer'),
     handleValidationErrors
 ];
 

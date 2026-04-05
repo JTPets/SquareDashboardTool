@@ -8,10 +8,13 @@
  *   GET  /api/admin/merchants                          - List all merchants
  *   POST /api/admin/merchants/:merchantId/extend-trial - Extend merchant trial
  *   POST /api/admin/merchants/:merchantId/deactivate   - Deactivate merchant (expire trial)
+ *   GET  /api/admin/merchants/:merchantId/payments     - Billing history for a merchant
  *   GET  /api/admin/settings                           - List all platform settings
  *   PUT  /api/admin/settings/:key                      - Update a platform setting
  *   POST /api/admin/test-email                          - Test email configuration
+ *   GET  /api/admin/promo-codes                        - List all platform promo codes
  *   POST /api/admin/promo-codes                        - Create a platform-owner promo code
+ *   POST /api/admin/promo-codes/:id/deactivate         - Soft-deactivate a promo code
  */
 
 const express = require('express');
@@ -26,6 +29,8 @@ const platformSettings = require('../services/merchant/platform-settings');
 const validators = require('../middleware/validators/admin');
 const emailNotifier = require('../utils/email-notifier');
 const { sendSuccess, sendError } = require('../utils/response-helper');
+const requireSuperAdmin = require('../middleware/require-super-admin');
+const subscriptionHandler = require('../utils/subscription-handler');
 
 /**
  * GET /api/admin/merchants
@@ -212,6 +217,99 @@ router.post('/promo-codes', requireAuth, requireAdmin, validators.createPromoCod
     });
 
     sendSuccess(res, { promo: result.rows[0] });
+}));
+
+/**
+ * GET /api/admin/promo-codes
+ * List all platform-owner promo codes with usage stats.
+ */
+router.get('/promo-codes', requireAuth, requireAdmin, requireSuperAdmin, validators.listPromoCodes, asyncHandler(async (req, res) => {
+    const ownerResult = await db.query(`
+        SELECT id FROM merchants WHERE subscription_status = 'platform_owner' LIMIT 1
+    `);
+    if (ownerResult.rows.length === 0) {
+        return sendError(res, 'No platform_owner merchant configured', 500, 'NO_PLATFORM_OWNER');
+    }
+    const platformMerchantId = ownerResult.rows[0].id;
+
+    const result = await db.query(`
+        SELECT id, code, description, discount_type, discount_value, fixed_price_cents,
+               duration_months, max_uses, times_used, is_active, valid_until, created_by, created_at
+        FROM promo_codes
+        WHERE merchant_id = $1
+        ORDER BY created_at DESC
+    `, [platformMerchantId]);
+
+    sendSuccess(res, { promoCodes: result.rows });
+}));
+
+/**
+ * POST /api/admin/promo-codes/:id/deactivate
+ * Soft-deactivate a promo code (sets is_active = FALSE).
+ */
+router.post('/promo-codes/:id/deactivate', requireAuth, requireAdmin, requireSuperAdmin, validators.deactivatePromoCode, asyncHandler(async (req, res) => {
+    const promoId = parseInt(req.params.id, 10);
+
+    const ownerResult = await db.query(`
+        SELECT id FROM merchants WHERE subscription_status = 'platform_owner' LIMIT 1
+    `);
+    if (ownerResult.rows.length === 0) {
+        return sendError(res, 'No platform_owner merchant configured', 500, 'NO_PLATFORM_OWNER');
+    }
+    const platformMerchantId = ownerResult.rows[0].id;
+
+    const result = await db.query(`
+        UPDATE promo_codes
+        SET is_active = FALSE, updated_at = NOW()
+        WHERE id = $1 AND merchant_id = $2
+        RETURNING id, code, is_active
+    `, [promoId, platformMerchantId]);
+
+    if (result.rows.length === 0) {
+        return sendError(res, 'Promo code not found', 404);
+    }
+
+    logger.info('Promo code deactivated by admin', {
+        promoId,
+        code: result.rows[0].code,
+        adminUserId: req.session.user.id
+    });
+
+    sendSuccess(res, { promo: result.rows[0] });
+}));
+
+/**
+ * GET /api/admin/merchants/:merchantId/payments
+ * Billing history for a merchant (via subscriber link).
+ */
+router.get('/merchants/:merchantId/payments', requireAuth, requireAdmin, requireSuperAdmin, validators.listMerchantPayments, asyncHandler(async (req, res) => {
+    const merchantId = parseInt(req.params.merchantId, 10);
+    const limit = Math.min(Number(req.query.limit) || 25, 100);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+
+    const result = await db.query(`
+        SELECT sp.id, sp.amount_cents, sp.currency, sp.status, sp.payment_type,
+               sp.billing_period_start, sp.billing_period_end,
+               sp.refund_amount_cents, sp.refund_reason, sp.refunded_at,
+               sp.receipt_url, sp.failure_reason, sp.created_at,
+               s.email, s.subscription_plan
+        FROM subscription_payments sp
+        JOIN subscribers s ON s.id = sp.subscriber_id
+        WHERE s.merchant_id = $1
+        ORDER BY sp.created_at DESC
+        LIMIT $2 OFFSET $3
+    `, [merchantId, limit, offset]);
+
+    const countResult = await db.query(`
+        SELECT COUNT(*) FROM subscription_payments sp
+        JOIN subscribers s ON s.id = sp.subscriber_id
+        WHERE s.merchant_id = $1
+    `, [merchantId]);
+
+    sendSuccess(res, {
+        payments: result.rows,
+        total: parseInt(countResult.rows[0].count, 10)
+    });
 }));
 
 module.exports = router;
