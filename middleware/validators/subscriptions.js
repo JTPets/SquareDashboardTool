@@ -153,6 +153,25 @@ const listWebhookEvents = [
     handleValidationErrors
 ];
 
+/**
+ * PUT /api/admin/pricing/modules/:key
+ * PUT /api/admin/pricing/plans/:key
+ */
+const updatePricingItem = [
+    param('key')
+        .trim()
+        .notEmpty()
+        .withMessage('key is required')
+        .isLength({ max: 100 })
+        .withMessage('key cannot exceed 100 characters'),
+    body('price_cents')
+        .notEmpty()
+        .withMessage('price_cents is required')
+        .custom((value) => isNonNegativeInt(value, 'price_cents'))
+        .toInt(),
+    handleValidationErrors
+];
+
 module.exports = {
     validatePromo,
     createSubscription,
@@ -160,5 +179,6 @@ module.exports = {
     cancelSubscription,
     processRefund,
     listSubscribers,
-    listWebhookEvents
+    listWebhookEvents,
+    updatePricingItem
 };

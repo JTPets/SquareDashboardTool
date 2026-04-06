@@ -10,6 +10,8 @@ const requireSuperAdmin = require('../../middleware/require-super-admin');
 const validators = require('../../middleware/validators/subscriptions');
 const asyncHandler = require('../../middleware/async-handler');
 const { sendSuccess, sendError } = require('../../utils/response-helper');
+const pricingService = require('../../services/pricing-service');
+const featureRegistry = require('../../config/feature-registry');
 
 router.post('/subscriptions/refund', requireAdmin, validators.processRefund, asyncHandler(async (req, res) => {
     const { email, reason } = req.body;
@@ -88,6 +90,67 @@ router.post('/subscriptions/admin/setup-plans', requireAuth, requirePermission('
         adminEmail: req.session?.user?.email
     });
     sendSuccess(res, result);
+}));
+
+// ==================== ADMIN PRICING ENDPOINTS ====================
+// All require super-admin. DB is source of truth; these are the only write paths.
+
+/**
+ * GET /api/admin/pricing
+ * Returns all module prices and platform plan prices from DB.
+ */
+router.get('/admin/pricing', requireAuth, requireAdmin, requireSuperAdmin, asyncHandler(async (req, res) => {
+    const [modules, plans] = await Promise.all([
+        pricingService.getAllModulePricing(),
+        pricingService.getPlatformPlanPricing(),
+    ]);
+    sendSuccess(res, { modules, plans });
+}));
+
+/**
+ * PUT /api/admin/pricing/modules/:key
+ * Update a module's price (writes to module_pricing table).
+ */
+router.put('/admin/pricing/modules/:key', requireAuth, requireAdmin, requireSuperAdmin, validators.updatePricingItem, asyncHandler(async (req, res) => {
+    const { key } = req.params;
+    const { price_cents } = req.body;
+
+    const known = featureRegistry.modules[key];
+    if (!known) {
+        return sendError(res, `Unknown module key: ${key}`, 404, 'NOT_FOUND');
+    }
+
+    await pricingService.updateModulePrice(key, price_cents);
+
+    logger.info('Admin updated module price', {
+        moduleKey: key,
+        price_cents,
+        adminEmail: req.session?.user?.email
+    });
+    sendSuccess(res, { key, price_cents });
+}));
+
+/**
+ * PUT /api/admin/pricing/plans/:key
+ * Update a platform subscription plan price (writes to subscription_plans for platform owner).
+ */
+router.put('/admin/pricing/plans/:key', requireAuth, requireAdmin, requireSuperAdmin, validators.updatePricingItem, asyncHandler(async (req, res) => {
+    const { key } = req.params;
+    const { price_cents } = req.body;
+
+    const known = featureRegistry.publicPlans[key];
+    if (!known) {
+        return sendError(res, `Unknown plan key: ${key}`, 404, 'NOT_FOUND');
+    }
+
+    const updated = await pricingService.updatePlatformPlanPrice(key, price_cents);
+
+    logger.info('Admin updated plan price', {
+        planKey: key,
+        price_cents,
+        adminEmail: req.session?.user?.email
+    });
+    sendSuccess(res, updated);
 }));
 
 module.exports = router;

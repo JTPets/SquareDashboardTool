@@ -189,6 +189,22 @@
           </div>
         </div>
 
+        <!-- Pricing -->
+        <div class="section">
+          <div class="section-header">
+            <h2 class="section-title">Pricing</h2>
+            <button class="btn btn-secondary btn-sm" data-action="loadPricing">Refresh</button>
+          </div>
+          <h3 class="subsection-title">Module Prices</h3>
+          <div id="module-pricing-container">
+            <div class="loading"><div class="spinner"></div><p>Loading module prices...</p></div>
+          </div>
+          <h3 class="subsection-title subsection-title--gap">Subscription Plan Prices</h3>
+          <div id="plan-pricing-container">
+            <div class="loading"><div class="spinner"></div><p>Loading plan prices...</p></div>
+          </div>
+        </div>
+
         <!-- Promo Codes -->
         <div class="section">
           <div class="section-header">
@@ -353,6 +369,7 @@
   <script src="/js/utils/toast.js"></script>
   <!-- Admin subscriptions page logic (split into 4 files for maintainability) -->
   <script src="/js/admin-subscriptions.js"></script>
+  <script src="/js/admin-pricing.js"></script>
   <script src="/js/admin-promo.js"></script>
   <script src="/js/admin-subscribers.js"></script>
   <script src="/js/admin-modals.js"></script>

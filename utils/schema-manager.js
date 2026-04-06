@@ -3301,6 +3301,40 @@ async function ensureSchema() {
         logger.error('Failed to create vendor_match_suggestions table:', error.message);
     }
 
+    // module_pricing table — global platform-level per-module prices (no merchant_id)
+    // DB is source of truth; feature-registry.js values are seed defaults only.
+    try {
+        const modulePricingExists = await query(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables
+                WHERE table_name = 'module_pricing'
+            )
+        `);
+        if (!modulePricingExists.rows[0].exists) {
+            await query(`
+                CREATE TABLE IF NOT EXISTS module_pricing (
+                    module_key TEXT PRIMARY KEY,
+                    price_cents INTEGER NOT NULL,
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            `);
+            // Seed defaults from feature-registry
+            const featureRegistry = require('../config/feature-registry');
+            for (const mod of featureRegistry.getPaidModules()) {
+                await query(
+                    `INSERT INTO module_pricing (module_key, price_cents, updated_at)
+                     VALUES ($1, $2, NOW())
+                     ON CONFLICT (module_key) DO NOTHING`,
+                    [mod.key, mod.price_cents]
+                );
+            }
+            logger.info('Created module_pricing table and seeded defaults');
+            appliedCount++;
+        }
+    } catch (error) {
+        logger.error('Failed to create module_pricing table:', error.message);
+    }
+
     if (appliedCount > 0) {
         logger.info(`Schema check complete: ${appliedCount} migrations applied`);
     } else {
