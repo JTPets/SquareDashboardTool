@@ -23,6 +23,7 @@ async function checkAccess() {
         loadConfig();
         loadStats();
         loadPlans();
+        loadPricing();
         loadPromoCodes();
         loadSubscribers();
     } catch (error) {
@@ -192,6 +193,7 @@ async function setupPlans() {
 }
 
 // ==================== EXPOSE TO EVENT DELEGATION ====================
+// Pricing functions are in admin-pricing.js (loaded separately).
 
 window.loadStats = loadStats;
 window.setupPlans = setupPlans;

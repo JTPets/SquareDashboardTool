@@ -1305,11 +1305,32 @@ COMMENT ON TABLE subscription_payments IS 'Payment history for all subscription 
 COMMENT ON TABLE subscription_events IS 'Audit log of all subscription-related events from Square webhooks';
 COMMENT ON TABLE subscription_plans IS 'Available subscription plans with pricing';
 
+-- Module pricing — global platform-level prices, not per-merchant
+-- DB is source of truth; feature-registry.js values are seed defaults only.
+CREATE TABLE IF NOT EXISTS module_pricing (
+    module_key TEXT PRIMARY KEY,
+    price_cents INTEGER NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Seed defaults (matching feature-registry.js)
+INSERT INTO module_pricing (module_key, price_cents) VALUES
+    ('cycle_counts', 999),
+    ('reorder',      1499),
+    ('expiry',       999),
+    ('delivery',     1499),
+    ('loyalty',      1999),
+    ('ai_tools',     999),
+    ('gmc',          999)
+ON CONFLICT (module_key) DO NOTHING;
+
+COMMENT ON TABLE module_pricing IS 'Global per-module prices — admin-editable, DB is source of truth';
+
 -- Success message for migration
 DO $$
 BEGIN
     RAISE NOTICE 'Subscription management migration completed successfully!';
-    RAISE NOTICE 'Created tables: subscribers, subscription_payments, subscription_events, subscription_plans';
+    RAISE NOTICE 'Created tables: subscribers, subscription_payments, subscription_events, subscription_plans, module_pricing';
 END $$;
 
 -- ========================================

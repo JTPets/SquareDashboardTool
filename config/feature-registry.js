@@ -6,6 +6,13 @@
  * Defines every feature module in the platform. Each route prefix and
  * HTML page maps to exactly one module. Used by subscription enforcement,
  * billing, and access control layers (Phases 2+).
+ *
+ * PRICING NOTE:
+ * price_cents values here are SEED DEFAULTS only. On first boot, schema-manager.js
+ * seeds these values into the module_pricing DB table. After that, the DB is the
+ * source of truth. Admins edit prices via the Pricing section in admin-subscriptions.
+ * Do NOT read price_cents from this file in production code paths — use
+ * services/pricing-service.js instead (it reads from DB with fallback to these defaults).
  */
 
 const modules = {
@@ -194,7 +201,9 @@ const modules = {
     },
 };
 
-// Public subscription plans (displayed on pricing page; authoritative prices for public UI)
+// Public subscription plans — price_cents here are SEED DEFAULTS only.
+// Actual prices live in subscription_plans DB table (per platform-owner merchant).
+// Admin edits prices via admin-subscriptions Pricing section; use pricing-service.js to read.
 const publicPlans = {
     monthly: { key: 'monthly', name: 'Monthly', price_cents: 2999, billing_frequency: 'MONTHLY' },
     annual:  { key: 'annual',  name: 'Annual',  price_cents: 29999, billing_frequency: 'ANNUAL' },

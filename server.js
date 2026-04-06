@@ -455,6 +455,7 @@ logger.info('Feature module and permission gating enabled');
 
 // ==================== MERCHANT FEATURES ENDPOINT ====================
 const featureRegistry = require('./config/feature-registry');
+const pricingService = require('./services/pricing-service');
 const { sendSuccess } = require('./utils/response-helper');
 
 app.get('/api/merchant/features', requireMerchant, async (req, res) => {
@@ -464,10 +465,12 @@ app.get('/api/merchant/features', requireMerchant, async (req, res) => {
             ? featureRegistry.getPaidModules().map(m => m.key)
             : (req.merchantContext.features || []);
 
+        // Prices come from DB (source of truth), not registry constants
+        const priceMap = await pricingService.getModulePriceMap();
         const available = featureRegistry.getPaidModules().map(mod => ({
             key: mod.key,
             name: mod.name,
-            price_cents: mod.price_cents,
+            price_cents: priceMap[mod.key] ?? mod.price_cents,
             enabled: isPlatformOwner || enabledFeatures.includes(mod.key)
         }));
 

@@ -32,6 +32,7 @@ const { sendSuccess, sendError } = require('../utils/response-helper');
 const requireSuperAdmin = require('../middleware/require-super-admin');
 const subscriptionHandler = require('../utils/subscription-handler');
 const featureRegistry = require('../config/feature-registry');
+const pricingService = require('../services/pricing-service');
 
 /**
  * GET /api/admin/merchants
@@ -330,12 +331,14 @@ router.get('/merchants/:merchantId/features', requireAuth, requireAdmin, require
     const featureMap = {};
     result.rows.forEach(row => { featureMap[row.feature_key] = row; });
 
+    // Prices from DB — source of truth, not registry constants
+    const priceMap = await pricingService.getModulePriceMap();
     const features = featureRegistry.getPaidModules().map(mod => {
         const row = featureMap[mod.key] || null;
         return {
             feature_key: mod.key,
             name: mod.name,
-            price_cents: mod.price_cents,
+            price_cents: priceMap[mod.key] ?? mod.price_cents,
             enabled: row ? row.enabled : false,
             source: row ? row.source : null,
             enabled_at: row ? row.enabled_at : null,
