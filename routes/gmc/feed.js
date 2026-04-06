@@ -15,8 +15,25 @@ const { parseBasicAuth } = require('../../utils/basic-auth');
 
 const sensitiveOperationRateLimit = configureSensitiveOperationRateLimit();
 
-// Resolve merchantId from token (query param or Basic Auth) or session.
-// Returns: merchantId | null (bad token) | undefined (no auth)
+/**
+ * Resolve the merchant for a public feed request.
+ *
+ * Auth strategy — intentionally session-free so Google Merchant Center's
+ * crawler can fetch feeds without a browser session:
+ *   1. ?token=<feed_token> query param (preferred — use the URL from /feed-url)
+ *   2. HTTP Basic Auth password field (username ignored)
+ *   3. Fallback to active session + merchantContext (dashboard preview)
+ *
+ * Token validated against merchants.gmc_feed_token (64-char hex, unique per
+ * merchant, generated on first OAuth connect and on /regenerate-token).
+ *
+ * Returns:
+ *   merchantId (number) — valid token or active session
+ *   null                — token supplied but not found / merchant inactive
+ *   undefined           — no credentials at all
+ *
+ * Callers map null|undefined → 401 via rejectFeedAuth().
+ */
 async function resolveFeedMerchant(req) {
     let token = req.query.token;
     if (!token) { const a = parseBasicAuth(req); if (a?.password) token = a.password; }

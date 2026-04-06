@@ -126,6 +126,33 @@ describe('GET /api/gmc/feed.tsv', () => {
         const res = await request(noAuthApp).get('/api/gmc/feed.tsv');
         expect(res.status).toBe(401);
     });
+
+    it('returns 401 for an invalid feed token', async () => {
+        const noAuthApp = express();
+        noAuthApp.use(express.json());
+        noAuthApp.use((req, res, next) => { req.session = {}; next(); });
+        noAuthApp.use('/api/gmc', require('../../routes/gmc'));
+        noAuthApp.use((err, req, res, _next) => res.status(err.status || 500).json({ success: false, error: err.message }));
+        db.query.mockResolvedValueOnce({ rows: [] }); // token not found in DB
+        const res = await request(noAuthApp).get('/api/gmc/feed.tsv?token=bad-token');
+        expect(res.status).toBe(401);
+        expect(res.body.error).toMatch(/invalid|expired/i);
+    });
+
+    it('returns 401 for invalid Basic Auth credentials', async () => {
+        const noAuthApp = express();
+        noAuthApp.use(express.json());
+        noAuthApp.use((req, res, next) => { req.session = {}; next(); });
+        noAuthApp.use('/api/gmc', require('../../routes/gmc'));
+        noAuthApp.use((err, req, res, _next) => res.status(err.status || 500).json({ success: false, error: err.message }));
+        db.query.mockResolvedValueOnce({ rows: [] }); // token not found in DB
+        const basicAuth = Buffer.from('ignored:wrong-token').toString('base64');
+        const res = await request(noAuthApp)
+            .get('/api/gmc/feed.tsv')
+            .set('Authorization', `Basic ${basicAuth}`);
+        expect(res.status).toBe(401);
+        expect(res.headers['www-authenticate']).toMatch(/Basic/);
+    });
 });
 
 // ---------- GET /feed-url ----------

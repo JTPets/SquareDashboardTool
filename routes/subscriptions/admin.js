@@ -58,7 +58,7 @@ router.post('/subscriptions/refund', requireAdmin, validators.processRefund, asy
     sendSuccess(res, { refund: squareRefund, message: 'Refund processed successfully' });
 }));
 
-router.get('/subscriptions/admin/list', requirePermission('subscription', 'admin'), validators.listSubscribers, asyncHandler(async (req, res) => {
+router.get('/subscriptions/admin/list', requireAuth, requirePermission('subscription', 'admin'), validators.listSubscribers, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext?.id;
     if (!merchantId) {
         return sendError(res, 'No merchant connected', 403, 'NO_MERCHANT');
@@ -69,7 +69,7 @@ router.get('/subscriptions/admin/list', requirePermission('subscription', 'admin
     sendSuccess(res, { count: data.rows.length, total: data.total, subscribers: data.rows, stats });
 }));
 
-router.get('/subscriptions/admin/plans', requirePermission('subscription', 'admin'), asyncHandler(async (req, res) => {
+router.get('/subscriptions/admin/plans', requireAuth, requirePermission('subscription', 'admin'), asyncHandler(async (req, res) => {
     const squareSubscriptions = require('../../utils/square-subscriptions');
     const plans = await squareSubscriptions.listPlans();
     sendSuccess(res, { plans, squareConfigured: !!process.env.SQUARE_LOCATION_ID });
@@ -99,7 +99,7 @@ router.post('/subscriptions/admin/setup-plans', requireAuth, requirePermission('
  * GET /api/admin/pricing
  * Returns all module prices and platform plan prices from DB.
  */
-router.get('/admin/pricing', requirePermission('subscription', 'admin'), requireSuperAdmin, asyncHandler(async (req, res) => {
+router.get('/admin/pricing', requireAuth, requirePermission('subscription', 'admin'), requireSuperAdmin, asyncHandler(async (req, res) => {
     const [modules, plans] = await Promise.all([
         pricingService.getAllModulePricing(),
         pricingService.getPlatformPlanPricing(),
@@ -111,7 +111,7 @@ router.get('/admin/pricing', requirePermission('subscription', 'admin'), require
  * PUT /api/admin/pricing/modules/:key
  * Update a module's price (writes to module_pricing table).
  */
-router.put('/admin/pricing/modules/:key', requirePermission('subscription', 'admin'), requireSuperAdmin, validators.updatePricingItem, asyncHandler(async (req, res) => {
+router.put('/admin/pricing/modules/:key', requireAuth, requirePermission('subscription', 'admin'), requireSuperAdmin, validators.updatePricingItem, asyncHandler(async (req, res) => {
     const { key } = req.params;
     const { price_cents } = req.body;
 
@@ -134,7 +134,7 @@ router.put('/admin/pricing/modules/:key', requirePermission('subscription', 'adm
  * PUT /api/admin/pricing/plans/:key
  * Update a platform subscription plan price (writes to subscription_plans for platform owner).
  */
-router.put('/admin/pricing/plans/:key', requirePermission('subscription', 'admin'), requireSuperAdmin, validators.updatePricingItem, asyncHandler(async (req, res) => {
+router.put('/admin/pricing/plans/:key', requireAuth, requirePermission('subscription', 'admin'), requireSuperAdmin, validators.updatePricingItem, asyncHandler(async (req, res) => {
     const { key } = req.params;
     const { price_cents } = req.body;
 
