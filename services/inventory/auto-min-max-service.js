@@ -5,7 +5,9 @@
  * Used by both the manual review API and the weekly cron job (BACKLOG-106 v2).
  *
  * Rules (Rule 3 wins over all):
- *   Rule 1 (OVERSTOCKED):       days_of_stock > 90 AND min > 0 → recommend min - 1
+ *   Rule 1 (OVERSTOCKED):       days_of_stock > 90 AND min > 0
+ *                                AND (qty - min) <= vel * REORDER_PROXIMITY_DAYS → recommend min - 1
+ *                                (env: REORDER_PROXIMITY_DAYS, default 14)
  *   Rule 2 (SOLDOUT_FAST_MOVER): qty=0, velocity>=0.15, min < ceil(vel*30) → min + 1
  *   Rule 3 (EXPIRING):          tier IN (AUTO25, AUTO50, EXPIRED) → recommend 0
  *
@@ -500,9 +502,13 @@ function _evaluateRules(row, thirtyDaysAgo, ninetyOneDaysAgo) {
     const dos = isNaN(rawDos) ? 999999 : rawDos;
 
     // Rule 1: overstocked slow mover → min - 1
-    if (dos > 90 && min > 0) {
+    // Only fires when the item is close enough to its min that the min could trigger a reorder
+    // within REORDER_PROXIMITY_DAYS days (default 14 = 2 order cycles). Items with stock far
+    // above min won't reorder for months — adjusting their min changes nothing useful.
+    const proximityDays = parseInt(process.env.REORDER_PROXIMITY_DAYS) || 14;
+    if (dos > 90 && min > 0 && (qty - min) <= vel * proximityDays) {
         return _buildRec(row, min - 1, 'OVERSTOCKED',
-            `Overstocked — ${Math.round(dos)} days of stock at current velocity`);
+            `Overstocked (${Math.round(dos)} days) and min would trigger reorder within ${proximityDays} days`);
     }
 
     // Rule 2: sold out fast mover → min + 1 (capped at ceil(vel * 30))

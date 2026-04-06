@@ -124,9 +124,10 @@ describe('generateRecommendations', () => {
     // --- Eligibility order: new item check runs before pin check ---
 
     test('New item > 91 days → proceeds to rule evaluation (not skipped)', async () => {
+        // qty=9, min=2, vel=0.5 → (9-2)=7 <= 0.5*14=7 → proximity check passes → OVERSTOCKED fires
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ item_created_at: oldItemDate(), days_of_stock: '95',
-                current_min: '2', velocity_91d: '0.5', quantity: '48' })
+                current_min: '2', velocity_91d: '0.5', quantity: '9' })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(1);
@@ -135,20 +136,22 @@ describe('generateRecommendations', () => {
     });
 
     test('min_stock_pinned = FALSE → proceeds to rule evaluation (not skipped)', async () => {
+        // qty=9, min=2, vel=0.5 → proximity check passes → rule evaluates (not skipped due to pin)
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ min_stock_pinned: false, days_of_stock: '95',
-                current_min: '2', velocity_91d: '0.5', quantity: '48' })
+                current_min: '2', velocity_91d: '0.5', quantity: '9' })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(1);
         expect(recs[0].skipped).toBeUndefined();
     });
 
-    // --- Rule 1: Overstocked slow mover ---
+    // --- Rule 1: Overstocked slow mover (with proximity check) ---
 
-    test('Rule 1: days_of_stock 95, min 2 → recommend min - 1 (1)', async () => {
+    test('Rule 1: overstocked, stock near min → recommend min - 1', async () => {
+        // qty=9, min=2, vel=0.5 → (9-2)=7 <= 0.5*14=7 → fires
         db.query.mockResolvedValueOnce({ rows: [
-            makeRow({ days_of_stock: '95', current_min: '2', velocity_91d: '0.5', quantity: '48' })
+            makeRow({ days_of_stock: '95', current_min: '2', velocity_91d: '0.5', quantity: '9' })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(1);
@@ -156,9 +159,19 @@ describe('generateRecommendations', () => {
         expect(recs[0].rule).toBe('OVERSTOCKED');
     });
 
-    test('Rule 1: days_of_stock 80, min 2 → no recommendation (under 90)', async () => {
+    test('Rule 1: overstocked, stock far above min → no recommendation (proximity check fails)', async () => {
+        // qty=50, min=2, vel=0.5 → (50-2)=48 > 0.5*14=7 → skip (min won't trigger reorder for months)
         db.query.mockResolvedValueOnce({ rows: [
-            makeRow({ days_of_stock: '80', current_min: '2', velocity_91d: '0.5', quantity: '40' })
+            makeRow({ days_of_stock: '95', current_min: '2', velocity_91d: '0.5', quantity: '50' })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(0);
+    });
+
+    test('Rule 1: days_of_stock 80, stock near min → no recommendation (not overstocked)', async () => {
+        // dos < 90 → Rule 1 does not fire regardless of proximity
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ days_of_stock: '80', current_min: '2', velocity_91d: '0.5', quantity: '9' })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(0);
@@ -170,6 +183,31 @@ describe('generateRecommendations', () => {
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(0);
+    });
+
+    test('Rule 1: REORDER_PROXIMITY_DAYS env var is respected', async () => {
+        // With proximityDays=7: threshold = 0.5*7 = 3.5
+        // qty=6, min=2 → (6-2)=4 > 3.5 → no rec; qty=5, min=2 → (5-2)=3 <= 3.5 → fires
+        const saved = process.env.REORDER_PROXIMITY_DAYS;
+        process.env.REORDER_PROXIMITY_DAYS = '7';
+        try {
+            db.query.mockResolvedValueOnce({ rows: [
+                makeRow({ days_of_stock: '100', current_min: '2', velocity_91d: '0.5', quantity: '6' })
+            ]});
+            const recsNoFire = await service.generateRecommendations(MERCHANT_ID);
+            expect(recsNoFire).toHaveLength(0);
+
+            db.query.mockResolvedValueOnce({ rows: [
+                makeRow({ days_of_stock: '100', current_min: '2', velocity_91d: '0.5', quantity: '5' })
+            ]});
+            const recsFire = await service.generateRecommendations(MERCHANT_ID);
+            expect(recsFire).toHaveLength(1);
+            expect(recsFire[0].rule).toBe('OVERSTOCKED');
+            expect(recsFire[0].reason).toMatch(/7 days/);
+        } finally {
+            if (saved === undefined) delete process.env.REORDER_PROXIMITY_DAYS;
+            else process.env.REORDER_PROXIMITY_DAYS = saved;
+        }
     });
 
     // --- Rule 2: Sold out fast mover ---
@@ -306,8 +344,9 @@ describe('generateRecommendations', () => {
     });
 
     test('response includes all required fields', async () => {
+        // qty=9, min=2, vel=0.5 → proximity check passes (7 <= 7) → OVERSTOCKED fires
         db.query.mockResolvedValueOnce({ rows: [
-            makeRow({ days_of_stock: '95', current_min: '2', velocity_91d: '0.5', quantity: '48' })
+            makeRow({ days_of_stock: '95', current_min: '2', velocity_91d: '0.5', quantity: '9' })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         const r = recs[0];
@@ -398,10 +437,12 @@ describe('applyWeeklyAdjustments', () => {
     });
 
     test('applies all applicable recs in one transaction and returns correct counts', async () => {
+        // var1: qty=9, min=2, vel=0.5 → (9-2)=7 <= 7 → OVERSTOCKED reduction
+        // var2: qty=0, vel=0.5, min=0 → SOLDOUT_FAST_MOVER increase
         db.query
             .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] }) // stale check
             .mockResolvedValueOnce({ rows: [
-                makeRow({ variation_id: 'var1', days_of_stock: '95', current_min: '2', velocity_91d: '0.5', quantity: '48' }),
+                makeRow({ variation_id: 'var1', days_of_stock: '95', current_min: '2', velocity_91d: '0.5', quantity: '9' }),
                 makeRow({ variation_id: 'var2', quantity: '0', velocity_91d: '0.5', current_min: '0', days_of_stock: '0', last_sold_at: recentDate() }),
             ]}) // DATA_QUERY
             .mockResolvedValueOnce({ rows: [{ total: '100' }] }); // circuit breaker: 1/100 = 1% < 20%
@@ -451,8 +492,9 @@ describe('applyWeeklyAdjustments', () => {
 
     test('Guardrail 2: 25% reductions → aborted', async () => {
         // 4 reductions out of 16 total = 25% > 20%
+        // qty=9, min=2, vel=0.5 → (9-2)=7 <= 7 → proximity check passes → OVERSTOCKED fires
         const overstockedRow = (id) => makeRow({
-            variation_id: id, days_of_stock: '120', current_min: '2', velocity_91d: '0.5', quantity: '60'
+            variation_id: id, days_of_stock: '120', current_min: '2', velocity_91d: '0.5', quantity: '9'
         });
         db.query
             .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] }) // stale check
@@ -471,8 +513,9 @@ describe('applyWeeklyAdjustments', () => {
 
     test('Guardrail 2: 15% reductions → not aborted (proceeds)', async () => {
         // 3 reductions out of 20 total = 15% < 20%
+        // qty=9, min=2, vel=0.5 → (9-2)=7 <= 7 → proximity check passes → OVERSTOCKED fires
         const overstockedRow = (id) => makeRow({
-            variation_id: id, days_of_stock: '120', current_min: '2', velocity_91d: '0.5', quantity: '60'
+            variation_id: id, days_of_stock: '120', current_min: '2', velocity_91d: '0.5', quantity: '9'
         });
         db.query
             .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] }) // stale check
