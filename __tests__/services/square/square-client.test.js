@@ -99,9 +99,11 @@ describe('Square Client Service', () => {
     describe('makeSquareRequest', () => {
         beforeEach(() => {
             jest.useFakeTimers();
+            jest.spyOn(AbortSignal, 'timeout').mockImplementation(() => new AbortController().signal);
         });
 
         afterEach(() => {
+            jest.restoreAllMocks();
             jest.useRealTimers();
         });
 
