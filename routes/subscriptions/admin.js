@@ -99,7 +99,7 @@ router.post('/subscriptions/admin/setup-plans', requireAuth, requirePermission('
  * GET /api/admin/pricing
  * Returns all module prices and platform plan prices from DB.
  */
-router.get('/admin/pricing', requireAuth, requireAdmin, requireSuperAdmin, asyncHandler(async (req, res) => {
+router.get('/admin/pricing', requirePermission('subscription', 'admin'), requireSuperAdmin, asyncHandler(async (req, res) => {
     const [modules, plans] = await Promise.all([
         pricingService.getAllModulePricing(),
         pricingService.getPlatformPlanPricing(),
@@ -111,7 +111,7 @@ router.get('/admin/pricing', requireAuth, requireAdmin, requireSuperAdmin, async
  * PUT /api/admin/pricing/modules/:key
  * Update a module's price (writes to module_pricing table).
  */
-router.put('/admin/pricing/modules/:key', requireAuth, requireAdmin, requireSuperAdmin, validators.updatePricingItem, asyncHandler(async (req, res) => {
+router.put('/admin/pricing/modules/:key', requirePermission('subscription', 'admin'), requireSuperAdmin, validators.updatePricingItem, asyncHandler(async (req, res) => {
     const { key } = req.params;
     const { price_cents } = req.body;
 
@@ -134,7 +134,7 @@ router.put('/admin/pricing/modules/:key', requireAuth, requireAdmin, requireSupe
  * PUT /api/admin/pricing/plans/:key
  * Update a platform subscription plan price (writes to subscription_plans for platform owner).
  */
-router.put('/admin/pricing/plans/:key', requireAuth, requireAdmin, requireSuperAdmin, validators.updatePricingItem, asyncHandler(async (req, res) => {
+router.put('/admin/pricing/plans/:key', requirePermission('subscription', 'admin'), requireSuperAdmin, validators.updatePricingItem, asyncHandler(async (req, res) => {
     const { key } = req.params;
     const { price_cents } = req.body;
 
