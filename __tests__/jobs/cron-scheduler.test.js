@@ -91,6 +91,11 @@ jest.mock('../../jobs/delivery-auto-finish-job', () => ({
     runScheduledDeliveryRetentionCleanup: jest.fn()
 }));
 
+jest.mock('../../jobs/staff-invite-cleanup-job', () => ({
+    cleanupExpiredStaffInvites: jest.fn(),
+    runScheduledStaffInviteCleanup: jest.fn()
+}));
+
 const cron = require('node-cron');
 const {
     initializeCronJobs,
@@ -111,15 +116,15 @@ describe('CronScheduler', () => {
         it('should schedule all default cron jobs', () => {
             initializeCronJobs();
 
-            // Should schedule 21 jobs (without GMC which is optional)
+            // Should schedule 22 jobs (without GMC which is optional)
             // Jobs: cycle count, webhook retry, webhook cleanup, sync, backup,
             // expiry discount, loyalty catchup, loyalty audit, cart activity cleanup,
             // seniors discount, committed inventory reconciliation, trial expiry,
             // loyalty sync retry, catalog health, email heartbeat, pod cleanup,
             // auto min/max, vendor match backfill (BACKLOG-114),
             // delivery auto-finish, delivery retention cleanup (BACKLOG-116),
-            // promo expiry check (B3 fix)
-            expect(cron.schedule).toHaveBeenCalledTimes(21);
+            // promo expiry check (B3 fix), staff invite cleanup
+            expect(cron.schedule).toHaveBeenCalledTimes(22);
         });
 
         it('should use environment variable schedules when provided', () => {
@@ -137,8 +142,8 @@ describe('CronScheduler', () => {
 
             initializeCronJobs();
 
-            // Should schedule 22 jobs including GMC
-            expect(cron.schedule).toHaveBeenCalledTimes(22);
+            // Should schedule 23 jobs including GMC
+            expect(cron.schedule).toHaveBeenCalledTimes(23);
             expect(cron.schedule).toHaveBeenCalledWith('0 4 * * *', expect.any(Function));
 
             delete process.env.GMC_SYNC_CRON_SCHEDULE;

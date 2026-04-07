@@ -39,6 +39,7 @@
 // | 20 | Delivery auto-finish        | 0 23 * * * (11:00 PM) | Batch  | BACKLOG-116: stale route cleanup   |
 // | 21 | Delivery retention cleanup  | 0 1 * * 0  (Sun 1AM)  | Batch  | BACKLOG-116: purge old routes/orders|
 // | 22 | Promo expiry check          | 0 7 * * 0  (Sun 7AM)  | Batch  | B3 fix: flag expired promo pricing  |
+// | 23 | Staff invite cleanup        | 0 2 * * 0  (Sun 2AM)  | Batch  | Clear expired pending invites       |
 
 const cron = require('node-cron');
 const logger = require('../utils/logger');
@@ -63,6 +64,7 @@ const { runScheduledAutoMinMax } = require('./auto-min-max-job');
 const { runScheduledVendorMatchBackfill } = require('./vendor-match-backfill-job');
 const { runScheduledDeliveryAutoFinish, runScheduledDeliveryRetentionCleanup } = require('./delivery-auto-finish-job');
 const { runScheduledPromoExpiryCheck } = require('./promo-expiry-job');
+const { runScheduledStaffInviteCleanup } = require('./staff-invite-cleanup-job');
 const syncQueue = require('../services/infra/sync-queue');
 
 // Store cron task references for graceful shutdown
@@ -252,6 +254,15 @@ function initializeCronJobs() {
         timezone: 'America/Toronto'
     }));
     logger.info('Promo expiry check cron job scheduled', { schedule: promoExpirySchedule, timezone: 'America/Toronto' });
+
+    // 23. Staff invite cleanup
+    // Runs every Sunday at 2:00 AM — delete expired pending invitations older than 7 days
+    // Unblocks re-invites blocked by UNIQUE(merchant_id, email) constraint
+    const staffInviteCleanupSchedule = process.env.STAFF_INVITE_CLEANUP_CRON || '0 2 * * 0';
+    cronTasks.push(cron.schedule(staffInviteCleanupSchedule, runScheduledStaffInviteCleanup, {
+        timezone: 'America/Toronto'
+    }));
+    logger.info('Staff invite cleanup cron job scheduled', { schedule: staffInviteCleanupSchedule, timezone: 'America/Toronto' });
 
     return cronTasks;
 }

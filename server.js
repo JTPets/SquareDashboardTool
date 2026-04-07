@@ -70,6 +70,7 @@ const authRoutes = require('./routes/auth');
 
 // Multi-tenant middleware and routes
 const { loadMerchantContext, requireMerchant, requireValidSubscription, getSquareClientForMerchant } = require('./middleware/merchant');
+const { requireActiveSubscription } = require('./middleware/require-active-subscription');
 const squareOAuthRoutes = require('./routes/square-oauth');
 const driverApiRoutes = require('./routes/driver-api');
 const purchaseOrdersRoutes = require('./routes/purchase-orders');
@@ -370,11 +371,11 @@ const subscriptionEnforcementMiddleware = async (req, res, next) => {
         // If platform settings lookup fails, fall through to normal check
     }
 
-    return requireValidSubscription(req, res, next);
+    return requireActiveSubscription(req, res, next);
 };
 
 app.use('/api', subscriptionEnforcementMiddleware);
-logger.info('Subscription enforcement middleware enabled (System A — merchant-level trials)');
+logger.info('Subscription enforcement middleware enabled (System A — merchant-level trials, GET read-only for expired)');
 
 // ==================== FEATURE MODULE GATING ====================
 // Gates paid feature modules. Base module routes are always accessible.

@@ -22,6 +22,7 @@ const podCleanupJob = require('./pod-cleanup-job');
 const autoMinMaxJob = require('./auto-min-max-job');
 const vendorMatchBackfillJob = require('./vendor-match-backfill-job');
 const deliveryAutoFinishJob = require('./delivery-auto-finish-job');
+const staffInviteCleanupJob = require('./staff-invite-cleanup-job');
 const cronScheduler = require('./cron-scheduler');
 
 module.exports = {
@@ -99,6 +100,10 @@ module.exports = {
     runDeliveryRetentionCleanup: deliveryAutoFinishJob.runDeliveryRetentionCleanup,
     runScheduledDeliveryAutoFinish: deliveryAutoFinishJob.runScheduledDeliveryAutoFinish,
     runScheduledDeliveryRetentionCleanup: deliveryAutoFinishJob.runScheduledDeliveryRetentionCleanup,
+
+    // Staff invite cleanup job
+    cleanupExpiredStaffInvites: staffInviteCleanupJob.cleanupExpiredStaffInvites,
+    runScheduledStaffInviteCleanup: staffInviteCleanupJob.runScheduledStaffInviteCleanup,
 
     // Cron scheduler
     initializeCronJobs: cronScheduler.initializeCronJobs,
