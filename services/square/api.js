@@ -32,7 +32,7 @@ const { getMerchantToken, makeSquareRequest, generateIdempotencyKey } = require(
 const { syncLocations } = require('./square-locations');
 const { syncVendors, ensureVendorsExist } = require('./square-vendors');
 const { syncCatalog, deltaSyncCatalog } = require('./square-catalog-sync');
-const { syncInventory, getSquareInventoryCount, setSquareInventoryCount, setSquareInventoryAlertThreshold, syncCommittedInventory, cleanupInventory } = require('./square-inventory');
+const { syncInventory, getSquareInventoryCount, setSquareInventoryCount, setSquareInventoryAlertThreshold, pushMinStockThresholdsToSquare, syncCommittedInventory, cleanupInventory } = require('./square-inventory');
 const { syncSalesVelocity, syncSalesVelocityAllPeriods, updateSalesVelocityFromOrder } = require('./square-velocity');
 const { fullSync } = require('./square-sync-orchestrator');
 
@@ -77,6 +77,7 @@ module.exports = {
     getSquareInventoryCount,
     setSquareInventoryCount,
     setSquareInventoryAlertThreshold,
+    pushMinStockThresholdsToSquare,
     syncCommittedInventory,
     // Sales velocity
     syncSalesVelocity,

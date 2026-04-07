@@ -20,8 +20,13 @@ jest.mock('../../../utils/email-notifier', () => ({
     sendAlert: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('../../../services/square/square-inventory', () => ({
+    pushMinStockThresholdsToSquare: jest.fn().mockResolvedValue({ pushed: 1, failed: 0 }),
+}));
+
 const db = require('../../../utils/database');
 const emailNotifier = require('../../../utils/email-notifier');
+const squareInventory = require('../../../services/square/square-inventory');
 const service = require('../../../services/inventory/auto-min-max-service');
 
 const MERCHANT_ID = 1;
@@ -844,5 +849,121 @@ describe('getHistory', () => {
         const result = await service.getHistory(MERCHANT_ID, { limit: 10, offset: 20 });
         expect(result.limit).toBe(10);
         expect(result.offset).toBe(20);
+    });
+});
+
+// ==================== Square push (pushMinStockThresholdsToSquare) ====================
+
+describe('Square push after apply', () => {
+    beforeEach(() => {
+        squareInventory.pushMinStockThresholdsToSquare.mockClear();
+        squareInventory.pushMinStockThresholdsToSquare.mockResolvedValue({ pushed: 1, failed: 0 });
+    });
+
+    test('applyWeeklyAdjustments: pushMinStockThresholdsToSquare called with correct changes', async () => {
+        // var1: OVERSTOCKED reduction; var2: SOLDOUT_FAST_MOVER increase
+        db.query
+            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] }) // stale check
+            .mockResolvedValueOnce({ rows: [
+                makeRow({ variation_id: 'var1', location_id: 'loc1',
+                    days_of_stock: '95', current_min: '2', velocity_91d: '0.5', quantity: '9' }),
+                makeRow({ variation_id: 'var2', location_id: 'loc1',
+                    quantity: '0', velocity_91d: '0.5', current_min: '0',
+                    days_of_stock: '0', last_sold_at: recentDate() }),
+            ]})
+            .mockResolvedValueOnce({ rows: [{ total: '100' }] }); // circuit breaker
+
+        db.transaction.mockImplementationOnce(async (fn) => {
+            const mockClient = { query: jest.fn().mockResolvedValue({ rows: [{ stock_alert_min: 2 }] }) };
+            return fn(mockClient);
+        });
+
+        await service.applyWeeklyAdjustments(MERCHANT_ID);
+
+        expect(squareInventory.pushMinStockThresholdsToSquare).toHaveBeenCalledTimes(1);
+        const [calledMerchantId, calledChanges] = squareInventory.pushMinStockThresholdsToSquare.mock.calls[0];
+        expect(calledMerchantId).toBe(MERCHANT_ID);
+        expect(calledChanges).toEqual(expect.arrayContaining([
+            { variationId: 'var1', locationId: 'loc1', newMin: 1 },
+            { variationId: 'var2', locationId: 'loc1', newMin: 1 },
+        ]));
+        expect(calledChanges).toHaveLength(2);
+    });
+
+    test('applyWeeklyAdjustments: Square push failure does not affect return value', async () => {
+        squareInventory.pushMinStockThresholdsToSquare.mockRejectedValue(new Error('Square down'));
+
+        db.query
+            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] })
+            .mockResolvedValueOnce({ rows: [
+                makeRow({ variation_id: 'var1', days_of_stock: '95',
+                    current_min: '2', velocity_91d: '0.5', quantity: '9' }),
+            ]})
+            .mockResolvedValueOnce({ rows: [{ total: '100' }] });
+
+        db.transaction.mockImplementationOnce(async (fn) => {
+            const mockClient = { query: jest.fn().mockResolvedValue({ rows: [{ stock_alert_min: 2 }] }) };
+            return fn(mockClient);
+        });
+
+        const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
+        // Local change still applied; Square failure is fire-and-forget
+        expect(result.reduced).toBe(1);
+        expect(result.aborted).toBeUndefined();
+    });
+
+    test('applyWeeklyAdjustments: Square push not called when nothing applicable', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] })
+            .mockResolvedValueOnce({ rows: [] }); // no recs
+
+        await service.applyWeeklyAdjustments(MERCHANT_ID);
+
+        expect(squareInventory.pushMinStockThresholdsToSquare).not.toHaveBeenCalled();
+    });
+
+    test('applyRecommendation: pushMinStockThresholdsToSquare called with correct args', async () => {
+        db.transaction.mockImplementationOnce(async (fn) => {
+            const mockClient = {
+                query: jest.fn()
+                    .mockResolvedValueOnce({ rows: [{ stock_alert_min: 3 }] })
+                    .mockResolvedValue({ rows: [] }),
+            };
+            return fn(mockClient);
+        });
+
+        await service.applyRecommendation(MERCHANT_ID, 'var1', 'loc1', 2);
+
+        expect(squareInventory.pushMinStockThresholdsToSquare).toHaveBeenCalledWith(
+            MERCHANT_ID,
+            [{ variationId: 'var1', locationId: 'loc1', newMin: 2 }]
+        );
+    });
+
+    test('applyAllRecommendations: pushMinStockThresholdsToSquare called with all changes', async () => {
+        const recs = [
+            { variationId: 'var1', locationId: 'loc1', newMin: 1, rule: 'OVERSTOCKED', reason: 'r' },
+            { variationId: 'var2', locationId: 'loc1', newMin: 0, rule: 'EXPIRING', reason: 'r' },
+        ];
+
+        db.transaction.mockImplementationOnce(async (fn) => {
+            const mockClient = { query: jest.fn().mockResolvedValue({ rows: [{ stock_alert_min: 2 }] }) };
+            return fn(mockClient);
+        });
+
+        await service.applyAllRecommendations(MERCHANT_ID, recs);
+
+        expect(squareInventory.pushMinStockThresholdsToSquare).toHaveBeenCalledWith(
+            MERCHANT_ID,
+            [
+                { variationId: 'var1', locationId: 'loc1', newMin: 1 },
+                { variationId: 'var2', locationId: 'loc1', newMin: 0 },
+            ]
+        );
+    });
+
+    test('applyAllRecommendations: Square push not called for empty array', async () => {
+        await service.applyAllRecommendations(MERCHANT_ID, []);
+        expect(squareInventory.pushMinStockThresholdsToSquare).not.toHaveBeenCalled();
     });
 });
