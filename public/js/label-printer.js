@@ -43,7 +43,7 @@ const LabelPrinter = (function () {
                 return true;
             }
         } catch (httpErr) {
-            console.warn('[LabelPrinter] HTTP :9100 failed:', httpErr.message);
+            console.debug('[LabelPrinter] HTTP :9100 failed:', httpErr.message);
         }
 
         // Fall back to HTTPS
@@ -60,11 +60,11 @@ const LabelPrinter = (function () {
                 return true;
             }
         } catch (httpsErr) {
-            console.warn('[LabelPrinter] HTTPS :9101 failed:', httpsErr.message);
+            console.debug('[LabelPrinter] HTTPS :9101 failed:', httpsErr.message);
         }
 
         isAvailable = false;
-        console.warn('[LabelPrinter] Zebra Browser Print not detected. Ensure the app is running on this PC.');
+        console.debug('[LabelPrinter] Zebra Browser Print not detected. Ensure the app is running on this PC.');
         return false;
     }
 

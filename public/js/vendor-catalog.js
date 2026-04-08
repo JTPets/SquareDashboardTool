@@ -566,7 +566,7 @@
     function formatMargin(margin) {
       if (margin === null || margin === undefined) return '-';
       const marginClass = margin >= 40 ? 'good' : margin >= 25 ? 'warning' : 'bad';
-      return `<span class="margin ${marginClass}">${margin.toFixed(1)}%</span>`;
+      return `<span class="margin ${marginClass}">${Number(margin).toFixed(1)}%</span>`;
     }
 
     // Load stats
@@ -579,7 +579,7 @@
         document.getElementById('stat-total').textContent = formatNumber(stats.total_items || 0);
         document.getElementById('stat-vendors').textContent = formatNumber(stats.vendor_count || 0);
         document.getElementById('stat-matched').textContent = formatNumber(stats.matched_items || 0);
-        document.getElementById('stat-margin').textContent = stats.avg_margin ? stats.avg_margin.toFixed(1) + '%' : '-';
+        document.getElementById('stat-margin').textContent = stats.avg_margin != null ? parseFloat(stats.avg_margin).toFixed(1) + '%' : '-';
       } catch (error) {
         console.error('Failed to load stats:', error);
       }
