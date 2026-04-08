@@ -340,7 +340,7 @@
                   <td style="padding: 4px 6px; text-align: right;">${formatMoney(p.our_price_cents)}</td>
                   <td style="padding: 4px 6px; text-align: right;">${formatMoney(p.vendor_srp_cents)}</td>
                   <td style="padding: 4px 6px; text-align: right; color: ${diffColor}; font-weight: 600;">
-                    ${diffSign}${formatMoney(p.price_diff_cents)} (${diffSign}${p.price_diff_percent.toFixed(1)}%)
+                    ${diffSign}${formatMoney(p.price_diff_cents)} (${diffSign}${(p.price_diff_percent ?? 0).toFixed(1)}%)
                   </td>
                 </tr>
               `;
@@ -1089,7 +1089,7 @@
                 <td style="padding: 4px 6px; text-align: right;">${formatMoney(p.our_price_cents)}</td>
                 <td style="padding: 4px 6px; text-align: right;">${formatMoney(p.vendor_srp_cents)}</td>
                 <td style="padding: 4px 6px; text-align: right; color: ${diffColor}; font-weight: 600;">
-                  ${diffSign}${formatMoney(p.price_diff_cents)} (${diffSign}${p.price_diff_percent.toFixed(1)}%)
+                  ${diffSign}${formatMoney(p.price_diff_cents)} (${diffSign}${(p.price_diff_percent ?? 0).toFixed(1)}%)
                 </td>
               </tr>
             `;
@@ -1265,7 +1265,7 @@
         <td class="right">$${(p.our_price_cents / 100).toFixed(2)}</td>
         <td class="right">$${(p.vendor_srp_cents / 100).toFixed(2)}</td>
         <td class="right">$${(p.vendor_cost_cents / 100).toFixed(2)}</td>
-        <td class="right ${diffClass}">${diffSign}$${(p.price_diff_cents / 100).toFixed(2)} (${diffSign}${p.price_diff_percent.toFixed(1)}%)</td>
+        <td class="right ${diffClass}">${diffSign}$${(p.price_diff_cents / 100).toFixed(2)} (${diffSign}${(p.price_diff_percent ?? 0).toFixed(1)}%)</td>
         <td>${p.match_method || '-'}</td>
       </tr>
         `;
@@ -1295,7 +1295,7 @@
             (p.vendor_srp_cents / 100).toFixed(2),
             (p.vendor_cost_cents / 100).toFixed(2),
             (p.price_diff_cents / 100).toFixed(2),
-            p.price_diff_percent.toFixed(1),
+            (p.price_diff_percent ?? 0).toFixed(1),
             p.match_method || ''
           ]);
           const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -1467,7 +1467,7 @@
         (p.vendor_srp_cents / 100).toFixed(2),
         (p.vendor_cost_cents / 100).toFixed(2),
         (p.price_diff_cents / 100).toFixed(2),
-        p.price_diff_percent.toFixed(1),
+        (p.price_diff_percent ?? 0).toFixed(1),
         p.match_method || '',
         p.action || ''
       ]);
