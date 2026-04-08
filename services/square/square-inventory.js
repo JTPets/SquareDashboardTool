@@ -21,7 +21,7 @@ const logger = require('../../utils/logger');
 const { getMerchantToken, makeSquareRequest, sleep, generateIdempotencyKey } = require('./square-client');
 
 // LOGIC CHANGE: use centralized cache/retry config from constants (C-1)
-const { SQUARE: { MAX_PAGINATION_ITERATIONS }, SYNC: { BATCH_DELAY_MS, INTER_BATCH_DELAY_MS }, CACHE: { INVOICES_SCOPE_TTL_MS }, RETRY: { MAX_ATTEMPTS } } = require('../../config/constants');
+const { SQUARE: { MAX_PAGINATION_ITERATIONS }, SYNC: { BATCH_DELAY_MS, INTER_BATCH_DELAY_MS, CATALOG_BATCH_SIZE }, CACHE: { INVOICES_SCOPE_TTL_MS }, RETRY: { MAX_ATTEMPTS } } = require('../../config/constants');
 
 // Cache for merchants without INVOICES_READ scope (avoid repeated API calls and log spam)
 // Map<merchantId, timestamp> - expires after 1 hour
@@ -838,11 +838,120 @@ async function syncCommittedInventory(merchantId) {
     return result;
 }
 
+/**
+ * Batch-push min stock thresholds to Square for multiple variations.
+ * Uses batch-retrieve to get current versions, then batch-upsert to apply changes.
+ * Errors are logged as warnings — local DB is source of truth, Square push is best-effort.
+ *
+ * @param {number} merchantId
+ * @param {Array<{variationId: string, locationId: string, newMin: number}>} changes
+ * @returns {Promise<{pushed: number, failed: number}>}
+ */
+async function pushMinStockThresholdsToSquare(merchantId, changes) {
+    if (!merchantId) throw new Error('merchantId is required');
+    if (!changes || changes.length === 0) return { pushed: 0, failed: 0 };
+
+    const accessToken = await getMerchantToken(merchantId);
+
+    // Group changes by variationId → Map<locationId, newMin>
+    const changesByVariation = new Map();
+    for (const { variationId, locationId, newMin } of changes) {
+        if (!changesByVariation.has(variationId)) changesByVariation.set(variationId, new Map());
+        changesByVariation.get(variationId).set(locationId, newMin);
+    }
+
+    const variationIds = [...changesByVariation.keys()];
+    let pushed = 0;
+    let failed = 0;
+
+    // Step 1: Batch-retrieve current objects from Square (need version + existing overrides)
+    const retrievedObjects = new Map();
+    for (let i = 0; i < variationIds.length; i += CATALOG_BATCH_SIZE) {
+        const batch = variationIds.slice(i, i + CATALOG_BATCH_SIZE);
+        try {
+            const data = await makeSquareRequest('/v2/catalog/batch-retrieve', {
+                method: 'POST',
+                body: JSON.stringify({ object_ids: batch, include_related_objects: false }),
+                accessToken
+            });
+            for (const obj of (data.objects || [])) retrievedObjects.set(obj.id, obj);
+        } catch (err) {
+            logger.warn('pushMinStockThresholdsToSquare: batch-retrieve failed', {
+                merchantId, batchSize: batch.length, error: err.message
+            });
+            failed += batch.length;
+            for (const id of batch) changesByVariation.delete(id);
+        }
+        if (i + CATALOG_BATCH_SIZE < variationIds.length) await sleep(INTER_BATCH_DELAY_MS);
+    }
+
+    // Step 2: Build updated objects with new location_overrides
+    const objectsToUpsert = [];
+    for (const [variationId, locationChanges] of changesByVariation.entries()) {
+        const squareObj = retrievedObjects.get(variationId);
+        if (!squareObj) {
+            logger.warn('pushMinStockThresholdsToSquare: variation not found in Square', {
+                merchantId, variationId
+            });
+            failed++;
+            continue;
+        }
+
+        const currentData = squareObj.item_variation_data || {};
+        let newOverrides = [...(currentData.location_overrides || [])];
+
+        for (const [locationId, newMin] of locationChanges.entries()) {
+            const alertType = newMin > 0 ? 'LOW_QUANTITY' : 'NONE';
+            newOverrides = newOverrides.filter(o => o.location_id !== locationId);
+            const override = { location_id: locationId, inventory_alert_type: alertType };
+            if (alertType === 'LOW_QUANTITY') override.inventory_alert_threshold = newMin;
+            newOverrides.push(override);
+        }
+
+        objectsToUpsert.push({
+            type: 'ITEM_VARIATION',
+            id: squareObj.id,
+            version: squareObj.version,
+            item_variation_data: { ...currentData, location_overrides: newOverrides }
+        });
+    }
+
+    // Step 3: Batch-upsert updated objects
+    for (let i = 0; i < objectsToUpsert.length; i += CATALOG_BATCH_SIZE) {
+        const batch = objectsToUpsert.slice(i, i + CATALOG_BATCH_SIZE);
+        const batchNum = Math.floor(i / CATALOG_BATCH_SIZE) + 1;
+        try {
+            await makeSquareRequest('/v2/catalog/batch-upsert', {
+                method: 'POST',
+                body: JSON.stringify({
+                    idempotency_key: generateIdempotencyKey(`min-stock-push-b${batchNum}`),
+                    batches: [{ objects: batch }]
+                }),
+                accessToken
+            });
+            pushed += batch.length;
+            logger.info('pushMinStockThresholdsToSquare: batch upserted', {
+                merchantId, batchNum, count: batch.length
+            });
+        } catch (err) {
+            failed += batch.length;
+            logger.warn('pushMinStockThresholdsToSquare: batch-upsert failed', {
+                merchantId, batchNum, count: batch.length, error: err.message
+            });
+        }
+        if (i + CATALOG_BATCH_SIZE < objectsToUpsert.length) await sleep(INTER_BATCH_DELAY_MS);
+    }
+
+    logger.info('pushMinStockThresholdsToSquare complete', { merchantId, pushed, failed });
+    return { pushed, failed };
+}
+
 module.exports = {
     syncInventory,
     getSquareInventoryCount,
     setSquareInventoryCount,
     setSquareInventoryAlertThreshold,
+    pushMinStockThresholdsToSquare,
     syncCommittedInventory,
     cleanupInventory
 };

@@ -28,6 +28,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const emailNotifier = require('../../utils/email-notifier');
+const { pushMinStockThresholdsToSquare } = require('../square/square-inventory');
 
 const EXPIRY_TIERS = new Set(['AUTO25', 'AUTO50', 'EXPIRED']);
 
@@ -191,6 +192,14 @@ async function applyWeeklyAdjustments(merchantId) {
         }
     });
 
+    // Push new mins to Square — fire-and-forget, local DB is source of truth
+    const squareChanges = applicable.map(r => ({
+        variationId: r.variationId,
+        locationId: r.locationId,
+        newMin: r.recommendedMin
+    }));
+    _pushToSquare(merchantId, squareChanges);
+
     const reduced = applicable.filter(r => r.recommendedMin < r.currentMin).length;
     const increased = applicable.filter(r => r.recommendedMin > r.currentMin).length;
 
@@ -208,10 +217,13 @@ async function applyWeeklyAdjustments(merchantId) {
  */
 async function applyRecommendation(merchantId, variationId, locationId, newMin) {
     _validateApplyArgs(merchantId, variationId, locationId, newMin);
-    return db.transaction(async (client) => {
+    const result = await db.transaction(async (client) => {
         return _applyOne(client, merchantId, variationId, locationId, newMin,
             'MANUAL_APPLY', 'Applied via API', null, null, null);
     });
+    // Push to Square — fire-and-forget, local DB is source of truth
+    _pushToSquare(merchantId, [{ variationId, locationId, newMin }]);
+    return result;
 }
 
 /**
@@ -241,6 +253,14 @@ async function applyAllRecommendations(merchantId, recommendations) {
             applied++;
         }
     });
+
+    // Push to Square — fire-and-forget, local DB is source of truth
+    const squareChanges = recommendations.map(r => ({
+        variationId: r.variationId,
+        locationId: r.locationId,
+        newMin: r.newMin
+    }));
+    _pushToSquare(merchantId, squareChanges);
 
     logger.info('Applied all min stock recommendations', { merchantId, applied });
     return { applied, failed: 0, errors: [] };
@@ -622,6 +642,18 @@ function _validateApplyArgs(merchantId, variationId, locationId, newMin) {
     if (!Number.isInteger(newMin) || newMin < 0) {
         throw new Error('newMin must be a non-negative integer');
     }
+}
+
+/**
+ * Fire-and-forget Square push for min stock thresholds.
+ * Local DB is source of truth — failures are logged as warnings only.
+ */
+function _pushToSquare(merchantId, changes) {
+    pushMinStockThresholdsToSquare(merchantId, changes).catch(err => {
+        logger.warn('pushMinStockThresholdsToSquare unexpected error', {
+            merchantId, error: err.message
+        });
+    });
 }
 
 module.exports = {
