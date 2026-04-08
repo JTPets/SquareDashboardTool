@@ -102,7 +102,7 @@ const LabelPrinter = (function () {
                 }
             }
         } catch (err) {
-            console.warn('[LabelPrinter] /default?type=printer failed:', err.message);
+            console.debug('[LabelPrinter] /default?type=printer failed:', err.message);
         }
 
         // 2. Also check /available for additional printers
@@ -136,7 +136,7 @@ const LabelPrinter = (function () {
                 }
             }
         } catch (err) {
-            console.warn('[LabelPrinter] /available discovery failed:', err.message);
+            console.debug('[LabelPrinter] /available discovery failed:', err.message);
         }
 
         // Auto-select first printer, or clear stale selection
