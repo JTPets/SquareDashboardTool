@@ -579,7 +579,8 @@
         document.getElementById('stat-total').textContent = formatNumber(stats.total_items || 0);
         document.getElementById('stat-vendors').textContent = formatNumber(stats.vendor_count || 0);
         document.getElementById('stat-matched').textContent = formatNumber(stats.matched_items || 0);
-        document.getElementById('stat-margin').textContent = stats.avg_margin != null ? parseFloat(stats.avg_margin).toFixed(1) + '%' : '-';
+        const avgMargin = stats.avg_margin != null ? parseFloat(stats.avg_margin) : NaN;
+        document.getElementById('stat-margin').textContent = !isNaN(avgMargin) ? avgMargin.toFixed(1) + '%' : '-';
       } catch (error) {
         console.error('Failed to load stats:', error);
       }
@@ -878,7 +879,7 @@
                   <div class="label">Matched</div>
                 </div>
                 <div class="batch-stat">
-                  <div class="value">${batch.avg_margin ? parseFloat(batch.avg_margin).toFixed(1) + '%' : '-'}</div>
+                  <div class="value">${batch.avg_margin && !isNaN(parseFloat(batch.avg_margin)) ? parseFloat(batch.avg_margin).toFixed(1) + '%' : '-'}</div>
                   <div class="label">Avg Margin</div>
                 </div>
                 <div style="display: flex; gap: 5px; flex-wrap: wrap;">
@@ -1262,10 +1263,10 @@
         <td>${escapeHtml(p.our_item_name || p.product_name)}</td>
         <td><code>${escapeHtml(p.upc || '-')}</code></td>
         <td><code>${escapeHtml(p.vendor_item_number)}</code></td>
-        <td class="right">$${(p.our_price_cents / 100).toFixed(2)}</td>
-        <td class="right">$${(p.vendor_srp_cents / 100).toFixed(2)}</td>
-        <td class="right">$${(p.vendor_cost_cents / 100).toFixed(2)}</td>
-        <td class="right ${diffClass}">${diffSign}$${(p.price_diff_cents / 100).toFixed(2)} (${diffSign}${(p.price_diff_percent ?? 0).toFixed(1)}%)</td>
+        <td class="right">${formatMoney(p.our_price_cents)}</td>
+        <td class="right">${formatMoney(p.vendor_srp_cents)}</td>
+        <td class="right">${formatMoney(p.vendor_cost_cents)}</td>
+        <td class="right ${diffClass}">${diffSign}${formatMoney(p.price_diff_cents)} (${diffSign}${(p.price_diff_percent ?? 0).toFixed(1)}%)</td>
         <td>${p.match_method || '-'}</td>
       </tr>
         `;
@@ -1291,10 +1292,10 @@
             '"' + (p.our_item_name || p.product_name || '').replace(/"/g, '""') + '"',
             p.upc || '',
             p.vendor_item_number || '',
-            (p.our_price_cents / 100).toFixed(2),
-            (p.vendor_srp_cents / 100).toFixed(2),
-            (p.vendor_cost_cents / 100).toFixed(2),
-            (p.price_diff_cents / 100).toFixed(2),
+            ((p.our_price_cents ?? 0) / 100).toFixed(2),
+            ((p.vendor_srp_cents ?? 0) / 100).toFixed(2),
+            ((p.vendor_cost_cents ?? 0) / 100).toFixed(2),
+            ((p.price_diff_cents ?? 0) / 100).toFixed(2),
             (p.price_diff_percent ?? 0).toFixed(1),
             p.match_method || ''
           ]);
@@ -1463,10 +1464,10 @@
         '"' + (p.our_item_name || p.product_name || '').replace(/"/g, '""') + '"',
         p.upc || '',
         p.vendor_item_number || '',
-        (p.our_price_cents / 100).toFixed(2),
-        (p.vendor_srp_cents / 100).toFixed(2),
-        (p.vendor_cost_cents / 100).toFixed(2),
-        (p.price_diff_cents / 100).toFixed(2),
+        ((p.our_price_cents ?? 0) / 100).toFixed(2),
+        ((p.vendor_srp_cents ?? 0) / 100).toFixed(2),
+        ((p.vendor_cost_cents ?? 0) / 100).toFixed(2),
+        ((p.price_diff_cents ?? 0) / 100).toFixed(2),
         (p.price_diff_percent ?? 0).toFixed(1),
         p.match_method || '',
         p.action || ''

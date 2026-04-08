@@ -250,23 +250,23 @@
         <h4>Retroactive Scan</h4>
         <p>Scan all matched catalog items to find any products available from additional vendors not yet suggested.</p>
       </div>
-      <button class="btn-backfill" id="btnBackfill" onclick="runBackfill()">Run Scan</button>
+      <button class="btn-backfill" id="btnBackfill" data-action="runBackfill">Run Scan</button>
     </div>
 
     <!-- Status tabs -->
     <div class="tabs" style="margin-bottom:20px;">
-      <div class="tab active" data-status="pending" onclick="switchTab('pending', this)">Pending</div>
-      <div class="tab" data-status="approved" onclick="switchTab('approved', this)">Approved</div>
-      <div class="tab" data-status="rejected" onclick="switchTab('rejected', this)">Rejected</div>
+      <div class="tab active" data-status="pending" data-action="switchTab">Pending</div>
+      <div class="tab" data-status="approved" data-action="switchTab">Approved</div>
+      <div class="tab" data-status="rejected" data-action="switchTab">Rejected</div>
     </div>
 
     <!-- Bulk actions (pending only) -->
     <div class="bulk-bar" id="bulkBar">
       <label>
-        <input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)"> Select all
+        <input type="checkbox" id="selectAll" data-action="toggleSelectAll"> Select all
       </label>
       <div class="bulk-bar-spacer"></div>
-      <button class="btn-approve" id="btnBulkApprove" onclick="confirmBulkApprove()" disabled>
+      <button class="btn-approve" id="btnBulkApprove" data-action="confirmBulkApprove" disabled>
         Approve Selected
       </button>
     </div>
@@ -274,7 +274,7 @@
     <!-- Suggestion list -->
     <div id="suggestionList"></div>
     <div class="load-more-row" id="loadMoreRow" style="display:none;">
-      <button class="btn-load-more" onclick="loadMore()">Load more</button>
+      <button class="btn-load-more" data-action="loadMore">Load more</button>
     </div>
 
     <!-- Notification -->
