@@ -15,6 +15,40 @@ let suggestions = [];
 // ============================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Event delegation for clicks (CSP-compliant, no inline handlers)
+    document.addEventListener('click', (e) => {
+        const target = e.target.closest('[data-action]');
+        if (!target) return;
+
+        const action = target.dataset.action;
+        if (action === 'switchTab') {
+            switchTab(target.dataset.status, target);
+        } else if (action === 'runBackfill') {
+            runBackfill();
+        } else if (action === 'confirmBulkApprove') {
+            confirmBulkApprove();
+        } else if (action === 'loadMore') {
+            loadMore();
+        } else if (action === 'approve') {
+            approve(parseInt(target.dataset.id, 10));
+        } else if (action === 'reject') {
+            reject(parseInt(target.dataset.id, 10));
+        }
+    });
+
+    // Event delegation for change events (checkboxes)
+    document.addEventListener('change', (e) => {
+        const target = e.target.closest('[data-action]');
+        if (!target) return;
+
+        const action = target.dataset.action;
+        if (action === 'toggleSelectAll') {
+            toggleSelectAll(target);
+        } else if (action === 'updateBulkButton') {
+            updateBulkButton();
+        }
+    });
+
     loadStats();
     loadSuggestions('pending', 0, false);
 });
@@ -136,12 +170,12 @@ function renderCard(s) {
 
     const isPending = s.status === 'pending';
     const checkboxHtml = isPending
-        ? `<input type="checkbox" class="suggestion-checkbox" data-id="${s.id}" onchange="updateBulkButton()">`
+        ? `<input type="checkbox" class="suggestion-checkbox" data-id="${s.id}" data-action="updateBulkButton">`
         : '';
 
     const actionsHtml = isPending
-        ? `<button class="btn-approve" onclick="approve(${s.id}, this)">Approve</button>
-           <button class="btn-reject" onclick="reject(${s.id}, this)">Reject</button>`
+        ? `<button class="btn-approve" data-action="approve" data-id="${s.id}">Approve</button>
+           <button class="btn-reject" data-action="reject" data-id="${s.id}">Reject</button>`
         : `<span class="badge-${s.status}">${s.status}</span>`;
 
     const reviewedNote = s.reviewed_at
@@ -188,7 +222,7 @@ function renderCard(s) {
 // ACTIONS
 // ============================================================================
 
-async function approve(id, btn) {
+async function approve(id) {
     setCardLoading(id, true);
     try {
         const r = await fetch(`/api/vendor-match-suggestions/${id}/approve`, { method: 'POST' });
@@ -204,7 +238,7 @@ async function approve(id, btn) {
     }
 }
 
-async function reject(id, btn) {
+async function reject(id) {
     setCardLoading(id, true);
     try {
         const r = await fetch(`/api/vendor-match-suggestions/${id}/reject`, { method: 'POST' });
