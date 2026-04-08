@@ -61,7 +61,7 @@ router.get('/', requireAuth, requireMerchant, validators.listSuggestions, asyncH
  */
 router.post('/bulk-approve', requireAuth, requireMerchant, validators.bulkApprove, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const userId = req.user.id;
+    const userId = req.session.user.id;
     const { ids } = req.body;
 
     const result = await bulkApprove(ids, userId, merchantId);
@@ -85,7 +85,7 @@ router.post('/backfill', requireAuth, requireMerchant, asyncHandler(async (req, 
  */
 router.post('/:id/approve', requireAuth, requireMerchant, validators.approveOrReject, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const userId = req.user.id;
+    const userId = req.session.user.id;
     const suggestionId = parseInt(req.params.id, 10);
 
     try {
@@ -103,7 +103,7 @@ router.post('/:id/approve', requireAuth, requireMerchant, validators.approveOrRe
  */
 router.post('/:id/reject', requireAuth, requireMerchant, validators.approveOrReject, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const userId = req.user.id;
+    const userId = req.session.user.id;
     const suggestionId = parseInt(req.params.id, 10);
 
     try {
