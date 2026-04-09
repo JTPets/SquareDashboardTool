@@ -12,7 +12,6 @@
 
 | ID | Description | Source | Effort |
 |----|-------------|--------|--------|
-| BACKLOG-61 | ~~GMC v1beta → v1 migration~~ — **RESOLVED** 2026-04-09. All API paths and schemas migrated to v1. 32 tests passing. Live GMC validation pending (see BACKLOG-105). | Error logs 2026-03-09 | M |
 | BACKLOG-50 | Post-trial conversion — $1 first month. Capture payment method, prove intent. Decide Stripe vs Square for SaaS billing | CLAUDE.md | L |
 | BACKLOG-39 | Vendor bill-back tracking + promo engine — three connected pieces: (1) **Promo engine**: custom coupon/bundle creator outside Square's pricing rules (avoids Square's bug where timed sales show "on sale" on website even when dormant). Group items into named promos, set discount ($ or %), set active date range. (2) **Discount application**: apply discounts at order level, not catalog level, keeping Square catalog clean. (3) **Bill-back reporting**: tie promos to vendor agreements, aggregate sales during promo periods per vendor for claim submission. Two bill-back types: *promo bill-backs* (vendor-funded promos with date range, e.g., "Smack March Promo") and *seniors day bill-backs* (vendors like Smack cover the 10% seniors day discount on their items — recurring, tied to specific items/brands per vendor agreement). | CLAUDE.md | L |
 | BACKLOG-80 | Email alerts not visible — system sends from/to same email. Set up Cloudflare Email Routing + transactional sender | WORK-ITEMS | S |
@@ -49,7 +48,7 @@
 | BACKLOG-107 | Reorder suggestions system audit — 810-line service, silent exclusion bugs found. Map files, trace SQL+JS filters, document all return-null paths, module breakdown map, security check, test gaps. Output `docs/REORDER-AUDIT.md` | Session 2026-03-31 | S |
 | BACKLOG-108 | Stale draft PO warning on reorder page — old DRAFT POs silently suppress items. New `GET /api/purchase-orders/stale-drafts` + red banner + consider "Pending PO" badge | Session 2026-03-31 | M |
 | BACKLOG-109 | Merchant-configurable auto min/max settings — all thresholds hardcoded. New `merchant_min_max_settings` table, `GET/PUT /api/min-max/settings`, `reorder_intelligence` feature gate for auto-apply | Session 2026-03-31 | M |
-| BACKLOG-104 | GMC product schema audit — compare `buildGmcProduct()` against v1 spec. Known gaps: identifierExists, isBundle, shipping weight, imageLink undefined. Output `docs/GMC-SCHEMA-AUDIT.md`. Prerequisite for BACKLOG-61 | Session 2026-03-31 | S |
+| BACKLOG-104 | GMC product schema audit — compare `buildGmcProduct()` against v1 spec. Known gaps: identifierExists, isBundle, shipping weight, imageLink undefined. Output `docs/GMC-SCHEMA-AUDIT.md`. | Session 2026-03-31 | S |
 | CSS-5 | CSS shared components — extract stats-bar, tabs, empty-state, loading/spinner, controls from all inline styles into `shared.css`. ~12–22 pages per component | Session 2026-03-31 | M |
 
 ### Testing

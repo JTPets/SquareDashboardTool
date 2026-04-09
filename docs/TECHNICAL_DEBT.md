@@ -13,13 +13,13 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | Category | Open Items |
 |----------|-----------|
 | Code Quality Observations | 2 |
-| Square Online Store | 4 |
+| Square Online Store | 3 |
 | Logging | 0 |
 | Config | 1 |
 | Architecture | 0 |
 | Multi-Tenant Gaps | 5 |
 | Audit Findings (2026-03-22) | 1 |
-| **Total** | **~13** |
+| **Total** | **~12** |
 
 ---
 
@@ -42,25 +42,6 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | BACKLOG-64 | `sold_out` flag not reconciled with inventory = 0 |
 | BACKLOG-65 | Website catalog categories not synced |
 | BACKLOG-63 | Product image captions not populated (SEO/accessibility) |
-| BACKLOG-61 | ~~GMC v1beta deprecated~~ — **RESOLVED** 2026-04-09. Migration to v1 complete. See notes below |
-
-### BACKLOG-61: GMC v1beta → v1 Migration — RESOLVED
-
-**Status**: Complete as of 2026-04-09. All API paths migrated from v1beta to v1. Schema updated for v1 compliance.
-
-**What was done**:
-- All API paths in `services/gmc/merchant-service.js` updated to v1:
-  - `getDataSourceInfo()`: `/datasources/v1/accounts/...`
-  - `upsertProduct()`: `/products/v1/accounts/.../productInputs:insert`
-  - `testConnection()`: `/accounts/v1/accounts/...`
-  - `verifyDeveloperRegistration()`: `/accounts/v1/accounts/.../developerRegistration`
-  - `registerDeveloper()`: `/accounts/v1/accounts/.../developerRegistration:registerGcp`
-- `buildMerchantApiProduct()` updated for v1 schema: `productAttributes` (not `attributes`), `gtins` array (not `gtin` string), uppercase enums (IN_STOCK, NEW), `amountMicros`/`currencyCode` price format, no `channel` in body
-- `updateLocalInventory()` removed — replaced by TSV feed (`/api/gmc/local-inventory-feed.tsv`)
-- OAuth `content` scope confirmed compatible with v1 (no change needed)
-- 32 unit tests passing, including v1 path and schema compliance tests
-
-**Manual testing still needed**: Live GMC API validation requires a test account. See BACKLOG-105 for the separate 401/PERMISSION_DENIED investigation.
 
 ---
 

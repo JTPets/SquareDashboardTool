@@ -3,7 +3,7 @@
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
 **Last Validated**: 2026-04-05
-**Total Open Items**: ~55
+**Total Open Items**: ~53
 
 ### Purge Log — 2026-04-05 Phase B Route Extraction Complete
 
@@ -239,7 +239,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 46 items confirmed FIXED and purged:
 - **CRIT-1/2/3 (loyalty race conditions)**: ON CONFLICT, pg_advisory_xact_lock, idempotency all implemented
 - **HIGH-1/2/3/5/6**: Row-level locking, error classification, atomic refunds, schema sync, discount cleanup all fixed
-- **BACKLOG-67/68**: Square orphan audit tool built; redemption cleanup implemented
+- **BACKLOG-68**: Redemption cleanup implemented
 - **MED-1 through MED-7**: All loyalty issues fixed (detached .then, expiration loop, N+1 queries, customer summary, state transitions, LIMIT 1, partial commit)
 - **LA-14/16/17/18/21/27**: All loyalty-admin issues resolved
 - **BACKLOG-36/73**: Delta sync variation deletion fixed; vendor receipt bug fixed
@@ -358,10 +358,8 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 | BACKLOG-8 | Vendor API sync gaps — `contact_name`/`contact_phone` synced but not displayed in vendor dashboard (trivial fix). `account_number` and `address` not synced (needed for branded POs, BACKLOG-44). Only first contact synced, additional contacts dropped. Square vendor `note` not synced (local `notes` field exists separately). | S (display fix) / M (full sync) | 2026-02-01 |
 | BACKLOG-43 | Min/Max stock per item per location — investigate Square thresholds first. | S | 2026-02-01 |
 | BACKLOG-66 | Customer email bounce tracking for loyalty notifications. | S | 2026-03-15 |
-| BACKLOG-61 | ~~GMC v1beta → v1 migration~~ — **RESOLVED** 2026-04-09. All API paths and schemas in `merchant-service.js` migrated to v1. `buildMerchantApiProduct()` uses v1 field names (`productAttributes`, `gtins[]`, uppercase enums). 32 tests passing. Live validation pending (BACKLOG-105). | M | 2026-03-09 |
 | BACKLOG-99 | PO inventory push — when receiving a PO, push the received quantities to Square inventory as an adjustment so Square stock levels stay in sync without a manual sync. | M | 2026-03-25 |
-| BACKLOG-102 | Vendor dashboard header order total uses uncapped reorder quantities; reorder page uses capped. Fix: vendor dashboard aggregation must apply max-stock caps when computing the header total. Show capped total as the primary value (actual order cost). Add secondary uncapped total as a visual hint for minimum-order planning. Root cause traced: $626.95 (dashboard) vs $556.60 (reorder page) — $70.35 delta is exactly the wholesale cost of XL Bistro 30lb capped at max stock. Bug is in dashboard aggregation only; reorder page total is correct. | S | 2026-03-25 |
-| BACKLOG-104 | GMC product schema completeness audit — compare `buildMerchantApiProduct()` and `buildGmcProduct()` in `services/gmc/merchant-service.js` against the full Google Merchant API v1 `productInputs` field list. Known gaps from earlier audit: `identifierExists` (boolean), `adult` (boolean), `isBundle` (boolean), shipping weight, tax info, custom labels, sale price, `imageLink` undefined when no image. Output: `docs/GMC-SCHEMA-AUDIT.md`. Prerequisite for BACKLOG-61. | `services/gmc/merchant-service.js` | S | 2026-03-31 |
+| BACKLOG-104 | GMC product schema completeness audit — compare `buildMerchantApiProduct()` and `buildGmcProduct()` in `services/gmc/merchant-service.js` against the full Google Merchant API v1 `productInputs` field list. Known gaps from earlier audit: `identifierExists` (boolean), `adult` (boolean), `isBundle` (boolean), shipping weight, tax info, custom labels, sale price, `imageLink` undefined when no image. Output: `docs/GMC-SCHEMA-AUDIT.md`. | `services/gmc/merchant-service.js` | S | 2026-03-31 |
 | BACKLOG-105 | GMC product sync 401 investigation — `upsertProduct()` returns PERMISSION_DENIED_ACCOUNTS. `testConnection()` succeeds. Token confirmed correct scope and account. Remaining hypothesis: OAuth consent screen in "Testing" mode (never confirmed). Next step: check publishing status at GCP console and re-auth if needed. **Shelved** — TSV feed still works as backup. | `services/gmc/`, `utils/google-auth.js` | S | 2026-03-31 |
 
 ### Code TODOs in Source
@@ -392,8 +390,8 @@ Phase 1 of Feature Module Architecture. Execution plan: define feature registry 
 | Critical | 0 |
 | High | 4 |
 | Medium | ~39 |
-| Low | ~10 |
+| Low | ~8 |
 | Nice to Have | 4 |
-| **Total** | **~55** |
+| **Total** | **~53** |
 
 **Validation delta**: ~95 → ~65 → ~49 → ~44 → ~37 → ~34 → ~31 → ~53 → ~49 → ~50 → ~44 → ~51 → ~55 items. **95+ items purged** across ten validations. 2026-03-25: BACKLOG-12/29/73/97/98/101 fixed, AUDIT-4.5.1/5.2.1/2.3.1/5.8.1 fixed, L-2 fixed, O-4 confirmed. BACKLOG-99 discovered. Net −6. 2026-03-31: BACKLOG-107/108/109/104/105/CSS-5 added (reorder audit, stale PO UX, min/max config, GMC schema audit, GMC 401 shelved, CSS components). Net +7. 2026-04-03: BACKLOG-117/118/119/120 added (testing infrastructure). Net +4.
