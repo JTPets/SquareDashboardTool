@@ -412,6 +412,7 @@ Implemented via Helmet (`middleware/security.js:28-122`):
 | M-3 | Password reset token prefix logged in rate limit handler | `middleware/security.js:325` | Token prefix exposure in logs |
 | M-4 | No explicit CSRF tokens (no csurf middleware) | Application-wide | Mitigated by `sameSite: lax` but lacks defense-in-depth |
 | M-5 | Reset token comparison uses SQL equality, not `crypto.timingSafeEqual()` | `services/auth/password-service.js:136-144` | Theoretical timing attack on hashed token lookup (very low practical risk due to SHA-256) |
+| M-6 | Forgot-password endpoint lacks dedicated rate limiter | `routes/auth/password.js:28` | Relies on global 100/15min limit; reset-password has 5/15min per token but forgot-password does not |
 
 ### Architecture Strengths
 
@@ -448,3 +449,4 @@ Implemented via Helmet (`middleware/security.js:28-122`):
 **P3 (Backlog)**:
 10. **M-4**: Evaluate adding explicit CSRF token middleware for defense-in-depth
 11. **M-5**: Use `crypto.timingSafeEqual()` for token hash comparisons (low practical risk but best practice)
+12. **M-6**: Add dedicated rate limiter to forgot-password endpoint (e.g., 5/hour per IP)
