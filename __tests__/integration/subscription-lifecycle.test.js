@@ -176,12 +176,21 @@ describe('Flow 3: promo expiry', () => {
         expect(Math.abs(expiresAt.getTime() - expected.getTime())).toBeLessThan(10000);
     });
 
-    test('promo-expiry-job flags expired subscriber and returns flagged count', async () => {
+    test('promo-expiry-job flags and reverts expired subscriber', async () => {
         const expired = { id: SUBSCRIBER_ID, email: 'owner@shop.com', business_name: 'Shop',
-            promo_expires_at: new Date('2025-01-01'), subscription_plan: 'monthly', merchant_id: MERCHANT_ID };
-        mockDbSequence([{ rows: [expired] }]);
+            promo_expires_at: new Date('2025-01-01'), subscription_plan: 'monthly', merchant_id: MERCHANT_ID,
+            promo_code_id: 1, discount_applied_cents: 900, price_cents: 99 };
+        mockDbSequence([
+            { rows: [expired] },
+            { rows: [{ price_cents: 2999 }] }  // getBasePlanPrice lookup
+        ]);
+        db.transaction.mockImplementation(async (cb) => {
+            const client = { query: jest.fn().mockResolvedValue({ rows: [] }) };
+            return cb(client);
+        });
         const result = await runPromoExpiryCheck();
         expect(result.flagged).toBe(1);
+        expect(result.reverted).toBe(1);
         const logger = require('../../utils/logger');
         expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('expired'), expect.objectContaining({ subscriberId: SUBSCRIBER_ID }));
     });
