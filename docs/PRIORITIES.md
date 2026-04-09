@@ -12,7 +12,7 @@
 
 | ID | Description | Source | Effort |
 |----|-------------|--------|--------|
-| BACKLOG-61 | GMC v1beta → v1 migration — Google Merchant API v1beta discontinued Feb 28 2026. All product upserts failing with 409. Live store affected — organic Google Shopping visibility broken. **P0.** | Error logs 2026-03-09 | M |
+| BACKLOG-61 | ~~GMC v1beta → v1 migration~~ — **RESOLVED** 2026-04-09. All API paths and schemas migrated to v1. 32 tests passing. Live GMC validation pending (see BACKLOG-105). | Error logs 2026-03-09 | M |
 | BACKLOG-50 | Post-trial conversion — $1 first month. Capture payment method, prove intent. Decide Stripe vs Square for SaaS billing | CLAUDE.md | L |
 | BACKLOG-39 | Vendor bill-back tracking + promo engine — three connected pieces: (1) **Promo engine**: custom coupon/bundle creator outside Square's pricing rules (avoids Square's bug where timed sales show "on sale" on website even when dormant). Group items into named promos, set discount ($ or %), set active date range. (2) **Discount application**: apply discounts at order level, not catalog level, keeping Square catalog clean. (3) **Bill-back reporting**: tie promos to vendor agreements, aggregate sales during promo periods per vendor for claim submission. Two bill-back types: *promo bill-backs* (vendor-funded promos with date range, e.g., "Smack March Promo") and *seniors day bill-backs* (vendors like Smack cover the 10% seniors day discount on their items — recurring, tied to specific items/brands per vendor agreement). | CLAUDE.md | L |
 | BACKLOG-80 | Email alerts not visible — system sends from/to same email. Set up Cloudflare Email Routing + transactional sender | WORK-ITEMS | S |

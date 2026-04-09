@@ -46,7 +46,7 @@ Monthly age-verified discount program (60+) using Square customer groups and pri
 Trial periods, promo codes, Square payment integration, webhook-driven lifecycle management, subscription enforcement middleware gating all authenticated endpoints.
 
 ### Google Merchant Center
-Automated product feed generation (TSV), brand and Google taxonomy mapping, direct publish to Google Sheets on schedule. *(Currently blocked: BACKLOG-61 — v1beta API deprecated)*
+Automated product feed generation (TSV), brand and Google taxonomy mapping, direct publish to Google Sheets on schedule. Uses Google Merchant API v1.
 
 ### AI-Powered SEO
 Claude API integration for generating catalog descriptions and product captions for Square Online Store.
