@@ -524,6 +524,24 @@ tr:hover {
   display: flex;
 }
 
+/* Reset Pattern A overlay styles when .modal is a dialog inside .modal-overlay (Pattern B) */
+.modal-overlay .modal {
+  display: block;
+  position: static;
+  top: auto;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  background: white;
+  z-index: auto;
+  padding: 30px;
+  border-radius: 8px;
+  max-width: 500px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
 .modal-close {
   background: none;
   border: none;

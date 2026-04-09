@@ -132,11 +132,11 @@ function showInviteModal() {
   document.getElementById('invite-url-display').style.display = 'none';
   document.getElementById('invite-url-field').value = '';
   document.getElementById('btn-submit-invite').style.display = '';
-  document.getElementById('invite-modal').classList.add('visible');
+  document.getElementById('invite-modal').classList.add('active');
 }
 
 function hideInviteModal() {
-  document.getElementById('invite-modal').classList.remove('visible');
+  document.getElementById('invite-modal').classList.remove('active');
 }
 
 function submitInvite() {
@@ -178,11 +178,11 @@ function removeStaff(element) {
   pendingRemoveUserId = element.dataset.actionParam;
   document.getElementById('confirm-remove-text').textContent =
     'Are you sure you want to remove this staff member? They will lose access immediately.';
-  document.getElementById('confirm-remove-modal').classList.add('visible');
+  document.getElementById('confirm-remove-modal').classList.add('active');
 }
 
 function hideRemoveModal() {
-  document.getElementById('confirm-remove-modal').classList.remove('visible');
+  document.getElementById('confirm-remove-modal').classList.remove('active');
   pendingRemoveUserId = null;
 }
 
