@@ -231,7 +231,10 @@ async function approve(id) {
 
         removeCard(id);
         loadStats();
-        notify('Approved — vendor link created' + (d.squarePushError ? ' (Square sync pending)' : ''), 'success');
+        notify('Approved — vendor link created', 'success');
+        if (d.squarePushError) {
+            showToast('Square sync failed — vendor link saved locally. It will sync on next catalog update.', 'warning');
+        }
     } catch (e) {
         setCardLoading(id, false);
         notify('Error: ' + e.message, 'error');
@@ -273,10 +276,13 @@ async function confirmBulkApprove() {
         const d = await r.json();
         if (!d.success) throw new Error(d.error || 'Bulk approve failed');
 
-        const { approved, failed } = d;
+        const { approved, failed, squareSyncFailed } = d;
         loadSuggestions('pending', 0, false);
         loadStats();
         notify(`Approved ${approved}${failed > 0 ? `, ${failed} failed` : ''}`, approved > 0 ? 'success' : 'error');
+        if (squareSyncFailed > 0) {
+            showToast(`Square sync failed for ${squareSyncFailed} item${squareSyncFailed > 1 ? 's' : ''} — vendor links saved locally.`, 'warning');
+        }
     } catch (e) {
         notify('Error: ' + e.message, 'error');
         document.getElementById('btnBulkApprove').disabled = false;
