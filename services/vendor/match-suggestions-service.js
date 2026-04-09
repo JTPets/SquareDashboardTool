@@ -461,18 +461,16 @@ async function pushVendorToSquare(variationId, vendorId, vendorCode, costCents, 
 async function runBackfillScan(merchantId) {
     logger.info('Starting vendor match backfill scan', { merchantId });
 
-    // Find UPCs present in 2+ vendor catalogs AND matched to a variation
+    // Find all matched UPCs — generateMatchSuggestions handles filtering
     const upcs = await db.query(`
-        SELECT
+        SELECT DISTINCT
             vci.upc,
             vci.matched_variation_id AS variation_id,
-            array_agg(DISTINCT vci.vendor_id) AS vendor_ids
+            vci.vendor_id AS source_vendor_id
         FROM vendor_catalog_items vci
         WHERE vci.merchant_id = $1
-          AND vci.upc IS NOT NULL
+          AND vci.upc IS NOT NULL AND vci.upc != ''
           AND vci.matched_variation_id IS NOT NULL
-        GROUP BY vci.upc, vci.matched_variation_id
-        HAVING COUNT(DISTINCT vci.vendor_id) > 1
     `, [merchantId]);
 
     let scanned = 0;
@@ -480,18 +478,15 @@ async function runBackfillScan(merchantId) {
 
     for (const row of upcs.rows) {
         scanned++;
-        const { upc, variation_id, vendor_ids } = row;
+        const { upc, variation_id, source_vendor_id } = row;
 
-        // For each vendor carrying this UPC, try to generate suggestions
-        for (const sourceVendorId of vendor_ids) {
-            const created = await generateMatchSuggestions(
-                variation_id,
-                upc,
-                sourceVendorId,
-                merchantId
-            );
-            suggestionsCreated += created;
-        }
+        const created = await generateMatchSuggestions(
+            variation_id,
+            upc,
+            source_vendor_id,
+            merchantId
+        );
+        suggestionsCreated += created;
     }
 
     logger.info('Vendor match backfill scan complete', {

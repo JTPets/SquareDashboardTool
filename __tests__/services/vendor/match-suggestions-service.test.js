@@ -394,7 +394,7 @@ describe('bulkApprove', () => {
 // ============================================================================
 
 describe('runBackfillScan', () => {
-    it('returns zero scanned and created when no multi-vendor UPCs exist', async () => {
+    it('returns zero scanned and created when no matched UPCs exist', async () => {
         db.query.mockResolvedValueOnce({ rows: [] });
 
         const result = await runBackfillScan(MERCHANT_ID);
@@ -402,11 +402,12 @@ describe('runBackfillScan', () => {
         expect(result.suggestionsCreated).toBe(0);
     });
 
-    it('generates suggestions for each vendor of each multi-vendor UPC', async () => {
-        // Query 1: UPCs present in 2+ vendor catalogs
+    it('scans every matched UPC row and generates suggestions via generateMatchSuggestions', async () => {
+        // Query: all matched UPCs — one row per (upc, variation, vendor)
         db.query.mockResolvedValueOnce({
             rows: [
-                { upc: '012345678901', variation_id: 'VAR1', vendor_ids: ['VENDOR1', 'VENDOR2'] },
+                { upc: '012345678901', variation_id: 'VAR1', source_vendor_id: 'VENDOR1' },
+                { upc: '012345678901', variation_id: 'VAR1', source_vendor_id: 'VENDOR2' },
             ],
         });
 
@@ -427,8 +428,42 @@ describe('runBackfillScan', () => {
         db.query.mockResolvedValueOnce({ rows: [] });
 
         const result = await runBackfillScan(MERCHANT_ID);
+        expect(result.scanned).toBe(2);
+        expect(result.suggestionsCreated).toBe(1);
+    });
+
+    it('creates suggestion for UPC matched at vendor A that exists unmatched at vendor B', async () => {
+        // Query: single matched row — vendor A only
+        db.query.mockResolvedValueOnce({
+            rows: [
+                { upc: '111122223333', variation_id: 'VAR2', source_vendor_id: 'VENDOR_A' },
+            ],
+        });
+
+        // generateMatchSuggestions finds vendor B carries same UPC
+        db.query.mockResolvedValueOnce({ rows: [{ vendor_id: 'VENDOR_B', vendor_name: 'B', vendor_code: 'B2', cost_cents: 500 }] });
+        db.query.mockResolvedValueOnce({ rows: [] }); // no existing links
+        db.query.mockResolvedValueOnce({ rows: [{ id: 20 }] }); // INSERT
+
+        const result = await runBackfillScan(MERCHANT_ID);
         expect(result.scanned).toBe(1);
         expect(result.suggestionsCreated).toBe(1);
+    });
+
+    it('creates no suggestion when matched UPC has no other vendors', async () => {
+        // Query: single matched row — only one vendor carries this UPC
+        db.query.mockResolvedValueOnce({
+            rows: [
+                { upc: '999988887777', variation_id: 'VAR3', source_vendor_id: 'VENDOR_SOLO' },
+            ],
+        });
+
+        // generateMatchSuggestions finds no other vendors
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        const result = await runBackfillScan(MERCHANT_ID);
+        expect(result.scanned).toBe(1);
+        expect(result.suggestionsCreated).toBe(0);
     });
 });
 
