@@ -95,6 +95,27 @@ async function acceptInvitation({ token, password }) {
         );
 
         if (inviteResult.rows.length === 0) {
+            // Diagnostic: determine why lookup failed
+            const diagResult = await client.query(
+                `SELECT id, expires_at, accepted_at,
+                        expires_at <= NOW() AS is_expired,
+                        accepted_at IS NOT NULL AS is_accepted
+                 FROM staff_invitations WHERE token_hash = $1`,
+                [tokenHash]
+            );
+            if (diagResult.rows.length === 0) {
+                logger.warn('Staff invite accept failed: no row matches token hash', {
+                    tokenPrefix: token.substring(0, 8)
+                });
+            } else {
+                const diag = diagResult.rows[0];
+                logger.warn('Staff invite accept failed: row found but conditions not met', {
+                    inviteId: diag.id,
+                    isExpired: diag.is_expired,
+                    isAccepted: diag.is_accepted,
+                    expiresAt: diag.expires_at
+                });
+            }
             throw staffError('Invalid or expired invitation token', 'INVALID_TOKEN');
         }
 
@@ -282,6 +303,27 @@ async function validateToken(token) {
     );
 
     if (inviteResult.rows.length === 0) {
+        // Diagnostic: determine why token validation failed
+        const diagResult = await db.query(
+            `SELECT id, expires_at, accepted_at,
+                    expires_at <= NOW() AS is_expired,
+                    accepted_at IS NOT NULL AS is_accepted
+             FROM staff_invitations WHERE token_hash = $1`,
+            [tokenHash]
+        );
+        if (diagResult.rows.length === 0) {
+            logger.warn('Staff invite validate failed: no row matches token hash', {
+                tokenPrefix: token.substring(0, 8)
+            });
+        } else {
+            const diag = diagResult.rows[0];
+            logger.warn('Staff invite validate failed: row found but conditions not met', {
+                inviteId: diag.id,
+                isExpired: diag.is_expired,
+                isAccepted: diag.is_accepted,
+                expiresAt: diag.expires_at
+            });
+        }
         return { valid: false };
     }
 

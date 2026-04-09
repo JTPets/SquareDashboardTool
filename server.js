@@ -308,8 +308,8 @@ const apiAuthMiddleware = (req, res, next) => {
 
     // Allow public routes without auth
     // Also allow driver API routes (token-based auth handled in route)
-    // Also allow staff invitation acceptance (token-based, no login required)
-    if (publicPaths.includes(req.path) || req.path.startsWith('/driver/') || req.path === '/staff/accept') {
+    // Also allow staff invitation routes (token-based, no login required)
+    if (publicPaths.includes(req.path) || req.path.startsWith('/driver/') || req.path === '/staff/accept' || req.path === '/staff/validate-token') {
         return next();
     }
 

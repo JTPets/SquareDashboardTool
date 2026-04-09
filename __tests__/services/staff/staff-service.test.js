@@ -180,7 +180,9 @@ describe('acceptInvitation', () => {
 
     test('rejects invalid or expired token', async () => {
         const mockClient = {
-            query: jest.fn().mockResolvedValueOnce({ rows: [] }) // no invite found
+            query: jest.fn()
+                .mockResolvedValueOnce({ rows: [] }) // no invite found
+                .mockResolvedValueOnce({ rows: [] }) // diagnostic query — no row with matching hash
         };
         mockTransaction(mockClient);
 
