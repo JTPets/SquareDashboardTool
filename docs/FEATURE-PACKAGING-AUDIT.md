@@ -80,9 +80,8 @@ valid plan keys"* — confirming the disconnect is known at the JS layer.
 3. **No plan_features mapping**: `subscription_plans` has no `features` column. No  
    `plan_module_map` or join table exists. Plan granularity is structurally impossible today.
 
-4. **Suspension gap**: `suspendMerchantSubscription()` does not disable `merchant_features`  
-   rows. A suspended merchant with existing feature rows retains access until features are  
-   separately cleared.
+4. ~~**Suspension gap**~~: **FIXED** (2026-04-09 verified). `subscription-bridge.js:100-105` now  
+   disables `merchant_features` rows on suspension (mirrors cancel behaviour).
 
 5. **Upgrade/downgrade is undefined**: no code path changes which features are enabled  
    when a merchant switches monthly → annual or vice versa (not a current issue since both  
@@ -96,7 +95,7 @@ valid plan keys"* — confirming the disconnect is known at the JS layer.
 
 | Fix | Effort |
 |-----|--------|
-| Fix suspension gap: add feature disable to `suspendMerchantSubscription()` | 1h |
+| ~~Fix suspension gap~~ | **FIXED** (`subscription-bridge.js:100-105`) |
 | Reword pricing.html CTAs: "Subscribe for full access" instead of per-module "Get Started" | 1h |
 | Add note to pricing.html: "Per-module billing coming soon" | 30m |
 

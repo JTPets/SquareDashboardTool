@@ -142,10 +142,8 @@ GET /api/cycle-counts → requireFeature → features=[] → 403 FEATURE_REQUIRE
 
 ## 6. Security Holes Found
 
-### HIGH — GMC Feed Endpoints Bypass Auth
-**Location:** server.js:527-533
-`/api/gmc/feed.tsv` and `/api/gmc/local-inventory-feed.tsv` explicitly skip `requireFeature('gmc')` AND `requirePermission('gmc','read')`. These endpoints return full product catalogs unauthenticated. Intended for Google's crawler but no token/secret protects them.
-**Risk:** Any external party can enumerate product catalog + pricing by requesting the feed URLs.
+### ~~HIGH — GMC Feed Endpoints Bypass Auth~~
+**FIXED** (2026-04-09 verified). `routes/gmc/feed.js:37-52` now implements token-based authentication via `gmc_feed_token`. The `resolveFeedMerchant()` function validates a `?token=` query param or HTTP Basic Auth password against `merchants.gmc_feed_token`. Returns 401 with `WWW-Authenticate: Basic` header if no valid token. Token regeneration available via `POST /api/gmc/regenerate-token`.
 
 ### MEDIUM — subscriptions/admin.js Missing Explicit requireAuth
 **Location:** routes/subscriptions/admin.js:61, 72, 102, 114, 137
@@ -166,7 +164,7 @@ Trial-expired merchants (status='trial', trial_ends_at in past) have `isSubscrip
 
 | Priority | Issue | Fix |
 |----------|-------|-----|
-| HIGH | GMC feed bypasses auth | Add shared secret param (`?token=`) or IP allowlist for Google crawler; or accept as intentional and document |
+| ~~HIGH~~ | ~~GMC feed bypasses auth~~ | **FIXED** — token-based auth via `gmc_feed_token` (`routes/gmc/feed.js:37-52`) |
 | MEDIUM | subscriptions/admin.js implicit auth | Add explicit `requireAuth` to each route for defense-in-depth and correct HTTP 401 responses |
 | MEDIUM | Trial base access post-expiry | Apply `requireValidSubscription` globally to all non-public routes in server.js middleware stack |
 | LOW | Staff re-invite blocked | Add cron/cleanup job to expire old staff_invitations or handle UNIQUE conflict with upsert |
