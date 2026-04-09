@@ -24,27 +24,13 @@
 
 ---
 
-## 2. Broken Paths
+## 2. Broken Paths — ALL FIXED
 
-### BUG-1 (CRITICAL): `POST /api/subscriptions/promo/validate` — 400 for unauthenticated users
-**File**: `routes/subscriptions/merchant.js:18-19`
-```javascript
-const merchantId = req.merchantContext?.id || req.session?.activeMerchantId;
-if (!merchantId) return sendError(res, 'Merchant context required', 400);
-```
-On the subscribe.html page, the user has **no session and no merchant context** — they are signing up for the first time. The route is in `publicPaths` (auth skip) but still requires a `merchantId` to validate against. Result: every promo code attempt on the checkout page returns `400 "Merchant context required"`.
+### ~~BUG-1 (CRITICAL): `POST /api/subscriptions/promo/validate` — 400 for unauthenticated users~~
+**FIXED** (2026-04-09 verified). `merchant.js:19-27` now falls back to platform owner's merchant ID when `merchantId` is null (unauthenticated callers).
 
-**Fix**: Fall back to platform owner's merchant ID (same pattern as `plans.js:18-26`).
-
-### BUG-2 (CRITICAL): `POST /api/subscriptions/create` — 400 for unauthenticated users
-**File**: `routes/subscriptions/merchant.js:34-35`
-```javascript
-const merchantId = req.session?.activeMerchantId || req.merchantContext?.id;
-if (!merchantId) return sendError(res, 'Merchant context required', 400, 'NO_MERCHANT');
-```
-Same problem — new subscribers have no session. The entire subscription creation flow fails. This means **no new user can complete checkout from subscribe.html**.
-
-**Fix**: A new subscriber does not need an existing `merchantId` — the `createSubscription` service creates the merchant record. Remove the `merchantId` guard from the `create` handler (or derive from platform owner). The `promo/validate` route needs platform owner fallback for unauthenticated callers.
+### ~~BUG-2 (CRITICAL): `POST /api/subscriptions/create` — 400 for unauthenticated users~~
+**FIXED** (2026-04-09 verified). `merchant.js:43` now allows `merchantId = null` for public signups. The `createSubscription` service handles merchant creation without requiring a pre-existing merchant.
 
 ---
 
@@ -72,11 +58,11 @@ No other auth path issues found. All public HTML pages are correctly listed in `
 | `connect-src` | `'self'`, `connect.squareup.com`, `connect.squareupsandbox.com`, `pci-connect.squareup.com`, `*.ingest.sentry.io`, `*.cloudflareinsights.com`, `127.0.0.1:9100/9101` | **MISSING `*.squarecdn.com`** — Square SDK makes XHR to its own CDN for telemetry/frame init |
 | `frame-src` | `'self'`, `challenges.cloudflare.com`, `pci-connect.squareup.com`, `*.squarecdn.com` | ✓ Card iframe allowed |
 
-### CSP-1: `font-src` missing Square CDN
-Square Web Payments SDK loads fonts (Inter, etc.) from `https://web.squarecdn.com`. Without `*.squarecdn.com` in `font-src`, fonts are blocked — card form renders with fallback fonts or shows broken layout.
+### ~~CSP-1: `font-src` missing Square CDN~~
+**FIXED** (2026-04-09 verified). `security.js:70` now includes `https://*.squarecdn.com` in `fontSrc`.
 
-### CSP-2: `connect-src` missing Square CDN wildcard  
-Square SDK makes XHR calls back to `*.squarecdn.com` for initialization and telemetry. These are blocked by current CSP. May manifest as card widget silently failing in some browsers.
+### ~~CSP-2: `connect-src` missing Square CDN wildcard~~
+**FIXED** (2026-04-09 verified). `security.js:83` now includes `https://*.squarecdn.com` in `connectSrc`.
 
 ---
 
@@ -92,23 +78,13 @@ Static JS assets (`/js/pricing.js`, `/js/subscribe.js`, `/js/login.js`) served f
 
 ---
 
-## 6. Fix Plan
+## 6. Fix Plan — ALL COMPLETE
 
-**Priority order — fix BUG-1/2 first (checkout is completely broken):**
+All 4 issues identified in this audit have been fixed:
 
-1. **`routes/subscriptions/merchant.js` — `promo/validate` handler (line 16-29)**
-   - Remove `merchantId` requirement for unauthenticated callers
-   - The `validatePromoCode` service should accept no `merchantId` (or use platform owner ID) for public validation
-   - Or: move promo check logic to use `checkPublicPromo` (already exists in `public.js`) — subscribe.js should call `/api/public/promo/check` instead of `/api/subscriptions/promo/validate`
+1. ~~**BUG-1** — promo/validate merchantId guard~~ — **FIXED** (platform-owner fallback)
+2. ~~**BUG-2** — create merchantId guard~~ — **FIXED** (null merchantId allowed)
+3. ~~**CSP-1** — font-src missing Square CDN~~ — **FIXED** (`security.js:70`)
+4. ~~**CSP-2** — connect-src missing Square CDN~~ — **FIXED** (`security.js:83`)
 
-2. **`routes/subscriptions/merchant.js` — `create` handler (line 32-56)**
-   - Remove the `merchantId` guard entirely — new signups have no merchant yet
-   - The `createSubscription` service handles merchant creation; it should not require pre-existing `merchantId`
-
-3. **`middleware/security.js` — CSP `font-src` (line 67)**
-   - Add `"https://*.squarecdn.com"` to `fontSrc` array
-
-4. **`middleware/security.js` — CSP `connect-src` (line 69-82)**
-   - Add `"https://*.squarecdn.com"` to `connectSrc` array
-
-5. **After fix**: test full flow manually — pricing → promo → subscribe → checkout → password setup → login
+Full signup flow (pricing → promo → subscribe → checkout → password setup → login) is now functional.

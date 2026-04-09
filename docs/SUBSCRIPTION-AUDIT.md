@@ -62,15 +62,15 @@ All `process.env` references (`SQUARE_ACCESS_TOKEN`, `SQUARE_LOCATION_ID`, `SQUA
 
 ## 4. Broken/Incomplete Paths
 
-1. **`merchant_features` never populated on subscription activation** — `activateMerchantSubscription()` only sets `subscription_status = 'active'`. All `requireFeature()` checks return 403 for new paid subscribers. **Feature gating is completely disconnected from billing.**
+1. ~~**`merchant_features` never populated on subscription activation**~~ — **FIXED.** `subscription-bridge.js:46-52` now INSERTs all paid modules.
 
-2. **`'cancelled'` status does not lock access** — `middleware/merchant.js:127` checks only `'expired'` and `'suspended'`. Cancelled merchants retain full platform access.
+2. ~~**`'cancelled'` status does not lock access**~~ — **FIXED.** `middleware/merchant.js:145` checks `['expired','suspended','cancelled']`.
 
-3. **`duration_months` not enforced** — `promo_codes.duration_months` is stored and returned to the UI but never applied to subscription expiry or billing reversion. A $0.99/month beta code lasts forever.
+3. **`duration_months` not enforced** — `promo_expires_at` is now stored on creation (`subscription-create-service.js:292-296`) and `promo-expiry-job.js` detects expired promos weekly. **But the job only logs warnings — no auto-revert of billing.** A $0.99/month beta code still lasts forever.
 
-4. **No promo race condition protection** — `max_uses` is checked and incremented in two separate queries with no transaction or `SELECT FOR UPDATE`. Under concurrent load, uses can exceed the limit.
+4. ~~**No promo race condition protection**~~ — **FIXED.** Atomic `UPDATE...WHERE times_used < max_uses RETURNING id` in `subscription-create-service.js:186-197`.
 
-5. **Subscriber starts as `'trial'` then immediately overwritten** — `createSubscriber()` always inserts with `STATUS.TRIAL`, then `activateMerchantFeatures()` immediately updates to `'active'`. Cosmetically harmless but semantically confusing and creates a brief inconsistent state.
+5. **Subscriber starts as `'trial'` then immediately overwritten** — Cosmetically harmless but semantically confusing. Low priority.
 
 6. **Upgrade/downgrade**: Not implemented. No path to change plans without full cancel + re-subscribe.
 
@@ -90,35 +90,23 @@ All `process.env` references (`SQUARE_ACCESS_TOKEN`, `SQUARE_LOCATION_ID`, `SQUA
 - `feature-gate.test.js` — requireFeature logic
 
 **Not covered / gaps:**
-- `duration_months` enforcement (logic doesn't exist yet)
-- `'cancelled'` status allowing access (the bug)
-- `merchant_features` population on subscription activation (flow doesn't exist)
-- Promo `max_uses` race condition under concurrent requests
+- `duration_months` auto-revert (detection exists, billing revert does not)
 - Upgrade/downgrade (not implemented)
-- Fallback price mismatch ($9.99 vs $29.99 from DB)
 
 ---
 
 ## 6. Blocking Issues Before Beta
 
-| # | Issue | Risk |
-|---|-------|------|
-| **B1** | `merchant_features` not populated on activation | CRITICAL — paid subscribers can't use paid features |
-| **B2** | `'cancelled'` status → `isSubscriptionValid = true` | HIGH — cancelled merchants retain access indefinitely |
-| **B3** | `duration_months` not enforced on `fixed_price` promos | HIGH — $0.99 beta price never reverts to full price |
-| **B4** | Promo `max_uses` race condition (no FOR UPDATE) | MEDIUM — beta promos can be used more times than allowed |
-| **B5** | Hardcoded fallback prices (`9999`/`999`) differ from DB values | MEDIUM — billing wrong amount if plan lookup fails |
+| # | Issue | Risk | Status |
+|---|-------|------|--------|
+| ~~**B1**~~ | ~~`merchant_features` not populated on activation~~ | ~~CRITICAL~~ | **FIXED** — `subscription-bridge.js:46-52` INSERTs all `getPaidModules()` on activation |
+| ~~**B2**~~ | ~~`'cancelled'` status → `isSubscriptionValid = true`~~ | ~~HIGH~~ | **FIXED** — `middleware/merchant.js:145` checks `['expired','suspended','cancelled']` |
+| **B3** | `duration_months` not enforced on `fixed_price` promos | HIGH | **PARTIALLY FIXED** — `promo_expires_at` stored, `promo-expiry-job.js` detects, but only logs warnings. No auto-revert of billing. |
+| ~~**B4**~~ | ~~Promo `max_uses` race condition~~ | ~~MEDIUM~~ | **FIXED** — `subscription-create-service.js:186-197` atomic `UPDATE...WHERE times_used < max_uses RETURNING id` |
+| ~~**B5**~~ | ~~Hardcoded fallback prices differ from DB~~ | ~~MEDIUM~~ | **FIXED** — `subscription-handler.js:33-46` DB lookup only, throws on missing plan |
 
 ---
 
-## 7. Recommended Fix Order
+## 7. Remaining Fix
 
-1. **B1** — Add `merchant_features` population inside `activateMerchantSubscription()`. Grant all features for full-suite plan, or look up `subscription_plan` to determine which features to enable. Also wire into `handleInvoicePaymentMade` webhook path.
-
-2. **B2** — Add `'cancelled'` to the `isSubscriptionValid = false` check in `middleware/merchant.js:127`.
-
-3. **B3** — On subscription creation, store promo `duration_months` (if set) as `promo_expires_at = NOW() + duration_months`. Add a cron job (or hook into renewal webhook) to revert billing when `promo_expires_at` is passed.
-
-4. **B4** — Wrap promo validation + increment in a single `UPDATE ... WHERE times_used < max_uses RETURNING id` query; return failure if no row updated.
-
-5. **B5** — Remove hardcoded fallback prices in `subscription-handler.js:44-46`; throw a clear error if plan not found in DB rather than silently charging wrong amount.
+**B3** — The `promo-expiry-job.js` detects expired promos weekly but only logs warnings. Needs: (1) auto-update `discount_applied_cents = 0`, (2) Square API call to update subscription to full price, (3) merchant notification.
