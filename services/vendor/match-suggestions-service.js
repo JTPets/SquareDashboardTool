@@ -339,8 +339,9 @@ async function bulkApprove(suggestionIds, userId, merchantId) {
 
     for (const id of suggestionIds) {
         try {
-            await approveSuggestion(id, userId, merchantId);
+            const result = await approveSuggestion(id, userId, merchantId);
             results.approved++;
+            if (result.squarePushError) results.squareSyncFailed = (results.squareSyncFailed || 0) + 1;
         } catch (err) {
             results.failed++;
             results.errors.push({ suggestionId: id, error: err.message });
