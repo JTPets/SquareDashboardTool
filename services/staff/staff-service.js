@@ -145,8 +145,9 @@ async function acceptInvitation({ token, password }) {
         }
 
         await client.query(
-            `INSERT INTO user_merchants (user_id, merchant_id, role, invited_by, invited_at, accepted_at)
-             VALUES ($1, $2, $3, $4, NOW(), NOW())
+            `INSERT INTO user_merchants (user_id, merchant_id, role, invited_by, invited_at, accepted_at, is_primary)
+             VALUES ($1, $2, $3, $4, NOW(), NOW(),
+                 NOT EXISTS (SELECT 1 FROM user_merchants WHERE user_id = $1 AND is_primary = TRUE))
              ON CONFLICT (user_id, merchant_id) DO NOTHING`,
             [userId, invite.merchant_id, invite.role, invite.invited_by]
         );

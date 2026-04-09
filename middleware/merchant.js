@@ -49,13 +49,31 @@ async function loadMerchantContext(req, res, next) {
                 LIMIT 1
             `, [req.session.user.id]);
 
-            if (result.rows.length === 0) {
-                // User has no merchants - they need to connect one
-                req.merchantContext = null;
-                return next();
+            if (result.rows.length > 0) {
+                merchantId = result.rows[0].merchant_id;
+            } else {
+                // Fallback: no primary set — pick any active merchant the user belongs to
+                const fallback = await db.query(`
+                    SELECT um.merchant_id
+                    FROM user_merchants um
+                    JOIN merchants m ON m.id = um.merchant_id
+                    WHERE um.user_id = $1 AND m.is_active = TRUE
+                    ORDER BY um.accepted_at DESC
+                    LIMIT 1
+                `, [req.session.user.id]);
+
+                if (fallback.rows.length === 0) {
+                    req.merchantContext = null;
+                    return next();
+                }
+
+                merchantId = fallback.rows[0].merchant_id;
+                logger.warn('No primary merchant set, using fallback', {
+                    userId: req.session.user.id,
+                    merchantId
+                });
             }
 
-            merchantId = result.rows[0].merchant_id;
             req.session.activeMerchantId = merchantId;
         }
 

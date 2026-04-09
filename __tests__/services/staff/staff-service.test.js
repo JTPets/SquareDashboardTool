@@ -178,6 +178,27 @@ describe('acceptInvitation', () => {
         expect(hashPassword).not.toHaveBeenCalled();
     });
 
+    test('sets is_primary = TRUE when user has no existing primary merchant', async () => {
+        const mockClient = {
+            query: jest.fn()
+                .mockResolvedValueOnce({ rows: [{ id: 5, merchant_id: MERCHANT_ID, email: 'new@example.com', role: 'clerk', invited_by: USER_ID_OWNER }] })
+                .mockResolvedValueOnce({ rows: [] }) // user does not exist
+                .mockResolvedValueOnce({ rows: [{ id: 99 }] }) // INSERT user RETURNING id
+                .mockResolvedValueOnce({ rows: [] }) // INSERT user_merchants
+                .mockResolvedValueOnce({ rows: [] }) // UPDATE invitation accepted_at
+        };
+        mockTransaction(mockClient);
+
+        await staffService.acceptInvitation({ token: 'tok', password: 'Password1!' });
+
+        const insertMemberCall = mockClient.query.mock.calls.find(c =>
+            typeof c[0] === 'string' && c[0].includes('INSERT INTO user_merchants')
+        );
+        expect(insertMemberCall).toBeDefined();
+        expect(insertMemberCall[0]).toContain('is_primary');
+        expect(insertMemberCall[0]).toContain('NOT EXISTS');
+    });
+
     test('rejects invalid or expired token', async () => {
         const mockClient = {
             query: jest.fn()
