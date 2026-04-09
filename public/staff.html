@@ -68,18 +68,9 @@
 
     /* .alert, .alert.info, .alert.error from shared.css */
 
-    /* Page-specific: staff uses .modal-overlay.visible (shared uses .modal-overlay.active) */
-    .modal-overlay.visible { display: flex; }
-
-    /* Page-specific: staff modal is dialog content inside overlay (Pattern B) */
-    .modal {
-      background: white;
-      padding: 30px;
-      border-radius: 8px;
-      max-width: 420px;
-      width: 90%;
-    }
-    .modal h3 { margin-bottom: 20px; font-size: 18px; }
+    /* Page-specific: narrower dialog (shared Pattern B default is 500px) */
+    .modal-overlay .modal { max-width: 420px; }
+    .modal-overlay .modal h3 { margin-bottom: 20px; font-size: 18px; }
 
     /* Page-specific: staff form uses 15px spacing (shared has 16px) */
     .form-group { margin-bottom: 15px; }
