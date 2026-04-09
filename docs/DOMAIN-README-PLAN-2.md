@@ -80,12 +80,11 @@
 **Top 3 business rules:**
 1. GMC OAuth tokens are stored AES-256-GCM encrypted (SEC-6); all token reads go through `google-auth.js:getAuthenticatedClient` which decrypts before use and re-encrypts on refresh — bypassing this (reading raw from DB) caused 401 errors (GMC-BUG-001)
 2. Product feeds are generated as TSV files; `feed-service.js` produces both a primary product feed and a local inventory feed; slugs are normalised and TSV special characters escaped before write
-3. All API calls use Google Merchant API v1 (not Content API); schema migrated from v1beta → v1 (BACKLOG-61) after Google deprecated v1beta on 2026-02-28
+3. All API calls use Google Merchant API v1 (not Content API); schema migrated from v1beta → v1 after Google deprecated v1beta on 2026-02-28
 
 **Dependencies on other domains:** Square (`square-locations` for store codes), Catalog (`location-service` for feed population)
 
-**Known issues (BACKLOG):**
-- BACKLOG-61: v1beta → v1 API migration complete; both `merchant-service.js` and feed paths updated; no v1beta calls remain
+**Known issues (BACKLOG):** None
 
 ---
 
