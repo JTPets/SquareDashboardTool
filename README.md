@@ -16,7 +16,7 @@ Custom multi-tenant SaaS platform extending Square POS with loyalty, delivery, v
 | **Auth** | Session-based, bcrypt (12 rounds), AES-256-GCM token encryption |
 | **Process Mgmt** | PM2 with clustering support |
 | **Infrastructure** | Raspberry Pi 5, Cloudflare Tunnel |
-| **Tests** | 4,500+ across 219 suites, 0 failures (Jest) |
+| **Tests** | 5,464 across 268 suites, 0 failures (Jest) |
 | **Endpoints** | ~283 across 28 route modules |
 | **Frontend** | 35 HTML pages, CSP-compliant (no inline scripts) |
 
@@ -102,15 +102,14 @@ __tests__/           4,500+ tests (Jest)
 
 ## Test Coverage
 
-| Component | Tests | Suites |
-|-----------|-------|--------|
-| Loyalty-admin | 857+ | — |
-| Security (auth, encryption, validation) | 194 | — |
-| Routes, services, webhooks | ~2,900+ | — |
-| **Total** | **4,500+** | **219** |
-| **Security Audit** | B+ overall, A+ core security (2026-03-22) |
+| Component | Tests |
+|-----------|-------|
+| Loyalty-admin | 857+ |
+| Security (auth, encryption, validation) | 194 |
+| Routes, services, webhooks | ~4,400+ |
+| **Total** | **5,464 / 268 suites / 0 failures** |
 
-*As of 2026-03-22. 0 failures. ~9% of source files without dedicated test files (validators tested through routes, scripts with dry-run, barrel files).*
+Core security rated A+ (multi-tenant isolation, auth, injection prevention, data integrity).
 
 ---
 
@@ -126,29 +125,14 @@ __tests__/           4,500+ tests (Jest)
 ## Getting Started
 
 ```bash
-# Install dependencies
 npm install
-
-# Set up environment
-cp .env.example .env
-# Edit .env with PostgreSQL credentials, Square OAuth secrets, encryption keys
-
-# Initialize database
-set -a && source .env && set +a && \
-  PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f database/schema.sql
-
-# Run migrations
-npm run migrate
-
-# Optional: verify schema matches expected definitions
-node scripts/validate-schema.js
-
-# Start development server
-npm run dev
-
-# Run tests
-npm test
+cp .env.example .env       # Edit with your credentials
+npm run migrate             # Initialize database
+npm run dev                 # Start development server
+npm test                    # Run tests
 ```
+
+See [docs/SETUP.md](docs/SETUP.md) for full setup, database initialization, deployment, and Cloudflare Tunnel configuration.
 
 Connect your Square account via OAuth at `/login`, and SqTools handles the rest.
 
@@ -164,15 +148,15 @@ SqTools meets all Square App Marketplace requirements: OAuth 2.0 with CSRF prote
 
 | Document | Contents |
 |----------|----------|
-| [CLAUDE.md](CLAUDE.md) | Development rules, patterns, backlog, code standards |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Service layer structure, webhook flow, database patterns |
-| [docs/TECHNICAL_DEBT.md](docs/TECHNICAL_DEBT.md) | Known issues and code observations |
-| [docs/WORK-ITEMS.md](docs/WORK-ITEMS.md) | Consolidated master work list (all open items) |
-| [docs/PRIORITIES.md](docs/PRIORITIES.md) | Active priority items by severity |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Future initiatives and planned features |
-| [docs/SENIORS_DAY.md](docs/SENIORS_DAY.md) | Seniors discount feature spec |
+| [CLAUDE.md](CLAUDE.md) | Development rules, patterns, code standards |
+| [docs/SETUP.md](docs/SETUP.md) | Local dev setup, deployment, infrastructure |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, webhook flow, services structure |
+| [docs/BACKLOG.md](docs/BACKLOG.md) | All open work items by priority |
+| [docs/DOMAIN-MAP.md](docs/DOMAIN-MAP.md) | Codebase organization and dependencies |
+| [docs/CODE-RULES.md](docs/CODE-RULES.md) | Code limits, checklists, PR process |
 | [SECURITY.md](SECURITY.md) | Security architecture and controls |
-| [MARKETPLACE_COMPLIANCE.md](MARKETPLACE_COMPLIANCE.md) | Square App Marketplace compliance checklist |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |
+| [MARKETPLACE_COMPLIANCE.md](MARKETPLACE_COMPLIANCE.md) | Square App Marketplace compliance |
 
 ---
 

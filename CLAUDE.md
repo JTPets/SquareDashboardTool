@@ -106,25 +106,22 @@ npm test                     # Run tests
 
 | Document | Contents |
 |----------|----------|
-| [SECURITY.md](./SECURITY.md) | Security architecture, controls, audit history |
-| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Webhook flow, services structure, loyalty-admin modules, Square API details |
-| [docs/CODE-RULES.md](./docs/CODE-RULES.md) | Code limits, violations policy, refactor-on-touch, new code checklists, PR checklist |
-| [docs/DATABASE-RULES.md](./docs/DATABASE-RULES.md) | Schema change policy, migration format, DB patterns and commands |
-| [docs/CODING-PATTERNS.md](./docs/CODING-PATTERNS.md) | Response format, asyncHandler, Square API, transactions, logging |
+| [SECURITY.md](./SECURITY.md) | Security architecture and controls |
+| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | System design, webhook flow, services structure, Square API details |
+| [docs/SETUP.md](./docs/SETUP.md) | Local dev setup, database init, deployment, Cloudflare Tunnel |
+| [docs/BACKLOG.md](./docs/BACKLOG.md) | All open work items by priority (CRITICAL/HIGH/MEDIUM/LOW) |
+| [docs/DOMAIN-MAP.md](./docs/DOMAIN-MAP.md) | Codebase organization, cross-domain dependencies, split candidates |
+| [docs/CODE-RULES.md](./docs/CODE-RULES.md) | Code limits, violations policy, checklists |
+| [docs/DATABASE-RULES.md](./docs/DATABASE-RULES.md) | Schema change policy, migration format, DB patterns |
+| [docs/CODING-PATTERNS.md](./docs/CODING-PATTERNS.md) | Response format, asyncHandler, Square API, logging |
 | [docs/TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md) | Common issues and solutions |
-| [docs/TECHNICAL_DEBT.md](./docs/TECHNICAL_DEBT.md) | Known issues, observations, deferred work |
-| [docs/PRIORITIES.md](./docs/PRIORITIES.md) | Active HIGH/MEDIUM/LOW priority work items |
-| [docs/ROADMAP.md](./docs/ROADMAP.md) | Future initiatives and planned features |
-| [docs/WORK-ITEMS.md](./docs/WORK-ITEMS.md) | Consolidated master work list (all open items) |
 
 ---
 
 ## Current Status
 
-**Security Audit Grade**: B+ (13-section audit, 2026-03-22)
-**Core Security**: A+ (multi-tenant isolation, auth, injection prevention, data integrity)
 **Test Coverage**: 5,464 tests / 268 suites / 0 failures
-**Last Audit**: 2026-03-25
+**Security**: A+ core (multi-tenant isolation, auth, injection prevention, data integrity)
+**Open Items**: 1 CRITICAL, 6 HIGH, ~33 MEDIUM, ~18 LOW
 
-See [docs/WORK-ITEMS.md](./docs/WORK-ITEMS.md) for the complete backlog and open items.
-See [docs/PRIORITIES.md](./docs/PRIORITIES.md) for current priority work.
+See [docs/BACKLOG.md](./docs/BACKLOG.md) for the full backlog and priorities.
