@@ -1,6 +1,6 @@
 # Architecture Reference
 
-> **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Roadmap](./ROADMAP.md)
+> **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Backlog](./BACKLOG.md) | [Domain Map](./DOMAIN-MAP.md)
 >
 > **Last Updated**: 2026-03-22
 
@@ -88,7 +88,7 @@ Request → requireAuth → loadMerchantContext → requireMerchant → requireV
 | `requireValidSubscription` | `middleware/merchant.js` | Checks trial/subscription status — redirects expired merchants to upgrade page |
 | `validators.*` | `middleware/validators/` | Input validation per route |
 
-### Subscription Enforcement (added 2026-03-01)
+### Subscription Enforcement
 
 `requireValidSubscription` checks `merchants.subscription_status` and `trial_ends_at`:
 - **active**: Full access
@@ -154,22 +154,6 @@ Request → requireAuth → loadMerchantContext → requireMerchant → requireV
 
 ---
 
-## Rate Limiting
-
-Configured in `middleware/security.js`:
-
-| Limiter | Rate | Applied To |
-|---------|------|------------|
-| General | 100/15min | All routes |
-| Login | 5/15min | `/api/auth/login` |
-| Delivery | 30/5min | Delivery endpoints |
-| Delivery Strict | 10/5min | Sensitive delivery ops |
-| Sensitive Operation | 5/15min | Password changes, etc. |
-| Password Reset | 5/15min per token | `/reset-password` |
-| Webhook | 100/min per merchant | `/api/webhooks/square` |
-
----
-
 ## Webhook Event Flow
 
 Webhook processor: `services/webhook-processor.js`
@@ -194,24 +178,14 @@ Feature flags: `WEBHOOK_CATALOG_SYNC`, `WEBHOOK_INVENTORY_SYNC`, `WEBHOOK_ORDER_
 
 ### Webhook Subscription Configuration
 
-Managed in `utils/square-webhooks.js`. Full audit completed 2026-02-11.
+Managed in `utils/square-webhooks.js`. 32 events across 8 categories (essential, loyalty, refunds, vendors, locations, subscriptions, committed inventory, customer).
 
-**Currently subscribed**: 32 events across 8 categories (essential, loyalty, refunds, vendors, locations, subscriptions, committed inventory, customer).
-
-**Added in BACKLOG-10/11** (2026-02-19):
-- 7 invoice lifecycle events for committed inventory (`invoice.created/updated/published/canceled/deleted/refunded/scheduled_charge_failed`)
-- `customer.created` for loyalty catchup gap
-
-**Not subscribed** (100+ events): No matching features for bookings, labor, terminals, disputes, payouts, bank accounts, cards, transfer orders, custom attributes, etc.
-
-See [archived TECHNICAL_DEBT.md](./archive/TECHNICAL_DEBT.md#square-webhook-subscription-audit-2026-02-11) for the full webhook subscription audit (2026-02-11).
-
-### Committed Inventory Architecture (COMPLETE — BACKLOG-10)
+### Committed Inventory Architecture
 
 **Implementation**: Invoice webhooks → per-invoice `committed_inventory` table → local DB aggregate rebuild (0-1 API calls per event)
 
 ```
-PRODUCTION FLOW (2026-02-19):
+PRODUCTION FLOW:
 invoice.created/updated → inventory-handler.js → fetch order (1 API call) → upsert committed_inventory → rebuild aggregate
 invoice.canceled/deleted → inventory-handler.js → delete from committed_inventory → rebuild aggregate (0 API calls)
 invoice.payment_made → check if fully paid → delete if PAID → rebuild aggregate (0 API calls)
@@ -331,7 +305,7 @@ services/                     # Business logic services
 │   ├── audit-service.js      # Catalog audit, location fixes, enable items at locations
 │   ├── catalog-health-service.js  # Catalog health checks
 │   ├── location-health-service.js # Location health monitoring
-│   ├── location-service.js   # Shared location lookups (BACKLOG-25)
+│   ├── location-service.js   # Shared location lookups
 │   └── reorder-math.js       # Reorder calculation utilities
 │
 ├── merchant/                 # Merchant settings
@@ -368,7 +342,7 @@ services/                     # Business logic services
 │   ├── seniors-service.js    # Seniors discount pricing rule management
 │   └── age-calculator.js     # Age calculation from birthday
 │
-├── square/                   # Square API integration (split from monolith 2026-02-28)
+├── square/                   # Square API integration
 │   ├── index.js              # Facade — re-exports all modules
 │   ├── api.js                # Backward-compat shim (107 lines)
 │   ├── square-client.js      # Shared infra: getMerchantToken, makeSquareRequest, retry
@@ -391,7 +365,7 @@ services/                     # Business logic services
 
 ## Loyalty Admin Modules
 
-The `services/loyalty-admin/` directory contains 41 modules (110 exports) for loyalty program administration. The legacy monolith and dead modern layer (`services/loyalty/`) have been fully eliminated (BACKLOG-31).
+The `services/loyalty-admin/` directory contains 41 modules (110 exports) for loyalty program administration.
 
 **Import rule**: Always import from `services/loyalty-admin` (index.js):
 ```javascript
@@ -459,7 +433,7 @@ await squareClient.orders.createOrder({
 | `services/square/index.js` | Facade — re-exports all 10 split modules (see Services Directory above) |
 | `services/webhook-processor.js` | Webhook signature verification |
 
-### Square Variation ID Reuse on POS Reorder (BACKLOG-34)
+### Square Variation ID Reuse on POS Reorder
 
 When a merchant reorders (rearranges) item variations in Square POS or Dashboard, Square **deletes the existing variations and recreates them with new catalog object IDs**. This is not documented in Square's API reference but is confirmed behavior.
 
@@ -472,10 +446,6 @@ When a merchant reorders (rearranges) item variations in Square POS or Dashboard
 - Delta catalog sync (`square-catalog-sync.js`) detects deleted variations and marks them `is_deleted = TRUE` rather than hard-deleting, preserving historical references
 - Sales velocity reporting uses the Inventory Changes API (daily full sync) which aggregates by item, not variation, reducing the impact of ID churn
 - The `deleted-items.html` page surfaces deleted/recreated items for manual review
-
-**Future mitigation** (Roadmap):
-- Sales velocity refactor to use Inventory Changes API as primary source (eliminates variation ID dependency for velocity data)
-- Consider storing a stable `item_id + variation_ordinal` composite key for historical joins
 
 **Recommendation**: Do not build features that require long-lived variation ID stability for historical analysis. Prefer item-level aggregation or snapshot-based approaches.
 

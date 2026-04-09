@@ -280,16 +280,6 @@ For security concerns or vulnerability reports, contact: security@sqtools.ca
 
 ---
 
-## Security Audit History
-
-| Date | Scope | Grade | Auditor |
-|------|-------|-------|---------|
-| 2026-03-22 | 13-section full audit (secrets, tenant isolation, auth, injection, API safety, data integrity, error handling, logging, dependencies, testing, docs, deployment, compliance) | B+ | Automated (Claude) |
-
-Key findings: Zero CRITICAL, zero HIGH. 5 MEDIUM items all remediated same day. Core security (sections 2-4, 6) rated A+. Operational areas (logging, deployment, compliance) identified as improvement areas for multi-tenant scaling.
-
----
-
 ## Development Security Rules
 
 These rules apply when writing new code:
