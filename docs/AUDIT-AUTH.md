@@ -338,6 +338,14 @@ After a successful password reset (`services/auth/password-service.js:176-189`),
 
 **File**: `utils/token-encryption.js`
 
+### 5.9a CSRF Protection - PARTIAL
+
+- `sameSite: 'lax'` on session cookie prevents cross-site POST/PUT/DELETE (baseline CSRF protection)
+- State parameter validation in OAuth flows (Google & Square)
+- **Missing**: No explicit CSRF token middleware (e.g., `csurf`)
+- **Mitigating factors**: Application is API-only (JSON endpoints), `sameSite: lax` blocks cross-origin form POSTs
+- **Risk**: MEDIUM - adequate for API-first architecture but lacks defense-in-depth for any HTML form submissions
+
 ### 5.10 Security Headers - SECURE
 
 Implemented via Helmet (`middleware/security.js:28-122`):
@@ -402,6 +410,8 @@ Implemented via Helmet (`middleware/security.js:28-122`):
 | M-1 | Staff invitation token enumeration info leakage in logs | `services/staff/staff-service.js:107-117` | Reveals token state in diagnostics |
 | M-2 | Delivery auto-finish job doesn't re-verify merchant_id on DELETE | `jobs/delivery-auto-finish-job.js:143-146` | Cross-tenant deletion if route_ids corrupted |
 | M-3 | Password reset token prefix logged in rate limit handler | `middleware/security.js:325` | Token prefix exposure in logs |
+| M-4 | No explicit CSRF tokens (no csurf middleware) | Application-wide | Mitigated by `sameSite: lax` but lacks defense-in-depth |
+| M-5 | Reset token comparison uses SQL equality, not `crypto.timingSafeEqual()` | `services/auth/password-service.js:136-144` | Theoretical timing attack on hashed token lookup (very low practical risk due to SHA-256) |
 
 ### Architecture Strengths
 
@@ -434,3 +444,7 @@ Implemented via Helmet (`middleware/security.js:28-122`):
 7. **M-2**: Add merchant_id re-verification to delivery auto-finish DELETE queries
 8. **M-3**: Remove token prefix from password reset rate limit log entries
 9. **H-5**: Add merchant_id filter to webhook events admin endpoint (or document as intended cross-tenant admin view)
+
+**P3 (Backlog)**:
+10. **M-4**: Evaluate adding explicit CSRF token middleware for defense-in-depth
+11. **M-5**: Use `crypto.timingSafeEqual()` for token hash comparisons (low practical risk but best practice)
