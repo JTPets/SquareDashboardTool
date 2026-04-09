@@ -608,11 +608,12 @@ function renderTable() {
     let cappedByMax = false;
 
     // If stock_alert_max is set, don't order beyond it
+    // Use available_quantity (on_hand - committed) to match backend capping logic
     if (item.stock_alert_max && item.stock_alert_max > 0) {
-      const projectedStock = item.current_stock + suggestedQty;
+      const availableStock = item.available_quantity != null ? item.available_quantity : item.current_stock;
+      const projectedStock = availableStock + suggestedQty;
       if (projectedStock > item.stock_alert_max) {
-        // Cap at maximum, but don't go negative
-        suggestedQty = Math.max(0, item.stock_alert_max - item.current_stock);
+        suggestedQty = Math.max(0, item.stock_alert_max - availableStock);
         cappedByMax = true;
       }
     }
@@ -975,9 +976,10 @@ function updateFooter() {
     } else {
       let suggestedQty = item.final_suggested_qty;
       if (item.stock_alert_max && item.stock_alert_max > 0) {
-        const projectedStock = item.current_stock + suggestedQty;
+        const availableStock = item.available_quantity != null ? item.available_quantity : item.current_stock;
+        const projectedStock = availableStock + suggestedQty;
         if (projectedStock > item.stock_alert_max) {
-          suggestedQty = Math.max(0, item.stock_alert_max - item.current_stock);
+          suggestedQty = Math.max(0, item.stock_alert_max - availableStock);
         }
       }
       casesToOrder = suggestedQty > 0 ? Math.ceil(suggestedQty / casePack) : 0;
@@ -1163,9 +1165,10 @@ async function createPurchaseOrder() {
     } else {
       let suggestedQty = item.final_suggested_qty;
       if (item.stock_alert_max && item.stock_alert_max > 0) {
-        const projectedStock = item.current_stock + suggestedQty;
+        const availableStock = item.available_quantity != null ? item.available_quantity : item.current_stock;
+        const projectedStock = availableStock + suggestedQty;
         if (projectedStock > item.stock_alert_max) {
-          suggestedQty = Math.max(0, item.stock_alert_max - item.current_stock);
+          suggestedQty = Math.max(0, item.stock_alert_max - availableStock);
         }
       }
       casesToOrder = suggestedQty > 0 ? Math.ceil(suggestedQty / casePack) : 0;
