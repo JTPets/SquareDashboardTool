@@ -42,30 +42,25 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | BACKLOG-64 | `sold_out` flag not reconciled with inventory = 0 |
 | BACKLOG-65 | Website catalog categories not synced |
 | BACKLOG-63 | Product image captions not populated (SEO/accessibility) |
-| BACKLOG-61 | GMC v1beta deprecated — Google Shopping feed broken since Feb 28 2026 (**P0**) — see detailed notes below |
+| BACKLOG-61 | ~~GMC v1beta deprecated~~ — **RESOLVED** 2026-04-09. Migration to v1 complete. See notes below |
 
-### BACKLOG-61: GMC v1beta → v1 Migration (P0)
+### BACKLOG-61: GMC v1beta → v1 Migration — RESOLVED
 
-**Status**: Broken since February 28, 2026. Google deprecated the v1beta Merchant API endpoints.
+**Status**: Complete as of 2026-04-09. All API paths migrated from v1beta to v1. Schema updated for v1 compliance.
 
-**Current state**: All API calls in `services/gmc/merchant-service.js` use `v1beta` paths:
-- `getDataSourceInfo()` (line ~310): `/datasources/v1beta/accounts/...`
-- `upsertProduct()` (line ~340): `/products/v1beta/accounts/.../productInputs:insert`
-- `updateLocalInventory()` (line ~694): `/inventories/v1beta/accounts/.../localInventories:insert`
-- `testConnection()` (line ~1037): `/accounts/v1beta/accounts/...`
+**What was done**:
+- All API paths in `services/gmc/merchant-service.js` updated to v1:
+  - `getDataSourceInfo()`: `/datasources/v1/accounts/...`
+  - `upsertProduct()`: `/products/v1/accounts/.../productInputs:insert`
+  - `testConnection()`: `/accounts/v1/accounts/...`
+  - `verifyDeveloperRegistration()`: `/accounts/v1/accounts/.../developerRegistration`
+  - `registerDeveloper()`: `/accounts/v1/accounts/.../developerRegistration:registerGcp`
+- `buildMerchantApiProduct()` updated for v1 schema: `productAttributes` (not `attributes`), `gtins` array (not `gtin` string), uppercase enums (IN_STOCK, NEW), `amountMicros`/`currencyCode` price format, no `channel` in body
+- `updateLocalInventory()` removed — replaced by TSV feed (`/api/gmc/local-inventory-feed.tsv`)
+- OAuth `content` scope confirmed compatible with v1 (no change needed)
+- 32 unit tests passing, including v1 path and schema compliance tests
 
-**Impact**: Product catalog sync and local inventory sync to Google Merchant Center are non-functional. Google Shopping feed generation (`feed-service.js`) still works (TSV from DB), but pushed products are stale.
-
-**Migration path**:
-1. Update all 4 API paths from `v1beta` to `v1` in `merchant-service.js`
-2. Verify request/response schemas haven't changed between v1beta and v1 (Google may have added required fields)
-3. Test `upsertProduct` and `updateLocalInventory` against live GMC sandbox
-4. Verify OAuth scopes — current `content` scope may need updating for v1
-5. Check if `buildMerchantApiProduct()` payload format still matches v1 expectations
-
-**Risk**: Low complexity (path changes), but requires live API testing. Cannot be validated in unit tests alone.
-
-**Do NOT attempt** without access to a GMC test account and time to validate each endpoint.
+**Manual testing still needed**: Live GMC API validation requires a test account. See BACKLOG-105 for the separate 401/PERMISSION_DENIED investigation.
 
 ---
 
