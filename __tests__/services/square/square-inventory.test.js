@@ -27,6 +27,9 @@ jest.mock('../../../config/constants', () => ({
     CACHE: { INVOICES_SCOPE_TTL_MS: 3600000 },
     RETRY: { MAX_ATTEMPTS: 3, BASE_DELAY_MS: 1000, MAX_DELAY_MS: 30000 }
 }));
+jest.mock('../../../services/square/square-diagnostics', () => ({
+    enableItemAtAllLocations: jest.fn().mockResolvedValue({ success: true, itemId: 'ITEM1', itemName: 'Test Item' })
+}));
 
 const {
     syncInventory,
@@ -45,6 +48,7 @@ const {
     sleep,
     generateIdempotencyKey
 } = require('../../../services/square/square-client');
+const { enableItemAtAllLocations } = require('../../../services/square/square-diagnostics');
 
 const merchantId = 1;
 
@@ -466,6 +470,115 @@ describe('setSquareInventoryAlertThreshold', () => {
     test('throws when merchantId is not provided', async () => {
         await expect(setSquareInventoryAlertThreshold('VAR1', 'LOC1', 5, {}))
             .rejects.toThrow('merchantId is required');
+    });
+
+    test('auto-heals ITEM_NOT_AT_LOCATION via structured error and retries successfully', async () => {
+        const locationError = new Error('Some Square error');
+        locationError.squareErrors = [
+            { code: 'INVALID_VALUE', field: 'item_id', detail: 'mismatch' }
+        ];
+        const baseWithItemId = {
+            object: {
+                type: 'ITEM_VARIATION',
+                id: 'VAR1',
+                version: 100,
+                item_variation_data: { location_overrides: [], item_id: 'ITEM1' }
+            }
+        };
+
+        makeSquareRequest
+            .mockResolvedValueOnce(baseWithItemId)                              // attempt 1: retrieve
+            .mockRejectedValueOnce(locationError)                               // attempt 1: update fails
+            .mockResolvedValueOnce(baseWithItemId)                              // attempt 2: retrieve (post-heal)
+            .mockResolvedValueOnce({ catalog_object: { id: 'VAR1', version: 101 } }); // attempt 2: success
+
+        const result = await setSquareInventoryAlertThreshold('VAR1', 'LOC1', 5, { merchantId });
+
+        expect(result.success).toBe(true);
+        expect(enableItemAtAllLocations).toHaveBeenCalledWith('ITEM1', merchantId);
+    });
+
+    test('auto-heals ITEM_NOT_AT_LOCATION via message fallback and retries successfully', async () => {
+        const locationError = new Error('VAR1 is enabled at unit L1 but object ITEM1 of type ITEM is not at this location');
+        const baseWithItemId = {
+            object: {
+                type: 'ITEM_VARIATION',
+                id: 'VAR1',
+                version: 100,
+                item_variation_data: { location_overrides: [], item_id: 'ITEM1' }
+            }
+        };
+
+        makeSquareRequest
+            .mockResolvedValueOnce(baseWithItemId)
+            .mockRejectedValueOnce(locationError)
+            .mockResolvedValueOnce(baseWithItemId)
+            .mockResolvedValueOnce({ catalog_object: { id: 'VAR1', version: 101 } });
+
+        const result = await setSquareInventoryAlertThreshold('VAR1', 'LOC1', 5, { merchantId });
+
+        expect(result.success).toBe(true);
+        expect(enableItemAtAllLocations).toHaveBeenCalledWith('ITEM1', merchantId);
+    });
+
+    test('falls back to DB query for item_id when variation data lacks it', async () => {
+        const locationError = new Error('Some Square error');
+        locationError.squareErrors = [
+            { code: 'INVALID_VALUE', field: 'item_id', detail: 'mismatch' }
+        ];
+        // baseCatalogObject has no item_id in item_variation_data
+        const baseWithItemId = {
+            object: {
+                type: 'ITEM_VARIATION',
+                id: 'VAR1',
+                version: 100,
+                item_variation_data: { location_overrides: [] }
+            }
+        };
+
+        makeSquareRequest
+            .mockResolvedValueOnce(baseWithItemId)
+            .mockRejectedValueOnce(locationError)
+            .mockResolvedValueOnce(baseWithItemId)
+            .mockResolvedValueOnce({ catalog_object: { id: 'VAR1', version: 101 } });
+
+        db.query.mockResolvedValueOnce({ rows: [{ item_id: 'ITEM1' }] });
+
+        const result = await setSquareInventoryAlertThreshold('VAR1', 'LOC1', 5, { merchantId });
+
+        expect(result.success).toBe(true);
+        expect(db.query).toHaveBeenCalledWith(
+            'SELECT item_id FROM variations WHERE id = $1 AND merchant_id = $2',
+            ['VAR1', merchantId]
+        );
+        expect(enableItemAtAllLocations).toHaveBeenCalledWith('ITEM1', merchantId);
+    });
+
+    test('throws original error when retry fails after auto-heal', async () => {
+        const locationError = new Error('Some Square error');
+        locationError.squareErrors = [
+            { code: 'INVALID_VALUE', field: 'item_id', detail: 'mismatch' }
+        ];
+        const baseWithItemId = {
+            object: {
+                type: 'ITEM_VARIATION',
+                id: 'VAR1',
+                version: 100,
+                item_variation_data: { location_overrides: [], item_id: 'ITEM1' }
+            }
+        };
+
+        makeSquareRequest
+            .mockResolvedValueOnce(baseWithItemId)   // attempt 1: retrieve
+            .mockRejectedValueOnce(locationError)    // attempt 1: update fails
+            .mockResolvedValueOnce(baseWithItemId)   // attempt 2: retrieve
+            .mockRejectedValueOnce(locationError);   // attempt 2: update fails again
+
+        await expect(
+            setSquareInventoryAlertThreshold('VAR1', 'LOC1', 5, { merchantId })
+        ).rejects.toThrow('Some Square error');
+
+        expect(enableItemAtAllLocations).toHaveBeenCalledTimes(1);
     });
 });
 
