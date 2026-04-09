@@ -9,8 +9,6 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 
-// ─── Internal sub-functions ────────────────────────────────────────────────────
-
 async function updateLineItemQuantities(client, poId, items, merchantId) {
     for (const item of items) {
         await client.query(
@@ -20,10 +18,6 @@ async function updateLineItemQuantities(client, poId, items, merchantId) {
     }
 }
 
-/**
- * Compare PO line-item costs against variation_vendors; upsert where different.
- * Keeps reorder page costs current with actual amounts paid.
- */
 async function syncVendorCosts(client, poId, items, merchantId) {
     const { rows: poRows } = await client.query(
         'SELECT vendor_id FROM purchase_orders WHERE id = $1 AND merchant_id = $2',
@@ -53,9 +47,6 @@ async function syncVendorCosts(client, poId, items, merchantId) {
     }
 }
 
-/**
- * Returns 'RECEIVED' if every line item has received_quantity >= quantity_ordered, else 'PARTIAL'.
- */
 async function determinePOStatus(client, poId, merchantId) {
     const { rows } = await client.query(`
         SELECT COUNT(*) AS total,
@@ -66,10 +57,6 @@ async function determinePOStatus(client, poId, merchantId) {
     return parseInt(rows[0].total) === parseInt(rows[0].received) ? 'RECEIVED' : 'PARTIAL';
 }
 
-/**
- * Flag items currently on AUTO25/AUTO50 expiry tiers for manual re-audit.
- * Non-blocking: errors are logged, not propagated. (EXPIRY-REORDER-AUDIT)
- */
 async function flagExpiryItems(poId, items, merchantId) {
     const itemIds = items.map(i => i.id).filter(Boolean);
     if (!itemIds.length) return;
@@ -96,15 +83,8 @@ async function flagExpiryItems(poId, items, merchantId) {
     }
 }
 
-// ─── Public API ────────────────────────────────────────────────────────────────
-
 /**
  * Record received quantities for a SUBMITTED purchase order.
- *
- * @param {number} merchantId
- * @param {number|string} poId
- * @param {Array<{ id: number, received_quantity: number }>} items
- * @returns {Promise<object>} updated PO row
  * @throws with .statusCode 404 (not found) or 400 (not SUBMITTED)
  */
 async function receiveItems(merchantId, poId, items) {
