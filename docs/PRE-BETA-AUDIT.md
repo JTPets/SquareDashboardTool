@@ -167,6 +167,24 @@ All items in the "Audit Findings — Remaining LOWs" table are FIXED (strikethro
 
 ---
 
+## Additional Code-Verified Fixes (2026-04-09 Deep Audit)
+
+Cross-referenced GMC-AUDIT.md, DELIVERY-AUDIT.md, and CATALOG-ATTRIBUTE-AUDIT.md against actual code. Multiple items flagged as BROKEN are actually FIXED:
+
+| ID | Audit Doc Said | Code Says | Evidence |
+|----|---------------|-----------|----------|
+| SEC-GMC-1 | CRITICAL: encrypted tokens not decrypted | **FIXED** | `google-auth.js` — `decryptToken()` called at load time |
+| SEC-GMC-2 | HIGH: token refresh saves plaintext | **FIXED** | `google-auth.js:230-253` — `encryptToken()` before DB write |
+| SEC-GMC-3 | HIGH: brands missing merchant_id | **FIXED** | `brand-service.js:210-211` — `WHERE merchant_id = $2` |
+| DELIVERY-BUG-001 | HIGH: force-regenerate orphans orders | **FIXED** | `delivery-routes.js:172-197` — resets order statuses |
+| DELIVERY-BUG-002 | HIGH: finishRoute ignores delivered | **FIXED** | `delivery-routes.js:304-312` — auto-completes delivered |
+| DELIVERY-BUG-008 | LOW: cleanupExpiredPods never called | **FIXED** | `pod-cleanup-job.js` + `cron-scheduler.js:199-203` |
+| CATALOG: available_for_pickup | HIGH: hardcoded FALSE | **FIXED** | `square-catalog-sync.js:759-760` — reads from Square data |
+
+**8 audit docs now contain stale BROKEN statuses**: GMC-AUDIT.md (3 items), DELIVERY-AUDIT.md (3 items), CATALOG-ATTRIBUTE-AUDIT.md (1 item), plus SUBSCRIPTION-AUDIT.md, SIGNUP-FLOW-AUDIT.md, FEATURE-GATES-AUDIT.md, FEATURE-PACKAGING-AUDIT.md (items listed above). These docs need a cleanup pass.
+
+---
+
 ## Key Observations
 
 1. **Only 1 true blocker remains (B3).** The promo-expiry-job detects expired promos but doesn't revert billing. This is the only item that could cause direct revenue loss at beta launch.
@@ -175,6 +193,8 @@ All items in the "Audit Findings — Remaining LOWs" table are FIXED (strikethro
 
 3. **UI polish is the main gap.** Missing cancel button, trial countdown, billing history, and promo admin UI are the highest-value remaining items.
 
-4. **Audit docs are significantly stale.** 5 audit documents contain outdated "BROKEN" statuses that have been fixed. Updating these docs would prevent future confusion.
+4. **Audit docs are significantly stale.** 8 audit documents contain outdated "BROKEN" statuses for items fixed in code. Total stale items across docs: ~16. Updating these docs would prevent future confusion and wasted audit time.
 
 5. **Test coverage is strong (5,464 tests)** and the subscription lifecycle now has integration tests (`subscription-lifecycle.test.js`) covering the payment → activation → cancellation flow.
+
+6. **Ship readiness**: Fix B3 + PRICING-UI + SUB-UI-1/2 (4 items, all S-M effort), then ship beta. Everything else is polish or new features.
