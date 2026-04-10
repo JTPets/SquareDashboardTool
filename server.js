@@ -61,6 +61,10 @@ const webhookRetry = require('./utils/webhook-retry');
 // Jobs module (cron jobs, backups, etc.)
 const jobs = require('./jobs');
 
+// Plugin infrastructure
+const { installEnabledPlugins } = require('./src/plugins/installer');
+const { loadPlugins } = require('./src/plugins/loader');
+
 // Security middleware
 const { configureHelmet, configurePermissionsPolicy, configureRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
 const { requireAuth, requireAuthApi, requireAdmin } = require('./middleware/auth');
@@ -896,6 +900,16 @@ async function startServer() {
         // NOTE: Legacy backfill code removed (2026-01-05)
         // The startup backfill for NULL merchant_id and orphan user linking has been removed.
         // Multi-tenant migration is complete. Records without merchant_id will fail as expected.
+
+        // Install and load plugins
+        try {
+            await installEnabledPlugins();
+            await loadPlugins(app, db, process.env);
+        } catch (pluginError) {
+            logger.warn('Plugin initialization encountered an error', {
+                error: pluginError.message
+            });
+        }
 
         // Ensure Square custom attributes exist for uninitialized merchants
         // BACKLOG-13: Only run for merchants missing the initialized_at flag
