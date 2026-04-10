@@ -70,6 +70,10 @@ desktop.ini
 storage/pod/
 public/feeds/
 
+# Plugins (installed at runtime from GitHub)
+plugins/*/
+!plugins/.gitkeep
+
 # Historical cleanup (files accidentally created in repo root, never committed)
 .env.save
 core
