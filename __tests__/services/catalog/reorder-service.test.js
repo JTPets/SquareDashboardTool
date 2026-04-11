@@ -102,6 +102,7 @@ function makeRow(overrides = {}) {
         base_suggested_qty: '104',
         below_minimum: false,
         variation_age_days: '90',
+        active_discount_tier: null,
         ...overrides
     };
 }
