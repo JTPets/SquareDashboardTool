@@ -214,7 +214,7 @@ function buildMainQuery({ supplyDaysNum, safetyDays, merchantId, vendor_id, loca
                     ELSE FALSE
                 END as below_minimum,
                 EXTRACT(DAY FROM NOW() - v.created_at)::INTEGER as variation_age_days,
-                vds.current_tier_id AS active_discount_tier
+                CASE WHEN edt.is_auto_apply = TRUE THEN vds.current_tier_id ELSE NULL END AS active_discount_tier
             FROM variations v
             -- Item details: name, category, is_deleted filter
             JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
@@ -248,8 +248,9 @@ function buildMainQuery({ supplyDaysNum, safetyDays, merchantId, vendor_id, loca
                 AND ic.location_id = vls.location_id
             -- Expiration tracking: date and does_not_expire flag for display
             LEFT JOIN variation_expiration vexp ON v.id = vexp.variation_id AND vexp.merchant_id = $2
-            -- Active discount tier: non-null means item is currently on an expiry discount
+            -- Active discount tier: non-null only when item is on an auto-apply discount tier (not OK/tracking-only rows)
             LEFT JOIN variation_discount_status vds ON vds.variation_id = v.id AND vds.merchant_id = $2
+            LEFT JOIN expiry_discount_tiers edt ON edt.id = vds.current_tier_id
             -- Primary vendor: cheapest by cost, then earliest created (replaces 3 correlated subqueries)
             LEFT JOIN LATERAL (
                 SELECT vv2.vendor_id, vv2.unit_cost_money, ve2.name as vendor_name
