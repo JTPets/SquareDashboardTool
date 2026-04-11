@@ -19,6 +19,7 @@ const { pushMinStockThresholdsToSquare } = require('../square/square-inventory')
  *
  * Uses pushMinStockThresholdsToSquare which:
  *   1. Batch-retrieves current catalog objects (100 at a time)
+ *   1.5 Detects and repairs parent item location mismatches (pre-flight)
  *   2. Updates inventory_alert_threshold via location_overrides
  *   3. Batch-upserts the modified objects (100 at a time)
  *
@@ -27,12 +28,12 @@ const { pushMinStockThresholdsToSquare } = require('../square/square-inventory')
  *
  * @param {number} merchantId
  * @param {Array<{variationId: string, locationId: string, newMin: number, previousMin: number}>} adjustments
- * @returns {Promise<{synced: number, failed: number, errors: string[]}>}
+ * @returns {Promise<{synced: number, failed: number, repairedParents: number, errors: string[]}>}
  */
 async function syncMinsToSquare(merchantId, adjustments) {
     if (!merchantId) throw new Error('merchantId is required');
     if (!adjustments || adjustments.length === 0) {
-        return { synced: 0, failed: 0, errors: [] };
+        return { synced: 0, failed: 0, repairedParents: 0, errors: [] };
     }
 
     const changes = adjustments.map(a => ({
@@ -44,13 +45,16 @@ async function syncMinsToSquare(merchantId, adjustments) {
     const errors = [];
     let synced = 0;
     let failed = 0;
+    let repairedParents = 0;
 
     try {
-        // pushMinStockThresholdsToSquare handles internal batching in groups of 100
-        // and partial-failure recovery — it never throws unless token fetch fails
+        // pushMinStockThresholdsToSquare handles internal batching in groups of 100,
+        // parent location pre-flight repair, and partial-failure recovery.
+        // It never throws unless token fetch fails.
         const result = await pushMinStockThresholdsToSquare(merchantId, changes);
         synced = result.pushed;
         failed = result.failed;
+        repairedParents = result.repairedParents || 0;
         if (result.failed > 0) {
             errors.push(`${result.failed} variation(s) failed to sync to Square`);
         }
@@ -65,8 +69,8 @@ async function syncMinsToSquare(merchantId, adjustments) {
         });
     }
 
-    logger.info('syncMinsToSquare complete', { merchantId, synced, failed });
-    return { synced, failed, errors };
+    logger.info('syncMinsToSquare complete', { merchantId, synced, failed, repairedParents });
+    return { synced, failed, repairedParents, errors };
 }
 
 module.exports = { syncMinsToSquare };

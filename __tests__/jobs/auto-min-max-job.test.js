@@ -39,7 +39,7 @@ const job = require('../../jobs/auto-min-max-job');
 const logger = require('../../utils/logger');
 
 // Default sync result used in most tests
-const DEFAULT_SYNC = { synced: 2, failed: 0, errors: [] };
+const DEFAULT_SYNC = { synced: 2, failed: 0, repairedParents: 0, errors: [] };
 
 // Default successful adjustment result
 function adjustmentResult(overrides = {}) {
@@ -164,11 +164,11 @@ describe('runAutoMinMaxForMerchant — Square sync', () => {
 
     test('syncResult included in return value', async () => {
         autoMinMax.applyWeeklyAdjustments.mockResolvedValueOnce(adjustmentResult());
-        squareSync.syncMinsToSquare.mockResolvedValueOnce({ synced: 2, failed: 0, errors: [] });
+        squareSync.syncMinsToSquare.mockResolvedValueOnce({ synced: 2, failed: 0, repairedParents: 0, errors: [] });
 
         const result = await job.runAutoMinMaxForMerchant(1, 'Shop A');
 
-        expect(result.syncResult).toEqual({ synced: 2, failed: 0, errors: [] });
+        expect(result.syncResult).toEqual({ synced: 2, failed: 0, repairedParents: 0, errors: [] });
     });
 
     test('Square sync error is caught, logged, and emailed — does not throw', async () => {
@@ -225,12 +225,42 @@ describe('runScheduledAutoMinMax', () => {
         autoMinMax.applyWeeklyAdjustments.mockResolvedValueOnce(
             adjustmentResult({ reduced: 2, increased: 1 })
         );
-        squareSync.syncMinsToSquare.mockResolvedValueOnce({ synced: 2, failed: 1, errors: ['1 variation(s) failed'] });
+        squareSync.syncMinsToSquare.mockResolvedValueOnce({ synced: 2, failed: 1, repairedParents: 0, errors: ['1 variation(s) failed'] });
 
         await job.runScheduledAutoMinMax();
 
         const body = emailNotifier.sendAlert.mock.calls[0][1];
         expect(body).toContain('Synced to Square: 2 (1 failed)');
+    });
+
+    test('email body includes repairedParents line when parents were repaired', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            { id: 1, business_name: 'Shop A' },
+        ]});
+        autoMinMax.applyWeeklyAdjustments.mockResolvedValueOnce(
+            adjustmentResult({ reduced: 2, increased: 1 })
+        );
+        squareSync.syncMinsToSquare.mockResolvedValueOnce({ synced: 16, failed: 0, repairedParents: 4, errors: [] });
+
+        await job.runScheduledAutoMinMax();
+
+        const body = emailNotifier.sendAlert.mock.calls[0][1];
+        expect(body).toContain('Repaired 4 parent item location mismatch(es) before sync');
+    });
+
+    test('email body does NOT include repairedParents line when zero repairs', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            { id: 1, business_name: 'Shop A' },
+        ]});
+        autoMinMax.applyWeeklyAdjustments.mockResolvedValueOnce(
+            adjustmentResult({ reduced: 2, increased: 1 })
+        );
+        squareSync.syncMinsToSquare.mockResolvedValueOnce({ synced: 2, failed: 0, repairedParents: 0, errors: [] });
+
+        await job.runScheduledAutoMinMax();
+
+        const body = emailNotifier.sendAlert.mock.calls[0][1];
+        expect(body).not.toContain('parent item location mismatch');
     });
 
     test('does not send email when no adjustments are made', async () => {

@@ -20,6 +20,7 @@ const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { getMerchantToken, makeSquareRequest, sleep, generateIdempotencyKey } = require('./square-client');
 const { enableItemAtAllLocations } = require('./square-diagnostics');
+const { repairParentLocationMismatches } = require('./square-location-preflight');
 
 // LOGIC CHANGE: use centralized cache/retry config from constants (C-1)
 const { SQUARE: { MAX_PAGINATION_ITERATIONS }, SYNC: { BATCH_DELAY_MS, INTER_BATCH_DELAY_MS, CATALOG_BATCH_SIZE }, CACHE: { INVOICES_SCOPE_TTL_MS }, RETRY: { MAX_ATTEMPTS } } = require('../../config/constants');
@@ -925,6 +926,12 @@ async function pushMinStockThresholdsToSquare(merchantId, changes) {
         if (i + CATALOG_BATCH_SIZE < variationIds.length) await sleep(INTER_BATCH_DELAY_MS);
     }
 
+    // Step 1.5: Pre-flight — repair parent items not enabled at synced locations.
+    // Prevents Square 400 INVALID_VALUE "variation enabled at location but item is not".
+    const { repairedParents } = await repairParentLocationMismatches(
+        merchantId, accessToken, retrievedObjects, changesByVariation
+    );
+
     // Step 2: Build updated objects with new location_overrides
     const objectsToUpsert = [];
     for (const [variationId, locationChanges] of changesByVariation.entries()) {
@@ -982,8 +989,8 @@ async function pushMinStockThresholdsToSquare(merchantId, changes) {
         if (i + CATALOG_BATCH_SIZE < objectsToUpsert.length) await sleep(INTER_BATCH_DELAY_MS);
     }
 
-    logger.info('pushMinStockThresholdsToSquare complete', { merchantId, pushed, failed });
-    return { pushed, failed };
+    logger.info('pushMinStockThresholdsToSquare complete', { merchantId, pushed, failed, repairedParents });
+    return { pushed, failed, repairedParents };
 }
 
 module.exports = {
