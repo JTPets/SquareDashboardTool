@@ -113,7 +113,8 @@ async function generateRecommendations(merchantId) {
  *
  * @param {number} merchantId
  * @returns {Promise<
- *   {reduced: number, increased: number, skipped: number, pinned: number, tooNew: number} |
+ *   {reduced: number, increased: number, skipped: number, pinned: number, tooNew: number,
+ *    adjustments: Array<{variationId: string, locationId: string, newMin: number, previousMin: number}>} |
  *   {aborted: true, reason: string}
  * >}
  */
@@ -176,7 +177,7 @@ async function applyWeeklyAdjustments(merchantId) {
 
     if (applicable.length === 0) {
         logger.info('No applicable min stock adjustments', { merchantId, pinned, tooNew });
-        return { reduced: 0, increased: 0, skipped, pinned, tooNew };
+        return { reduced: 0, increased: 0, skipped, pinned, tooNew, adjustments: [] };
     }
 
     await db.transaction(async (client) => {
@@ -192,19 +193,17 @@ async function applyWeeklyAdjustments(merchantId) {
         }
     });
 
-    // Push new mins to Square — fire-and-forget, local DB is source of truth
-    const squareChanges = applicable.map(r => ({
-        variationId: r.variationId,
-        locationId: r.locationId,
-        newMin: r.recommendedMin
-    }));
-    _pushToSquare(merchantId, squareChanges);
-
     const reduced = applicable.filter(r => r.recommendedMin < r.currentMin).length;
     const increased = applicable.filter(r => r.recommendedMin > r.currentMin).length;
+    const adjustments = applicable.map(r => ({
+        variationId: r.variationId,
+        locationId: r.locationId,
+        newMin: r.recommendedMin,
+        previousMin: r.currentMin
+    }));
 
     logger.info('Applied weekly min stock adjustments', { merchantId, reduced, increased, skipped, pinned, tooNew });
-    return { reduced, increased, skipped, pinned, tooNew };
+    return { reduced, increased, skipped, pinned, tooNew, adjustments };
 }
 
 /**

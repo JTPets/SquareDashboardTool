@@ -538,6 +538,60 @@ describe('applyWeeklyAdjustments', () => {
         expect(result.aborted).toBeUndefined();
         expect(result.reduced).toBe(3);
     });
+
+    // --- adjustments array ---
+
+    test('returns adjustments array with variationId, locationId, newMin, previousMin', async () => {
+        // var1: OVERSTOCKED reduction current_min=2 → 1; var2: SOLDOUT_FAST_MOVER current_min=0 → 1
+        db.query
+            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] }) // stale check
+            .mockResolvedValueOnce({ rows: [
+                makeRow({ variation_id: 'var1', location_id: 'loc1',
+                    days_of_stock: '95', current_min: '2', velocity_91d: '0.5', quantity: '9' }),
+                makeRow({ variation_id: 'var2', location_id: 'loc1',
+                    quantity: '0', velocity_91d: '0.5', current_min: '0',
+                    days_of_stock: '0', last_sold_at: recentDate() }),
+            ]}) // DATA_QUERY
+            .mockResolvedValueOnce({ rows: [{ total: '100' }] }); // circuit breaker: 1/100 = 1%
+
+        db.transaction.mockImplementationOnce(async (fn) => {
+            const mockClient = { query: jest.fn().mockResolvedValue({ rows: [{ stock_alert_min: 2 }] }) };
+            return fn(mockClient);
+        });
+
+        const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
+        expect(result.adjustments).toHaveLength(2);
+        expect(result.adjustments).toEqual(expect.arrayContaining([
+            { variationId: 'var1', locationId: 'loc1', newMin: 1, previousMin: 2 },
+            { variationId: 'var2', locationId: 'loc1', newMin: 1, previousMin: 0 },
+        ]));
+    });
+
+    test('returns empty adjustments array when nothing is applicable', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] }) // stale check
+            .mockResolvedValueOnce({ rows: [] }); // DATA_QUERY — no rows
+        const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
+        expect(result.adjustments).toEqual([]);
+    });
+
+    test('does not call pushMinStockThresholdsToSquare (job owns sync)', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] })
+            .mockResolvedValueOnce({ rows: [
+                makeRow({ variation_id: 'var1', days_of_stock: '95',
+                    current_min: '2', velocity_91d: '0.5', quantity: '9' }),
+            ]})
+            .mockResolvedValueOnce({ rows: [{ total: '100' }] });
+
+        db.transaction.mockImplementationOnce(async (fn) => {
+            const mockClient = { query: jest.fn().mockResolvedValue({ rows: [{ stock_alert_min: 2 }] }) };
+            return fn(mockClient);
+        });
+
+        await service.applyWeeklyAdjustments(MERCHANT_ID);
+        expect(squareInventory.pushMinStockThresholdsToSquare).not.toHaveBeenCalled();
+    });
 });
 
 // ==================== applyRecommendation ====================
@@ -853,73 +907,13 @@ describe('getHistory', () => {
 });
 
 // ==================== Square push (pushMinStockThresholdsToSquare) ====================
+// applyWeeklyAdjustments does NOT call pushMinStockThresholdsToSquare — the job owns sync.
+// applyRecommendation and applyAllRecommendations still call it directly (fire-and-forget).
 
 describe('Square push after apply', () => {
     beforeEach(() => {
         squareInventory.pushMinStockThresholdsToSquare.mockClear();
         squareInventory.pushMinStockThresholdsToSquare.mockResolvedValue({ pushed: 1, failed: 0 });
-    });
-
-    test('applyWeeklyAdjustments: pushMinStockThresholdsToSquare called with correct changes', async () => {
-        // var1: OVERSTOCKED reduction; var2: SOLDOUT_FAST_MOVER increase
-        db.query
-            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] }) // stale check
-            .mockResolvedValueOnce({ rows: [
-                makeRow({ variation_id: 'var1', location_id: 'loc1',
-                    days_of_stock: '95', current_min: '2', velocity_91d: '0.5', quantity: '9' }),
-                makeRow({ variation_id: 'var2', location_id: 'loc1',
-                    quantity: '0', velocity_91d: '0.5', current_min: '0',
-                    days_of_stock: '0', last_sold_at: recentDate() }),
-            ]})
-            .mockResolvedValueOnce({ rows: [{ total: '100' }] }); // circuit breaker
-
-        db.transaction.mockImplementationOnce(async (fn) => {
-            const mockClient = { query: jest.fn().mockResolvedValue({ rows: [{ stock_alert_min: 2 }] }) };
-            return fn(mockClient);
-        });
-
-        await service.applyWeeklyAdjustments(MERCHANT_ID);
-
-        expect(squareInventory.pushMinStockThresholdsToSquare).toHaveBeenCalledTimes(1);
-        const [calledMerchantId, calledChanges] = squareInventory.pushMinStockThresholdsToSquare.mock.calls[0];
-        expect(calledMerchantId).toBe(MERCHANT_ID);
-        expect(calledChanges).toEqual(expect.arrayContaining([
-            { variationId: 'var1', locationId: 'loc1', newMin: 1 },
-            { variationId: 'var2', locationId: 'loc1', newMin: 1 },
-        ]));
-        expect(calledChanges).toHaveLength(2);
-    });
-
-    test('applyWeeklyAdjustments: Square push failure does not affect return value', async () => {
-        squareInventory.pushMinStockThresholdsToSquare.mockRejectedValue(new Error('Square down'));
-
-        db.query
-            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] })
-            .mockResolvedValueOnce({ rows: [
-                makeRow({ variation_id: 'var1', days_of_stock: '95',
-                    current_min: '2', velocity_91d: '0.5', quantity: '9' }),
-            ]})
-            .mockResolvedValueOnce({ rows: [{ total: '100' }] });
-
-        db.transaction.mockImplementationOnce(async (fn) => {
-            const mockClient = { query: jest.fn().mockResolvedValue({ rows: [{ stock_alert_min: 2 }] }) };
-            return fn(mockClient);
-        });
-
-        const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
-        // Local change still applied; Square failure is fire-and-forget
-        expect(result.reduced).toBe(1);
-        expect(result.aborted).toBeUndefined();
-    });
-
-    test('applyWeeklyAdjustments: Square push not called when nothing applicable', async () => {
-        db.query
-            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] })
-            .mockResolvedValueOnce({ rows: [] }); // no recs
-
-        await service.applyWeeklyAdjustments(MERCHANT_ID);
-
-        expect(squareInventory.pushMinStockThresholdsToSquare).not.toHaveBeenCalled();
     });
 
     test('applyRecommendation: pushMinStockThresholdsToSquare called with correct args', async () => {
