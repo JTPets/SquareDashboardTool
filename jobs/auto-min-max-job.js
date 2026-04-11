@@ -5,6 +5,9 @@
  * Applies OVERSTOCKED and SOLDOUT_FAST_MOVER rules directly — no approval step.
  * Merchants can pin individual variations to prevent auto-adjustment.
  *
+ * After a clean local commit, pushes updated min thresholds to Square catalog.
+ * Square sync failures are caught and emailed — they never crash the job.
+ *
  * Schedule: Sunday 6 AM ET (before Monday ordering)
  * Email: summary per merchant when any adjustments are made
  *
@@ -15,15 +18,19 @@ const db = require('../utils/database');
 const logger = require('../utils/logger');
 const emailNotifier = require('../utils/email-notifier');
 const autoMinMax = require('../services/inventory/auto-min-max-service');
+const { syncMinsToSquare } = require('../services/inventory/auto-min-max-square-sync');
 
 /**
  * Run auto min/max adjustments for a single merchant.
  * If the service aborts due to a guardrail (stale data, circuit breaker),
  * logs the reason. The service already sends the guardrail alert email.
  *
+ * On success, syncs adjusted mins to Square. Sync errors are caught,
+ * logged, and emailed — they do not affect the local audit log.
+ *
  * @param {number} merchantId
  * @param {string} businessName
- * @returns {Promise<{reduced, increased, skipped, pinned, tooNew}|{aborted: true, reason: string}>}
+ * @returns {Promise<object>} result with counts, adjustments, and syncResult
  */
 async function runAutoMinMaxForMerchant(merchantId, businessName) {
     const result = await autoMinMax.applyWeeklyAdjustments(merchantId);
@@ -33,14 +40,39 @@ async function runAutoMinMaxForMerchant(merchantId, businessName) {
             businessName,
             reason: result.reason
         });
-    } else {
-        logger.info('Auto min/max adjustments complete for merchant', {
-            merchantId,
-            businessName,
-            ...result
-        });
+        return result;
     }
-    return result;
+
+    logger.info('Auto min/max adjustments complete for merchant', {
+        merchantId,
+        businessName,
+        reduced: result.reduced,
+        increased: result.increased,
+        skipped: result.skipped,
+        pinned: result.pinned,
+        tooNew: result.tooNew
+    });
+
+    // Sync mins to Square — only after clean local commit
+    let syncResult = { synced: 0, failed: 0, errors: [] };
+    if (result.adjustments && result.adjustments.length > 0) {
+        try {
+            syncResult = await syncMinsToSquare(merchantId, result.adjustments);
+            logger.info('Square min sync complete for merchant', { merchantId, ...syncResult });
+        } catch (err) {
+            logger.error('Square min sync failed for merchant', {
+                merchantId,
+                businessName,
+                error: err.message
+            });
+            await emailNotifier.sendAlert(
+                `Auto Min/Max Square Sync Failed — ${businessName}`,
+                `Failed to sync min thresholds to Square.\n\nMerchant: ${businessName} (ID: ${merchantId})\nError: ${err.message}`
+            );
+        }
+    }
+
+    return { ...result, syncResult };
 }
 
 /**
@@ -90,6 +122,7 @@ async function runAutoMinMaxForAllMerchants() {
 /**
  * Cron handler for scheduled weekly auto min/max adjustment.
  * Sends a per-merchant summary email when adjustments are made.
+ * Includes Square sync result in the email body.
  */
 async function runScheduledAutoMinMax() {
     try {
@@ -100,6 +133,7 @@ async function runScheduledAutoMinMax() {
             if (r.aborted) continue; // guardrail alert already sent by service
             if (r.reduced === 0 && r.increased === 0) continue;
 
+            const sync = r.syncResult || { synced: 0, failed: 0 };
             const subject = `Min Stock Auto-Adjustment: ${r.reduced} reduced, ${r.increased} increased — ${r.businessName}`;
             const body = [
                 `Weekly min stock auto-adjustment complete.\n`,
@@ -109,6 +143,7 @@ async function runScheduledAutoMinMax() {
                 `Pinned (skipped): ${r.pinned || 0}`,
                 `Too new (skipped): ${r.tooNew || 0}`,
                 `Other skipped: ${r.skipped || 0}`,
+                `Synced to Square: ${sync.synced} (${sync.failed} failed)`,
                 `\nReview changes at: /min-max-history.html`
             ].join('\n');
 
