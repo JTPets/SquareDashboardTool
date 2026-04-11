@@ -46,18 +46,18 @@ describe('syncMinsToSquare', () => {
 
     test('returns zero counts for empty adjustments array', async () => {
         const result = await syncMinsToSquare(MERCHANT_ID, []);
-        expect(result).toEqual({ synced: 0, failed: 0, errors: [] });
+        expect(result).toEqual({ synced: 0, failed: 0, repairedParents: 0, errors: [] });
         expect(squareInventory.pushMinStockThresholdsToSquare).not.toHaveBeenCalled();
     });
 
     test('returns zero counts for null adjustments', async () => {
         const result = await syncMinsToSquare(MERCHANT_ID, null);
-        expect(result).toEqual({ synced: 0, failed: 0, errors: [] });
+        expect(result).toEqual({ synced: 0, failed: 0, repairedParents: 0, errors: [] });
         expect(squareInventory.pushMinStockThresholdsToSquare).not.toHaveBeenCalled();
     });
 
     test('calls pushMinStockThresholdsToSquare with correct variationIds', async () => {
-        squareInventory.pushMinStockThresholdsToSquare.mockResolvedValueOnce({ pushed: 2, failed: 0 });
+        squareInventory.pushMinStockThresholdsToSquare.mockResolvedValueOnce({ pushed: 2, failed: 0, repairedParents: 0 });
 
         const adjustments = [
             makeAdjustment({ variationId: 'var1', locationId: 'loc1', newMin: 1, previousMin: 2 }),
@@ -76,7 +76,7 @@ describe('syncMinsToSquare', () => {
     });
 
     test('previousMin is not forwarded to Square (catalog does not use it)', async () => {
-        squareInventory.pushMinStockThresholdsToSquare.mockResolvedValueOnce({ pushed: 1, failed: 0 });
+        squareInventory.pushMinStockThresholdsToSquare.mockResolvedValueOnce({ pushed: 1, failed: 0, repairedParents: 0 });
 
         await syncMinsToSquare(MERCHANT_ID, [makeAdjustment({ previousMin: 99 })]);
 
@@ -85,7 +85,7 @@ describe('syncMinsToSquare', () => {
     });
 
     test('returns synced count from pushMinStockThresholdsToSquare on full success', async () => {
-        squareInventory.pushMinStockThresholdsToSquare.mockResolvedValueOnce({ pushed: 3, failed: 0 });
+        squareInventory.pushMinStockThresholdsToSquare.mockResolvedValueOnce({ pushed: 3, failed: 0, repairedParents: 0 });
 
         const result = await syncMinsToSquare(MERCHANT_ID, [
             makeAdjustment({ variationId: 'v1' }),
@@ -93,11 +93,11 @@ describe('syncMinsToSquare', () => {
             makeAdjustment({ variationId: 'v3' }),
         ]);
 
-        expect(result).toEqual({ synced: 3, failed: 0, errors: [] });
+        expect(result).toEqual({ synced: 3, failed: 0, repairedParents: 0, errors: [] });
     });
 
     test('partial Square failure: logs error, does not throw, returns failed count', async () => {
-        squareInventory.pushMinStockThresholdsToSquare.mockResolvedValueOnce({ pushed: 2, failed: 1 });
+        squareInventory.pushMinStockThresholdsToSquare.mockResolvedValueOnce({ pushed: 2, failed: 1, repairedParents: 0 });
 
         const result = await syncMinsToSquare(MERCHANT_ID, [
             makeAdjustment({ variationId: 'v1' }),
@@ -130,8 +130,8 @@ describe('syncMinsToSquare', () => {
         );
     });
 
-    test('logs completion with synced/failed counts', async () => {
-        squareInventory.pushMinStockThresholdsToSquare.mockResolvedValueOnce({ pushed: 5, failed: 0 });
+    test('logs completion with synced/failed/repairedParents counts', async () => {
+        squareInventory.pushMinStockThresholdsToSquare.mockResolvedValueOnce({ pushed: 5, failed: 0, repairedParents: 2 });
 
         await syncMinsToSquare(MERCHANT_ID, [
             makeAdjustment({ variationId: 'v1' }),
@@ -140,7 +140,27 @@ describe('syncMinsToSquare', () => {
 
         expect(logger.info).toHaveBeenCalledWith(
             'syncMinsToSquare complete',
-            expect.objectContaining({ merchantId: MERCHANT_ID, synced: 5, failed: 0 })
+            expect.objectContaining({ merchantId: MERCHANT_ID, synced: 5, failed: 0, repairedParents: 2 })
         );
+    });
+
+    test('repairedParents is passed through from pushMinStockThresholdsToSquare', async () => {
+        squareInventory.pushMinStockThresholdsToSquare.mockResolvedValueOnce({ pushed: 16, failed: 0, repairedParents: 3 });
+
+        const adjustments = Array.from({ length: 16 }, (_, i) =>
+            makeAdjustment({ variationId: `v${i}` })
+        );
+        const result = await syncMinsToSquare(MERCHANT_ID, adjustments);
+
+        expect(result.repairedParents).toBe(3);
+    });
+
+    test('repairedParents defaults to 0 when not returned by inner function', async () => {
+        // Simulate older call that does not return repairedParents
+        squareInventory.pushMinStockThresholdsToSquare.mockResolvedValueOnce({ pushed: 2, failed: 0 });
+
+        const result = await syncMinsToSquare(MERCHANT_ID, [makeAdjustment()]);
+
+        expect(result.repairedParents).toBe(0);
     });
 });

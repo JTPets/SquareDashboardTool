@@ -133,9 +133,9 @@ async function runScheduledAutoMinMax() {
             if (r.aborted) continue; // guardrail alert already sent by service
             if (r.reduced === 0 && r.increased === 0) continue;
 
-            const sync = r.syncResult || { synced: 0, failed: 0 };
+            const sync = r.syncResult || { synced: 0, failed: 0, repairedParents: 0 };
             const subject = `Min Stock Auto-Adjustment: ${r.reduced} reduced, ${r.increased} increased — ${r.businessName}`;
-            const body = [
+            const bodyLines = [
                 `Weekly min stock auto-adjustment complete.\n`,
                 `Merchant: ${r.businessName}`,
                 `Mins reduced:  ${r.reduced}`,
@@ -144,8 +144,12 @@ async function runScheduledAutoMinMax() {
                 `Too new (skipped): ${r.tooNew || 0}`,
                 `Other skipped: ${r.skipped || 0}`,
                 `Synced to Square: ${sync.synced} (${sync.failed} failed)`,
-                `\nReview changes at: /min-max-history.html`
-            ].join('\n');
+            ];
+            if (sync.repairedParents > 0) {
+                bodyLines.push(`Repaired ${sync.repairedParents} parent item location mismatch(es) before sync`);
+            }
+            bodyLines.push(`\nReview changes at: /min-max-history.html`);
+            const body = bodyLines.join('\n');
 
             try {
                 await emailNotifier.sendAlert(subject, body);
