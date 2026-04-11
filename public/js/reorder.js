@@ -222,16 +222,19 @@ async function getSuggestions() {
       }
     }
 
-    // Default all items to selected (excluding bundle children), clear edits
+    // Apply smart checkbox defaults (Tier 1), clear edits
     selectedItems.clear();
     editedOrderQtys.clear();
     editedBundleChildQtys.clear();
     allSuggestions.forEach(item => {
-      if (!bundleChildVariationIds.has(item.variation_id)) {
+      if (!bundleChildVariationIds.has(item.variation_id) && item.default_checked !== false) {
         selectedItems.add(item.variation_id);
       }
     });
-    document.getElementById('select-all').checked = true;
+    const allStandaloneSelected = allSuggestions
+      .filter(item => !bundleChildVariationIds.has(item.variation_id))
+      .every(item => selectedItems.has(item.variation_id));
+    document.getElementById('select-all').checked = allStandaloneSelected;
     // Default all bundles to expanded
     expandedBundles.clear();
     bundleAnalysis.forEach(b => {
@@ -557,6 +560,16 @@ function updateBundleChildQty(input) {
   updateFooter();
 }
 
+// Human-readable labels for each default_reason code (Tier 1 smart defaults)
+function defaultReasonLabel(reason) {
+  const labels = {
+    'expiry_discount_active': 'Auto-unchecked: item already on expiry discount',
+    'cheaper_vendor_available': 'Auto-unchecked: cheaper vendor available',
+    'expiry_risk': 'Auto-unchecked: ordering this quantity may not sell before expiry',
+  };
+  return labels[reason] || reason;
+}
+
 function renderTable() {
   const tbody = document.getElementById('suggestions-body');
 
@@ -724,6 +737,7 @@ function renderTable() {
                  ${isSelected ? 'checked' : ''}
                  data-change="toggleItemFromCheckbox"
                  data-variation-id="${escapeAttr(item.variation_id)}">
+          ${item.default_checked === false ? `<br><small class="checkbox-default-reason" title="${escapeAttr(defaultReasonLabel(item.default_reason))}">⚠ auto-off</small>` : ''}
         </td>
         <td>
           <span class="priority-badge ${priorityClass}">${item.priority}</span>

@@ -18,6 +18,7 @@ const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/analytics');
 const { getReorderSuggestions } = require('../services/catalog/reorder-service');
+const { calculateCheckboxDefaults } = require('../services/reorder/checkbox-defaults-service');
 const autoMinMax = require('../services/inventory/auto-min-max-service');
 const { sendSuccess, sendError, sendPaginated } = require('../utils/response-helper');
 
@@ -99,6 +100,9 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
     if (result.error) {
         return sendError(res, result.error, 400);
     }
+
+    const merchantConfig = {};
+    result.suggestions = calculateCheckboxDefaults(result.suggestions, merchantConfig);
 
     sendSuccess(res, result);
 }));
