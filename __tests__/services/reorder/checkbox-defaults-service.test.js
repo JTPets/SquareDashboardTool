@@ -28,19 +28,32 @@ function makeItem(overrides = {}) {
 describe('calculateCheckboxDefaults', () => {
 
     // ==================== Rule 1: active_discount_tier ====================
+    // Invariant: active_discount_tier is non-null ONLY when edt.is_auto_apply = TRUE.
+    // The SQL CASE expression filters out OK/tracking-only rows — they arrive as null.
 
     test('active_discount_tier set → unchecked, reason expiry_discount_active', () => {
-        const items = [makeItem({ active_discount_tier: 'AUTO50' })];
+        // Simulates a real auto-apply tier ID returned from DB (is_auto_apply = TRUE)
+        const items = [makeItem({ active_discount_tier: 3 })];
         const result = calculateCheckboxDefaults(items);
         expect(result[0].default_checked).toBe(false);
         expect(result[0].default_reason).toBe('expiry_discount_active');
     });
 
     test('active_discount_tier set to any non-null value → unchecked', () => {
-        const items = [makeItem({ active_discount_tier: 'REVIEW' })];
+        // Another auto-apply tier ID
+        const items = [makeItem({ active_discount_tier: 5 })];
         const result = calculateCheckboxDefaults(items);
         expect(result[0].default_checked).toBe(false);
         expect(result[0].default_reason).toBe('expiry_discount_active');
+    });
+
+    test('active_discount_tier null (OK/non-discount tier) → checked, not flagged as discount', () => {
+        // Regression test for the bug: DB rows with a non-auto-apply tier (e.g. OK tier id=4)
+        // arrive as null from the SQL CASE expression — must NOT trigger rule 1.
+        const items = [makeItem({ active_discount_tier: null })];
+        const result = calculateCheckboxDefaults(items);
+        expect(result[0].default_checked).toBe(true);
+        expect(result[0].default_reason).toBe('default');
     });
 
     // ==================== Rule 2: is_primary_vendor ====================
