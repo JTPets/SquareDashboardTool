@@ -1594,6 +1594,22 @@ tr:hover {
   font-size: 12px;
 }
 
+/* Reorder page min/max conflict chip. Shown on any suggestion row where the
+   backend detected stock_alert_min >= stock_alert_max. Merchant can still
+   order — the chip signals that the max cap is being ignored and needs fixing. */
+.reorder-minmax-conflict {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
 .mmh-table tr:hover {
   filter: brightness(0.97);
 }

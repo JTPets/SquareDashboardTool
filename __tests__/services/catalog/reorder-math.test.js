@@ -5,7 +5,11 @@
  * This module is the single source of truth for reorder formulas (BACKLOG-14).
  */
 
-const { calculateReorderQuantity, calculateDaysOfStock } = require('../../../services/catalog/reorder-math');
+const {
+    calculateReorderQuantity,
+    calculateDaysOfStock,
+    detectMinMaxConflict
+} = require('../../../services/catalog/reorder-math');
 
 describe('reorder-math', () => {
 
@@ -331,6 +335,92 @@ describe('reorder-math', () => {
         test('fractional velocity', () => {
             const result = calculateDaysOfStock({ currentStock: 10, velocity: 0.5 });
             expect(result).toBe(20);
+        });
+    });
+
+    // ==================== detectMinMaxConflict ====================
+
+    describe('detectMinMaxConflict', () => {
+        test('returns null when stockAlertMax is null (unlimited)', () => {
+            expect(detectMinMaxConflict(10, null)).toBeNull();
+        });
+
+        test('returns null when stockAlertMax is 0 (treated as unlimited)', () => {
+            expect(detectMinMaxConflict(10, 0)).toBeNull();
+        });
+
+        test('returns null when stockAlertMin is 0 (no floor set)', () => {
+            expect(detectMinMaxConflict(0, 5)).toBeNull();
+        });
+
+        test('returns null when min < max (happy path)', () => {
+            expect(detectMinMaxConflict(5, 20)).toBeNull();
+        });
+
+        test('returns conflict descriptor when max equals min', () => {
+            const conflict = detectMinMaxConflict(10, 10);
+            expect(conflict).toEqual({
+                type: 'min_exceeds_max',
+                stockAlertMin: 10,
+                stockAlertMax: 10
+            });
+        });
+
+        test('returns conflict descriptor when max < min', () => {
+            const conflict = detectMinMaxConflict(20, 5);
+            expect(conflict).toEqual({
+                type: 'min_exceeds_max',
+                stockAlertMin: 20,
+                stockAlertMax: 5
+            });
+        });
+
+        test('returns null when stockAlertMin is null', () => {
+            expect(detectMinMaxConflict(null, 10)).toBeNull();
+        });
+    });
+
+    // ==================== Read-side safety (conflict short-circuit) ====================
+
+    describe('calculateReorderQuantity — min/max conflict behavior', () => {
+        // Callers (processSuggestionRows) detect the conflict and pass
+        // stockAlertMax: null so the cap doesn't force the result to 0.
+        // These tests document that bypass behavior.
+
+        test('below-minimum item with bad max does NOT silently disappear when cap is bypassed', () => {
+            // velocity=0, supply=45, min=10, max=5 (conflict), stock=3
+            // If cap were applied: ceil(min(X, 5-3)) = 2 — item could be nudged
+            // But caller passes stockAlertMax: null on conflict, so:
+            // velocity=0 → targetQty=1 → max(10+1, 1)=11; stock=3 → need 8
+            const result = calculateReorderQuantity({
+                velocity: 0,
+                supplyDays: 45,
+                stockAlertMin: 10,
+                stockAlertMax: null, // caller bypasses on conflict
+                currentStock: 3
+            });
+            expect(result).toBe(8);
+        });
+
+        test('normal (non-conflict) behavior unchanged when min < max', () => {
+            const result = calculateReorderQuantity({
+                velocity: 2,
+                supplyDays: 45,
+                stockAlertMin: 5,
+                stockAlertMax: 100,
+                currentStock: 20
+            });
+            expect(result).toBe(70);
+        });
+
+        test('max = null means no cap (conflict bypass path)', () => {
+            const result = calculateReorderQuantity({
+                velocity: 2,
+                supplyDays: 45,
+                stockAlertMax: null,
+                currentStock: 20
+            });
+            expect(result).toBe(70);
         });
     });
 });

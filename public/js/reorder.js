@@ -621,8 +621,10 @@ function renderTable() {
     let cappedByMax = false;
 
     // If stock_alert_max is set, don't order beyond it
-    // Use available_quantity (on_hand - committed) to match backend capping logic
-    if (item.stock_alert_max && item.stock_alert_max > 0) {
+    // Use available_quantity (on_hand - committed) to match backend capping logic.
+    // SAFETY: when a min/max conflict is flagged from the backend, bypass the cap
+    // entirely so below-minimum items aren't silently pinned to 0.
+    if (item.conflict !== 'min_exceeds_max' && item.stock_alert_max && item.stock_alert_max > 0) {
       const availableStock = item.available_quantity != null ? item.available_quantity : item.current_stock;
       const projectedStock = availableStock + suggestedQty;
       if (projectedStock > item.stock_alert_max) {
@@ -796,6 +798,7 @@ function renderTable() {
                  data-keydown="blurOnEnter">
           <br><small style="color: #6b7280;" id="units-${item.variation_id}">(${actualUnits} units)</small>
           ${cappedByMax ? '<br><small style="color: #f59e0b;">⚠️ Capped at max</small>' : ''}
+          ${item.conflict === 'min_exceeds_max' ? `<br><span class="reorder-minmax-conflict" title="Fix in catalog settings">⚠ Min/max conflict: min=${item.conflict_detail ? item.conflict_detail.stock_alert_min : item.stock_alert_min}, max=${item.conflict_detail ? item.conflict_detail.stock_alert_max : item.stock_alert_max} — fix in catalog settings</span>` : ''}
           ${item.pending_po_quantity > 0 ? `<br><small style="color: #3b82f6;" title="${item.pending_po_quantity} units pending in unreceived POs">📦 ${item.pending_po_quantity} on order</small>` : ''}
         </td>
         <td class="text-right editable-cell">
@@ -1745,6 +1748,26 @@ async function exitEditMode(input, save) {
       alert('Please enter a valid positive number or leave empty for unlimited.');
       recreateDisplay(input.parentElement, variationId, field, currentValue);
       return;
+    }
+
+    // Cross-field validation: min must be strictly less than max on the same row.
+    // Blocks submit before the request leaves the browser — backend is the
+    // source of truth but the extra hop is worth avoiding.
+    if (field === 'stock_alert_min' || field === 'stock_alert_max') {
+      const otherField = field === 'stock_alert_min' ? 'stock_alert_max' : 'stock_alert_min';
+      const otherRaw = item[otherField];
+      const other = (otherRaw === null || otherRaw === undefined || otherRaw === 0)
+        ? null
+        : Number(otherRaw);
+      const proposedMin = field === 'stock_alert_min' ? newValue : other;
+      let proposedMax = field === 'stock_alert_max' ? newValue : other;
+      // Treat 0 as unlimited (will be normalized server-side)
+      if (proposedMax === 0) proposedMax = null;
+      if (proposedMin !== null && proposedMax !== null && proposedMin >= proposedMax) {
+        alert(`Max stock must be greater than min stock (min=${proposedMin}, max=${proposedMax}). Update both fields so min < max.`);
+        recreateDisplay(input.parentElement, variationId, field, currentValue);
+        return;
+      }
     }
 
     // Show saving state

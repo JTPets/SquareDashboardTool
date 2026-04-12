@@ -38,11 +38,12 @@ jest.mock('../../../services/bundles/bundle-calculator', () => ({
 
 jest.mock('../../../services/catalog/reorder-math', () => ({
     calculateReorderQuantity: jest.fn(),
+    detectMinMaxConflict: jest.fn().mockReturnValue(null),
 }));
 
 const db = require('../../../utils/database');
 const { getMerchantSettings } = require('../../../services/merchant');
-const { calculateReorderQuantity } = require('../../../services/catalog/reorder-math');
+const { calculateReorderQuantity, detectMinMaxConflict } = require('../../../services/catalog/reorder-math');
 const {
     getReorderSuggestions,
     buildMainQuery,
@@ -126,6 +127,7 @@ describe('processSuggestionRows', () => {
     beforeEach(() => {
         jest.clearAllMocks();
         calculateReorderQuantity.mockReturnValue(10);
+        detectMinMaxConflict.mockReturnValue(null);
     });
 
     it('should return empty array for empty rows', () => {
@@ -144,6 +146,56 @@ describe('processSuggestionRows', () => {
         });
         const result = processSuggestionRows([row], defaultConfig);
         expect(result).toEqual([]);
+    });
+
+    // ---- Read-side safety (Layer 2): conflicts surface instead of disappearing ----
+
+    it('surfaces min/max conflict instead of dropping below-min items with bad max', () => {
+        // min=10, max=5 conflict. Without the safety, the availableQty >= max
+        // short-circuit would drop this item; we expect it to surface instead.
+        detectMinMaxConflict.mockReturnValue({
+            type: 'min_exceeds_max',
+            stockAlertMin: 10,
+            stockAlertMax: 5
+        });
+        calculateReorderQuantity.mockReturnValue(8);
+        const row = makeRow({
+            current_stock: '6',
+            committed_quantity: '0',
+            available_quantity: '6',
+            stock_alert_min: '10',
+            stock_alert_max: '5',
+            below_minimum: true,
+            days_until_stockout: '3'
+        });
+
+        const result = processSuggestionRows([row], defaultConfig);
+
+        expect(result).toHaveLength(1);
+        expect(result[0].conflict).toBe('min_exceeds_max');
+        expect(result[0].conflict_detail).toEqual({
+            stock_alert_min: 10,
+            stock_alert_max: 5
+        });
+        // Max cap must have been bypassed — calculateReorderQuantity called with stockAlertMax: null
+        expect(calculateReorderQuantity).toHaveBeenCalledWith(
+            expect.objectContaining({ stockAlertMax: null })
+        );
+    });
+
+    it('passes normal rows through with no conflict field set', () => {
+        detectMinMaxConflict.mockReturnValue(null);
+        const row = makeRow({
+            current_stock: '0',
+            committed_quantity: '0',
+            available_quantity: '0',
+            daily_avg_quantity: '3.0',
+            days_until_stockout: '0'
+        });
+        const result = processSuggestionRows([row], defaultConfig);
+        expect(result).toHaveLength(1);
+        expect(result[0].conflict).toBeNull();
+        expect(result[0].conflict_detail).toBeNull();
     });
 
     it('should include out-of-stock items with zero velocity as MEDIUM priority', () => {
@@ -593,6 +645,7 @@ describe('is_primary_vendor — equal price vendors', () => {
     beforeEach(() => {
         jest.clearAllMocks();
         calculateReorderQuantity.mockReturnValue(10);
+        detectMinMaxConflict.mockReturnValue(null);
     });
 
     it('should not flag as secondary vendor when prices are equal', () => {

@@ -63,6 +63,7 @@ jest.mock('../../services/bundles/bundle-calculator', () => ({
 
 jest.mock('../../services/catalog/reorder-math', () => ({
     calculateReorderQuantity: jest.fn(),
+    detectMinMaxConflict: jest.fn().mockReturnValue(null),
 }));
 
 const request = require('supertest');

@@ -301,6 +301,9 @@ CREATE TABLE variations (
     case_pack_quantity INTEGER,
     stock_alert_min INTEGER,
     stock_alert_max INTEGER,
+    CONSTRAINT chk_v_min_less_than_max CHECK (
+        stock_alert_min IS NULL OR stock_alert_max IS NULL OR stock_alert_min < stock_alert_max
+    ),
     preferred_stock_level INTEGER,
     shelf_location TEXT,
     bin_location TEXT,
@@ -402,6 +405,9 @@ CREATE TABLE variation_location_settings (
     location_id TEXT NOT NULL,
     stock_alert_min INTEGER,
     stock_alert_max INTEGER,
+    CONSTRAINT chk_vls_min_less_than_max CHECK (
+        stock_alert_min IS NULL OR stock_alert_max IS NULL OR stock_alert_min < stock_alert_max
+    ),
     preferred_stock_level INTEGER,
     shelf_location TEXT,
     sold_out BOOLEAN DEFAULT FALSE,
@@ -558,7 +564,7 @@ COMMENT ON TABLE purchase_order_items IS 'Line items for purchase orders';
 
 COMMENT ON COLUMN variations.case_pack_quantity IS 'Number of units per case for ordering full cases';
 COMMENT ON COLUMN variations.stock_alert_min IS 'Minimum stock level trigger for reordering';
-COMMENT ON COLUMN variations.stock_alert_max IS 'Maximum stock level to avoid overstocking';
+COMMENT ON COLUMN variations.stock_alert_max IS 'Maximum stock level to avoid overstocking. NULL=unlimited. Writes of 0 are normalized to NULL. CHECK chk_v_min_less_than_max enforces min < max.';
 COMMENT ON COLUMN variations.preferred_stock_level IS 'Target stock level for optimal inventory';
 COMMENT ON COLUMN variations.reorder_multiple IS 'Constraint for order quantities (e.g., must order in multiples of 6)';
 COMMENT ON COLUMN sales_velocity.daily_avg_quantity IS 'Average units sold per day over the period';
