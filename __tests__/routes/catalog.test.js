@@ -45,6 +45,14 @@ const mockCatalogService = {
 
 jest.mock('../../services/catalog', () => mockCatalogService);
 
+// Mock the database module used by catalog validators (min-stock cross-field
+// check reads variations.stock_alert_max). Default: no matching row so the
+// validator passes through without constraining existing tests.
+jest.mock('../../utils/database', () => ({
+    query: jest.fn().mockResolvedValue({ rows: [] })
+}));
+const mockDb = require('../../utils/database');
+
 jest.mock('../../middleware/auth', () => ({
     requireAuth: (req, res, next) => {
         if (!req.session?.user) {
@@ -366,6 +374,47 @@ describe('Catalog Routes', () => {
                 .send({ min_stock: 5 });
             expect(res.status).toBe(400);
             expect(res.body.square_error).toBe('API error');
+        });
+
+        it('rejects min_stock that would violate stored stock_alert_max', async () => {
+            mockDb.query.mockResolvedValueOnce({ rows: [{ stock_alert_max: 20 }] });
+            const res = await request(app)
+                .patch('/api/variations/v1/min-stock')
+                .send({ min_stock: 25 });
+            expect(res.status).toBe(400);
+            expect(JSON.stringify(res.body)).toMatch(/stock_alert_max must be greater than stock_alert_min/);
+            expect(mockCatalogService.updateMinStock).not.toHaveBeenCalled();
+        });
+
+        it('rejects min_stock equal to stored stock_alert_max', async () => {
+            mockDb.query.mockResolvedValueOnce({ rows: [{ stock_alert_max: 10 }] });
+            const res = await request(app)
+                .patch('/api/variations/v1/min-stock')
+                .send({ min_stock: 10 });
+            expect(res.status).toBe(400);
+            expect(JSON.stringify(res.body)).toMatch(/stock_alert_max must be greater than stock_alert_min/);
+        });
+
+        it('accepts min_stock below stored stock_alert_max', async () => {
+            mockDb.query.mockResolvedValueOnce({ rows: [{ stock_alert_max: 50 }] });
+            mockCatalogService.updateMinStock.mockResolvedValueOnce({
+                success: true, message: 'Updated'
+            });
+            const res = await request(app)
+                .patch('/api/variations/v1/min-stock')
+                .send({ min_stock: 5 });
+            expect(res.status).toBe(200);
+        });
+
+        it('accepts min_stock when stored stock_alert_max is NULL (unlimited)', async () => {
+            mockDb.query.mockResolvedValueOnce({ rows: [{ stock_alert_max: null }] });
+            mockCatalogService.updateMinStock.mockResolvedValueOnce({
+                success: true, message: 'Updated'
+            });
+            const res = await request(app)
+                .patch('/api/variations/v1/min-stock')
+                .send({ min_stock: 999 });
+            expect(res.status).toBe(200);
         });
     });
 
