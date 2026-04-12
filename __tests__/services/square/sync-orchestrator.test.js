@@ -288,12 +288,19 @@ describe('runSmartSync', () => {
         // mockResolvedValueOnce queue. Only the per-type completed_at
         // response actually varies per call; everything else is stable.
         db.query.mockImplementation((sql, params) => {
-            // isSyncNeeded: SELECT ... completed_at FROM sync_history
-            if (/FROM\s+sync_history[\s\S]*status\s*=\s*'success'/.test(sql)
-                && /ORDER BY/.test(sql) && /completed_at/.test(sql)) {
-                const type = params && params[0];
-                const completed_at = type === 'sales_91d' ? staleDate : recentDate;
-                return Promise.resolve({ rows: [{ completed_at }] });
+            // Order: most specific patterns first so they don't get shadowed.
+
+            // loggedSync INSERT (RETURNING id)
+            if (/INSERT\s+INTO\s+sync_history/.test(sql)) {
+                return Promise.resolve({ rows: [{ id: 5 }] });
+            }
+            // loggedSync UPDATE
+            if (/UPDATE\s+sync_history/.test(sql)) {
+                return Promise.resolve({ rows: [] });
+            }
+            // force365 catch-up check (selects records_synced, not completed_at)
+            if (/SELECT\s+records_synced\s+FROM\s+sync_history/.test(sql)) {
+                return Promise.resolve({ rows: [{ records_synced: 20 }] });
             }
             // item count
             if (/COUNT\(\*\)\s+FROM\s+items/.test(sql)) {
@@ -303,17 +310,11 @@ describe('runSmartSync', () => {
             if (/COUNT\(\*\)\s+FROM\s+inventory_counts/.test(sql)) {
                 return Promise.resolve({ rows: [{ count: '100' }] });
             }
-            // force365 catch-up check: SELECT records_synced FROM sync_history
-            if (/records_synced\s+FROM\s+sync_history/.test(sql)) {
-                return Promise.resolve({ rows: [{ records_synced: 20 }] });
-            }
-            // loggedSync INSERT (RETURNING id)
-            if (/INSERT\s+INTO\s+sync_history/.test(sql)) {
-                return Promise.resolve({ rows: [{ id: 5 }] });
-            }
-            // loggedSync UPDATE
-            if (/UPDATE\s+sync_history/.test(sql)) {
-                return Promise.resolve({ rows: [] });
+            // isSyncNeeded: SELECT ... completed_at FROM sync_history
+            if (/FROM\s+sync_history/.test(sql) && /completed_at/.test(sql)) {
+                const type = params && params[0];
+                const completed_at = type === 'sales_91d' ? staleDate : recentDate;
+                return Promise.resolve({ rows: [{ completed_at }] });
             }
             return Promise.resolve({ rows: [] });
         });
