@@ -17,10 +17,24 @@ jest.mock('../../../utils/logger', () => ({
     debug: jest.fn(),
 }));
 
-jest.mock('../../../services/loyalty-admin/shared-utils', () => ({
-    getSquareAccessToken: jest.fn(),
-    fetchWithTimeout: jest.fn((url, options) => global.fetch(url, options)),
-}));
+jest.mock('../../../services/square/square-client', () => {
+    class SquareApiError extends Error {
+        constructor(message, { status, endpoint, details = [], nonRetryable = false } = {}) {
+            super(message);
+            this.name = 'SquareApiError';
+            this.status = status;
+            this.endpoint = endpoint;
+            this.details = details;
+            this.nonRetryable = nonRetryable;
+            this.squareErrors = details;
+        }
+    }
+    return {
+        getMerchantToken: jest.fn(),
+        makeSquareRequest: jest.fn(),
+        SquareApiError,
+    };
+});
 
 jest.mock('../../../services/loyalty-admin/customer-cache-service', () => ({
     searchCachedCustomers: jest.fn(),
@@ -28,7 +42,7 @@ jest.mock('../../../services/loyalty-admin/customer-cache-service', () => ({
 }));
 
 const { searchCustomers } = require('../../../services/loyalty-admin/customer-search-service');
-const { getSquareAccessToken } = require('../../../services/loyalty-admin/shared-utils');
+const { getMerchantToken, makeSquareRequest, SquareApiError } = require('../../../services/square/square-client');
 const { searchCachedCustomers, cacheCustomerDetails } = require('../../../services/loyalty-admin/customer-cache-service');
 
 const MERCHANT_ID = 1;
@@ -53,12 +67,6 @@ describe('customer-search-service', () => {
     beforeEach(() => {
         jest.clearAllMocks();
         cacheCustomerDetails.mockResolvedValue();
-        // Mock global fetch
-        global.fetch = jest.fn();
-    });
-
-    afterEach(() => {
-        delete global.fetch;
     });
 
     test('throws on missing merchantId', async () => {
@@ -75,13 +83,13 @@ describe('customer-search-service', () => {
         expect(result.source).toBe('cache');
         expect(result.searchType).toBe('phone');
         expect(result.customers).toHaveLength(1);
-        expect(global.fetch).not.toHaveBeenCalled();
+        expect(makeSquareRequest).not.toHaveBeenCalled();
     });
 
     test('falls back to cache when no Square token', async () => {
         const cached = [makeCachedCustomer('CUST_1')];
         searchCachedCustomers.mockResolvedValue(cached);
-        getSquareAccessToken.mockResolvedValue(null);
+        getMerchantToken.mockResolvedValue(null);
 
         const result = await searchCustomers('john@test.com', MERCHANT_ID);
 
@@ -92,7 +100,7 @@ describe('customer-search-service', () => {
 
     test('throws when no token and no cache results', async () => {
         searchCachedCustomers.mockResolvedValue([]);
-        getSquareAccessToken.mockResolvedValue(null);
+        getMerchantToken.mockResolvedValue(null);
 
         await expect(searchCustomers('john@test.com', MERCHANT_ID))
             .rejects.toThrow('No Square access token configured');
@@ -100,13 +108,10 @@ describe('customer-search-service', () => {
 
     test('searches Square API for email and merges with cache', async () => {
         searchCachedCustomers.mockResolvedValue([makeCachedCustomer('CUST_CACHED')]);
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
-        global.fetch.mockResolvedValue({
-            ok: true,
-            json: async () => ({
-                customers: [makeSquareCustomer('CUST_SQUARE')]
-            })
+        makeSquareRequest.mockResolvedValue({
+            customers: [makeSquareCustomer('CUST_SQUARE')]
         });
 
         const result = await searchCustomers('john@test.com', MERCHANT_ID);
@@ -122,13 +127,10 @@ describe('customer-search-service', () => {
     test('deduplicates customers by ID (Square takes priority)', async () => {
         const sameId = 'CUST_SAME';
         searchCachedCustomers.mockResolvedValue([makeCachedCustomer(sameId, { displayName: 'Old Name' })]);
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
-        global.fetch.mockResolvedValue({
-            ok: true,
-            json: async () => ({
-                customers: [makeSquareCustomer(sameId, { givenName: 'New', familyName: 'Name' })]
-            })
+        makeSquareRequest.mockResolvedValue({
+            customers: [makeSquareCustomer(sameId, { givenName: 'New', familyName: 'Name' })]
         });
 
         const result = await searchCustomers('john@test.com', MERCHANT_ID);
@@ -139,19 +141,17 @@ describe('customer-search-service', () => {
 
     test('phone search sends exact phone filter to Square API', async () => {
         searchCachedCustomers.mockResolvedValue([]);
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
-        global.fetch.mockResolvedValue({
-            ok: true,
-            json: async () => ({ customers: [] })
-        });
+        makeSquareRequest.mockResolvedValue({ customers: [] });
 
         await searchCustomers('5551234567', MERCHANT_ID);
 
-        expect(global.fetch).toHaveBeenCalledWith(
-            'https://connect.squareup.com/v2/customers/search',
+        expect(makeSquareRequest).toHaveBeenCalledWith(
+            '/v2/customers/search',
             expect.objectContaining({
                 method: 'POST',
+                accessToken: 'fake-token',
                 body: expect.stringContaining('+15551234567')
             })
         );
@@ -159,16 +159,13 @@ describe('customer-search-service', () => {
 
     test('name search filters results client-side', async () => {
         searchCachedCustomers.mockResolvedValue([]);
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
-        global.fetch.mockResolvedValue({
-            ok: true,
-            json: async () => ({
-                customers: [
-                    makeSquareCustomer('CUST_1', { givenName: 'Alice', familyName: 'Smith' }),
-                    makeSquareCustomer('CUST_2', { givenName: 'Bob', familyName: 'Jones' })
-                ]
-            })
+        makeSquareRequest.mockResolvedValue({
+            customers: [
+                makeSquareCustomer('CUST_1', { givenName: 'Alice', familyName: 'Smith' }),
+                makeSquareCustomer('CUST_2', { givenName: 'Bob', familyName: 'Jones' })
+            ]
         });
 
         const result = await searchCustomers('Alice', MERCHANT_ID);
@@ -180,13 +177,13 @@ describe('customer-search-service', () => {
     test('falls back to cache when Square API returns error', async () => {
         const cached = [makeCachedCustomer('CUST_1')];
         searchCachedCustomers.mockResolvedValue(cached);
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
-        global.fetch.mockResolvedValue({
-            ok: false,
+        makeSquareRequest.mockRejectedValue(new SquareApiError('Square API error: 500', {
             status: 500,
-            text: async () => 'Internal Server Error'
-        });
+            endpoint: '/v2/customers/search',
+            details: []
+        }));
 
         const result = await searchCustomers('john@test.com', MERCHANT_ID);
 
@@ -196,13 +193,13 @@ describe('customer-search-service', () => {
 
     test('throws when Square API fails and no cache results', async () => {
         searchCachedCustomers.mockResolvedValue([]);
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
-        global.fetch.mockResolvedValue({
-            ok: false,
+        makeSquareRequest.mockRejectedValue(new SquareApiError('Square API error: 502', {
             status: 502,
-            text: async () => 'Bad Gateway'
-        });
+            endpoint: '/v2/customers/search',
+            details: []
+        }));
 
         await expect(searchCustomers('john@test.com', MERCHANT_ID))
             .rejects.toThrow('Square API error');
@@ -210,13 +207,10 @@ describe('customer-search-service', () => {
 
     test('caches Square API results asynchronously', async () => {
         searchCachedCustomers.mockResolvedValue([]);
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
-        global.fetch.mockResolvedValue({
-            ok: true,
-            json: async () => ({
-                customers: [makeSquareCustomer('CUST_1'), makeSquareCustomer('CUST_2')]
-            })
+        makeSquareRequest.mockResolvedValue({
+            customers: [makeSquareCustomer('CUST_1'), makeSquareCustomer('CUST_2')]
         });
 
         await searchCustomers('john@test.com', MERCHANT_ID);
