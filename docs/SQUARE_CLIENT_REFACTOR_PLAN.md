@@ -182,9 +182,9 @@ Atomic tasks, each independently mergeable. Format per task:
 **files touched | tests to update | acceptance criteria**.
 
 **Task 1 — Extend `square-client.js`** (Section 2 changes, no callers change)
-- Files: `utils/square-client.js`, `utils/errors/square-api-error.js`
+- Files: `services/square/square-client.js`
 - Tests: `square-client.test.js`
-- Accept: new options (`timeout`, `retries`, `idempotencyKey`) land with defaults matching prior behavior; existing callers untouched pass unchanged.
+- Accept: new `timeout` option lands with default matching prior behavior; existing callers untouched pass unchanged.
 
 **Task 2 — Simple group migration** (4 files, single PR)
 - Files: `redemption-audit-service.js`, `customer-admin-service.js`, `customer-details-service.js`, `customer-identification-service.js`
@@ -211,7 +211,7 @@ Atomic tasks, each independently mergeable. Format per task:
 - 17: `loyalty-handler.js` | its test + full loyalty E2E | accumulate/redeem/refund intact
 
 **Task 18 — Delete `shared-utils.js` duplicate functions**
-- Files: `utils/shared-utils.js` (retain re-export shims per Section 4)
+- Files: `services/loyalty-admin/shared-utils.js` (retain re-export shims per Section 4); `services/loyalty-admin/square-api-client.js` retained as shim
 - Tests: full suite
 - Accept: gate in Section 4 satisfied; `grep` sweep for removed symbols returns zero; `square-api-client.js` shim retained; all 5,464 tests green.
 
@@ -222,8 +222,8 @@ One row per behavioral difference from the Section 2 header.
 | Risk | What breaks if wrong | How to detect | How to verify |
 |------|---------------------|---------------|---------------|
 | Null-vs-throw token | Callers expecting `null` from `getSquareAccessToken` on missing merchant now get a thrown error; silent features (e.g. background backfill) crash instead of skipping | Error logs spike from `backfill-service` / cron jobs shortly after deploy | Unit test `getToken` for missing-merchant: assert identical return shape (null) to prior behavior, plus explicit test for the throw variant |
-| 404 handling | `refund-service` and `order-query-service` previously treated 404 as a typed soft-miss; if new client throws `SquareApiError` with `status=404`, branches that check `result === null` mis-branch into error path | Refund/query handlers return 500 where they previously returned a "not found" success; test `refund-service.test.js` fails on the 404 case | Add explicit 404 fixture tests; diff handler response body against golden file pre/post migration |
-| Retry policy change | New `retries` default differs from `withSquareRetry`; 429/503 under load either over-retry (rate-limit cascade) or under-retry (order processing fails that previously recovered) | 429 response counts in logs drift; `order-processing-service` soak test fails at ≥500 orders | Compare retry count + backoff schedule in `square-client.test.js` against `shared-utils.test.js` baseline; run 500-order soak in sandbox |
-| Timeout default change | `backfill-service` long loops hit a shorter default and abort mid-batch; or loyalty path hits a longer default and blocks webhook workers | Backfill jobs report partial completion; webhook worker queue depth grows | Assert `DEFAULT_TIMEOUT_MS` constant matches prior `shared-utils` value; explicit per-call override tests for backfill |
+| 404 handling | `order-history-audit-service.js` and `loyalty-event-prefetch-service.js` previously treated 404 as a typed soft-miss; if new client throws `SquareApiError` with `status=404`, branches that check `result === null` mis-branch into error path | Audit/prefetch handlers return 500 where they previously returned a "not found" success; test `order-history-audit-service.test.js` fails on the 404 case | Add explicit 404 fixture tests; diff handler response body against golden file pre/post migration |
+| Retry policy change | New `retries` default differs from `squareApiRequest`; 429/503 under load either over-retry (rate-limit cascade) or under-retry (order processing fails that previously recovered) | 429 response counts in logs drift; `order-processing-service` soak test fails at ≥500 orders | Compare retry count + backoff schedule in `square-client.test.js` against `shared-utils.test.js` baseline; run 500-order soak in sandbox |
+| Timeout default change | Section 2 replaces the hard-coded 15 s `fetchWithTimeout` default with the `square-client.js` 30 s default; `backfill-service` long loops that previously aborted at 15 s now run twice as long, and callers that relied on the shorter fail-fast window may block workers | Backfill jobs report longer per-call durations; webhook worker queue depth grows | Assert the 30 s default matches the current `square-client.js` value; add explicit per-call `timeout: 15000` override tests for any call site that relied on the old 15 s behavior |
 | `SquareApiError` field shape | `loyalty-handler` and `order-processing-service` key off `status`, `endpoint`, `details`, `nonRetryable`; missing or renamed fields silently route all errors to the retryable branch | Loyalty errors loop indefinitely; retry counters climb with no progress | Snapshot test of `SquareApiError` JSON shape; diff against `square-api-client.js` original before Task 11 merges |
-| Idempotency key format | `payment-service` and `square-discount-catalog-service` send a key format Square has already seen; duplicate payment rejected, or duplicate catalog upsert creates a second row | Square API returns `IDEMPOTENCY_KEY_REUSED` or duplicate catalog objects appear | Byte-for-byte diff of `generateIdempotencyKey` output vs `squareClient.idempotencyKey` on same inputs; assert in unit test |
+| Idempotency key format | `square-discount-catalog-service.js` sends a key format Square has already seen; duplicate catalog upsert creates a second row | Square API returns `IDEMPOTENCY_KEY_REUSED` or duplicate catalog objects appear | Byte-for-byte diff of `generateIdempotencyKey` output vs `squareClient.idempotencyKey` on same inputs; assert in unit test |
