@@ -61,49 +61,88 @@ helpers. Callers continue to use `makeSquareRequest` directly.
 
 ## Section 3 — Migration Spec
 
-**Simple group** (`square-locations.js`, `square-location-preflight.js`,
-`catalog-health-service.js`, `location-health-service.js`,
-`utils/square-webhooks.js`). These call sites use at most two client
-primitives and have no idempotency or pagination logic. Migrate by
-instantiating `new SquareClient({ merchantId })` at function entry and
-replacing `makeSquareRequest(endpoint, { accessToken, ... })` with
-`client.get(path)` / `client.request(...)`. `utils/square-webhooks.js`
-keeps its functional `generateIdempotencyKey` import unchanged since it
-performs no HTTP. Expected churn: ≤ 15 lines per file, no test changes
-beyond mock swaps. Land all five in a single PR to establish the
-migration pattern before touching higher-risk code.
+Migrates the 19 loyalty-admin and webhook files from Section 1 onto
+`services/square/square-client.js`. `SquareApiError` (per Section 2)
+must land before any file in this section is migrated — it is the shim
+that lets callers preserve 404-tolerant and other status-based branches.
+All 19 target files have corresponding test files under
+`__tests__/services/loyalty-admin/`, `__tests__/services/webhook-handlers/`,
+or `__tests__/services/seniors/`; each migration PR must keep its
+file-specific test suite green.
 
-**Medium group** (`square-custom-attributes.js`, `square-pricing.js`,
-`square-vendors.js`, `square-velocity.js`, `square-diagnostics.js`,
-`inventory-receive-sync.js`, `match-suggestions-service.js`,
-`vendor-query-service.js`, `utils/square-subscriptions.js`,
-`scripts/combined-order-backfill.js`). These use `sleep` and/or
-`generateIdempotencyKey` and exercise version-mismatch or pagination
-paths. Migrate one file per PR. Replace manual idempotency-key generation
-with `client.post(path, body, { idempotent: true })`. Replace manual
-cursor loops with `client.paginate(...)` where shape matches; leave
-bespoke loops alone when they interleave custom business logic between
-pages. Keep `sleep` imports where callers pace work outside a single
-request (e.g., velocity page throttling, backfill scripts).
-`vendor-query-service.js` retains its lazy `require` to preserve the
-existing cycle-break. Each PR must keep the full existing test suite
-green with no snapshot or mock-arity changes beyond the direct call-site
-swap.
+**Simple group** (`redemption-audit-service.js`,
+`customer-admin-service.js`, `customer-details-service.js`,
+`customer-identification-service.js`). Changes: replace
+`fetchWithTimeout` + manual `Bearer`/`Square-Version` header assembly
+with `makeSquareRequest(endpoint, { accessToken, method, body })`;
+replace `getSquareAccessToken(merchantId)` with
+`getMerchantToken(merchantId)`; drop the `shared-utils` / `square-api-client`
+imports. `SquareApiError` must already be exported from `square-client.js`
+before any of these land. **Main migration risk**: `getSquareAccessToken`
+returned `null` for missing tokens while `getMerchantToken` throws —
+every call site must either catch the throw or pre-check the merchant.
+**Acceptance criteria**: `redemption-audit-service.test.js`,
+`customer-admin-service.test.js`, `customer-details-service.test.js`,
+and `customer-identification-service.test.js` all pass unchanged (only
+their mocks swap from `shared-utils`/`square-api-client` to
+`square-client`). Land this group first in a single PR to prove the
+shim and the null-vs-throw handling before touching riskier code.
 
-**Complex group** (`services/square/index.js`, `services/square/api.js`,
-`square-inventory.js`, `square-catalog-sync.js`,
-`vendor/catalog-create-service.js`). These are either public barrels or
-long-running flows where retry pacing, idempotency, and version conflicts
-are load-bearing. Migrate last, one PR per file, behind a feature flag
-where practical. `index.js` gains the class on its re-export surface
-without removing any existing functional export — downstream consumers
-outside this plan must continue to work unchanged. `api.js` adopts the
-class internally but keeps its own exported signature stable.
-`square-inventory.js` and `catalog-create-service.js` must have their
-idempotency-key generation traced end-to-end in tests to prove the new
-`{ idempotent: true }` path produces the same uniqueness guarantees as
-today. `square-catalog-sync.js` needs a dedicated soak test against a
-sandbox merchant before rollout because its batch+sleep pacing directly
-drives Square rate-limit behavior. No deletions of the functional
-exports until every consumer in this document has been migrated and one
-full release cycle has elapsed.
+**Medium group** (`customer-search-service.js`,
+`discount-validation-service.js`, `loyalty-event-prefetch-service.js`,
+`square-discount-service.js`, `order-history-audit-service.js`,
+`customer-handler.js`, `seniors-service.js`). Changes: replace
+`squareApiRequest(accessToken, method, endpoint, body, options)` calls
+with `makeSquareRequest(endpoint, { accessToken, method, body })`;
+rewrite any `err.status === 404 ? null : throw` branches to
+`err instanceof SquareApiError && err.status === 404`. Preserve the
+existing 404-to-null semantics exactly — several of these services
+depend on it for "customer not found" and "discount not found" paths.
+One PR per file. **Main migration risk**: `squareApiRequest` had its own
+retry loop with `maxRetries` option; `makeSquareRequest` uses the shared
+`MAX_RETRIES` constant, so call sites that previously passed a custom
+`maxRetries` will silently use the module default. Audit every call for
+custom retry counts before migration. **Acceptance criteria**: each
+file's matching test file
+(`customer-search-service.test.js`, `discount-validation-service.test.js`,
+`loyalty-event-prefetch-service.test.js`, `square-discount-service.test.js`,
+`order-history-audit-service.test.js`, `customer-handler.test.js`,
+`seniors-service.test.js`) passes, plus `la-fixes-batch.test.js` which
+exercises several of these services end-to-end.
+
+**Complex group** (`services/loyalty-admin/index.js`,
+`square-api-client.js`, `square-customer-group-service.js`,
+`square-discount-catalog-service.js`, `backfill-service.js`,
+`backfill-orchestration-service.js`, `order-processing-service.js`,
+`loyalty-handler.js`). Changes: deepest rewrites.
+`square-customer-group-service.js` has inline `require('./shared-utils')`
+calls mid-function that must be hoisted and rewritten.
+`square-api-client.js` is itself a client wrapper; collapse its
+`SquareApiClient` class onto `makeSquareRequest` directly, or keep the
+class as a thin shim that delegates (decide per call-site survey).
+`square-discount-catalog-service.js` threads `generateIdempotencyKey`
+through catalog upserts and must preserve the exact key shape.
+`backfill-service.js` and `backfill-orchestration-service.js` run long
+loops where per-call `timeout` tuning matters — use the new `timeout`
+option from Section 2 rather than the default 30 s.
+`loyalty-handler.js` and `order-processing-service.js` are on the
+critical loyalty path. Migrate last, one PR per file.
+**Main migration risk**: `SquareApiClient` currently surfaces errors via
+`SquareApiError` with its own field shape; downstream handlers
+(`loyalty-handler.js`, `order-processing-service.js`) key off those
+fields. The `SquareApiError` class added in Section 2 must match that
+field shape (`status`, `endpoint`, `details`, `nonRetryable`) or those
+handlers will silently mis-branch. Diff both error shapes before the
+first complex-group PR. **Acceptance criteria**: each file's matching
+test file passes (`index.test.js`, `square-api-client.test.js`,
+`square-customer-group-service.test.js`,
+`square-discount-catalog-service.test.js`, `backfill-service.test.js`,
+`backfill-orchestration-service.test.js`,
+`order-processing-service.test.js`, `loyalty-handler.test.js`).
+`order-processing-service.js` additionally requires a soak test against
+a sandbox merchant processing ≥ 500 orders before merge to catch retry
+or timeout regressions under load. `loyalty-handler.js` additionally
+requires a full regression of the loyalty webhook flow (accumulate →
+redeem → refund) end-to-end before merge. No removal of `shared-utils.js`
+or the legacy `square-api-client.js` until every file in this document
+has merged and one full release cycle has elapsed.
