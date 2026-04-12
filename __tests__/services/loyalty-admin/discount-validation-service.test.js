@@ -27,13 +27,30 @@ jest.mock('../../../utils/loyalty-logger', () => ({
     loyaltyLogger: { squareApi: jest.fn(), debug: jest.fn() }
 }));
 
-const mockFetchWithTimeout = jest.fn();
-const mockGetSquareAccessToken = jest.fn();
+const mockMakeSquareRequest = jest.fn();
+const mockGetMerchantToken = jest.fn();
 
-jest.mock('../../../services/loyalty-admin/shared-utils', () => ({
-    fetchWithTimeout: mockFetchWithTimeout,
-    getSquareAccessToken: mockGetSquareAccessToken
-}));
+jest.mock('../../../services/square/square-client', () => {
+    class SquareApiError extends Error {
+        constructor(message, { status, endpoint, details = [], nonRetryable = false } = {}) {
+            super(message);
+            this.name = 'SquareApiError';
+            this.status = status;
+            this.endpoint = endpoint;
+            this.details = details;
+            this.nonRetryable = nonRetryable;
+            this.squareErrors = details;
+        }
+    }
+    return {
+        makeSquareRequest: mockMakeSquareRequest,
+        getMerchantToken: mockGetMerchantToken,
+        SquareApiError
+    };
+});
+
+// Re-import SquareApiError from the mocked module for fixture construction
+const { SquareApiError } = require('../../../services/square/square-client');
 
 const mockAddCustomerToGroup = jest.fn();
 jest.mock('../../../services/loyalty-admin/square-customer-group-service', () => ({
@@ -71,7 +88,7 @@ describe('validateEarnedRewardsDiscounts', () => {
     });
 
     it('should return error when no access token available', async () => {
-        mockGetSquareAccessToken.mockResolvedValueOnce(null);
+        mockGetMerchantToken.mockResolvedValueOnce(null);
 
         const result = await validateEarnedRewardsDiscounts({ merchantId: 1 });
 
@@ -79,7 +96,7 @@ describe('validateEarnedRewardsDiscounts', () => {
     });
 
     it('should return success with zero issues when no earned rewards exist', async () => {
-        mockGetSquareAccessToken.mockResolvedValueOnce('test-token');
+        mockGetMerchantToken.mockResolvedValueOnce('test-token');
         db.query.mockResolvedValueOnce({ rows: [] });
 
         const result = await validateEarnedRewardsDiscounts({ merchantId: 1 });
@@ -92,7 +109,7 @@ describe('validateEarnedRewardsDiscounts', () => {
     });
 
     it('should validate all earned rewards and count valid ones', async () => {
-        mockGetSquareAccessToken.mockResolvedValueOnce('test-token');
+        mockGetMerchantToken.mockResolvedValueOnce('test-token');
         db.query.mockResolvedValueOnce({
             rows: [{
                 id: 1, square_discount_id: 'DISC_1', square_group_id: null,
@@ -103,11 +120,7 @@ describe('validateEarnedRewardsDiscounts', () => {
         });
 
         // Discount exists in Square and is valid
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true,
-            status: 200,
-            json: async () => ({ object: { is_deleted: false } })
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ object: { is_deleted: false } });
 
         const result = await validateEarnedRewardsDiscounts({ merchantId: 1 });
 
@@ -118,7 +131,7 @@ describe('validateEarnedRewardsDiscounts', () => {
     });
 
     it('should collect issues from invalid rewards without fixing when fixIssues is false', async () => {
-        mockGetSquareAccessToken.mockResolvedValueOnce('test-token');
+        mockGetMerchantToken.mockResolvedValueOnce('test-token');
         db.query.mockResolvedValueOnce({
             rows: [{
                 id: 1, square_discount_id: null, square_group_id: null,
@@ -135,7 +148,7 @@ describe('validateEarnedRewardsDiscounts', () => {
     });
 
     it('should fix issues and track fixes when fixIssues is true', async () => {
-        mockGetSquareAccessToken.mockResolvedValueOnce('test-token');
+        mockGetMerchantToken.mockResolvedValueOnce('test-token');
         db.query.mockResolvedValueOnce({
             rows: [{
                 id: 1, square_discount_id: null, square_group_id: null,
@@ -154,7 +167,7 @@ describe('validateEarnedRewardsDiscounts', () => {
     });
 
     it('should handle multiple rewards with mixed validity', async () => {
-        mockGetSquareAccessToken.mockResolvedValueOnce('test-token');
+        mockGetMerchantToken.mockResolvedValueOnce('test-token');
         db.query.mockResolvedValueOnce({
             rows: [
                 {
@@ -171,10 +184,7 @@ describe('validateEarnedRewardsDiscounts', () => {
         });
 
         // First reward: valid discount in Square
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({ object: { is_deleted: false } })
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ object: { is_deleted: false } });
 
         const result = await validateEarnedRewardsDiscounts({ merchantId: 1 });
 
@@ -193,10 +203,7 @@ describe('validateSingleRewardDiscount', () => {
     beforeEach(() => jest.clearAllMocks());
 
     it('should return valid when discount exists and is not deleted', async () => {
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({ object: { is_deleted: false } })
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ object: { is_deleted: false } });
 
         const result = await validateSingleRewardDiscount({
             merchantId: 1,
@@ -261,10 +268,11 @@ describe('validateSingleRewardDiscount', () => {
     // -- Check 2: Discount not found in Square (404) --
 
     it('should detect DISCOUNT_NOT_FOUND when Square returns 404', async () => {
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: false, status: 404,
-            json: async () => ({ errors: [{ code: 'NOT_FOUND' }] })
-        });
+        mockMakeSquareRequest.mockRejectedValueOnce(new SquareApiError('not found', {
+            status: 404,
+            endpoint: '/v2/catalog/object/DISC_GONE',
+            details: [{ code: 'NOT_FOUND' }]
+        }));
 
         const result = await validateSingleRewardDiscount({
             merchantId: 1,
@@ -279,7 +287,11 @@ describe('validateSingleRewardDiscount', () => {
     });
 
     it('should fix DISCOUNT_NOT_FOUND by clearing IDs and recreating', async () => {
-        mockFetchWithTimeout.mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) });
+        mockMakeSquareRequest.mockRejectedValueOnce(new SquareApiError('not found', {
+            status: 404,
+            endpoint: '/v2/catalog/object/DISC_GONE',
+            details: []
+        }));
         db.query.mockResolvedValueOnce({ rows: [] }); // Clear IDs
         mockCreateSquareCustomerGroupDiscount.mockResolvedValueOnce({ success: true });
 
@@ -302,10 +314,11 @@ describe('validateSingleRewardDiscount', () => {
     // -- Check 2b: Discount API error (non-404) --
 
     it('should detect DISCOUNT_API_ERROR when Square returns non-404 error', async () => {
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: false, status: 500,
-            json: async () => ({ errors: [{ code: 'INTERNAL_ERROR' }] })
-        });
+        mockMakeSquareRequest.mockRejectedValueOnce(new SquareApiError('server error', {
+            status: 500,
+            endpoint: '/v2/catalog/object/DISC_1',
+            details: [{ code: 'INTERNAL_ERROR' }]
+        }));
 
         const result = await validateSingleRewardDiscount({
             merchantId: 1,
@@ -321,10 +334,7 @@ describe('validateSingleRewardDiscount', () => {
     // -- Check 2c: Discount deleted in Square --
 
     it('should detect DISCOUNT_DELETED when is_deleted is true', async () => {
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({ object: { is_deleted: true } })
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ object: { is_deleted: true } });
 
         const result = await validateSingleRewardDiscount({
             merchantId: 1,
@@ -338,10 +348,7 @@ describe('validateSingleRewardDiscount', () => {
     });
 
     it('should fix DISCOUNT_DELETED by clearing IDs and recreating', async () => {
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({ object: { is_deleted: true } })
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ object: { is_deleted: true } });
         db.query.mockResolvedValueOnce({ rows: [] }); // Clear IDs
         mockCreateSquareCustomerGroupDiscount.mockResolvedValueOnce({ success: true });
 
@@ -359,7 +366,7 @@ describe('validateSingleRewardDiscount', () => {
     // -- Check 2d: Validation error (network/timeout) --
 
     it('should detect VALIDATION_ERROR when fetch throws', async () => {
-        mockFetchWithTimeout.mockRejectedValueOnce(new Error('Network timeout'));
+        mockMakeSquareRequest.mockRejectedValueOnce(new Error('Network timeout'));
 
         const result = await validateSingleRewardDiscount({
             merchantId: 1,
@@ -377,15 +384,9 @@ describe('validateSingleRewardDiscount', () => {
 
     it('should detect CUSTOMER_NOT_IN_GROUP when customer is not in the discount group', async () => {
         // Discount check passes
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({ object: { is_deleted: false } })
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ object: { is_deleted: false } });
         // Customer check shows wrong groups
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({ customer: { group_ids: ['OTHER_GROUP'] } })
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ customer: { group_ids: ['OTHER_GROUP'] } });
 
         const result = await validateSingleRewardDiscount({
             merchantId: 1,
@@ -404,14 +405,8 @@ describe('validateSingleRewardDiscount', () => {
     });
 
     it('should fix CUSTOMER_NOT_IN_GROUP by re-adding customer to group', async () => {
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({ object: { is_deleted: false } })
-        });
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({ customer: { group_ids: [] } })
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ object: { is_deleted: false } });
+        mockMakeSquareRequest.mockResolvedValueOnce({ customer: { group_ids: [] } });
         mockAddCustomerToGroup.mockResolvedValueOnce({ success: true });
 
         const result = await validateSingleRewardDiscount({
@@ -434,14 +429,8 @@ describe('validateSingleRewardDiscount', () => {
     });
 
     it('should return valid when customer IS in the correct group', async () => {
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({ object: { is_deleted: false } })
-        });
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({ customer: { group_ids: ['GRP_1', 'OTHER'] } })
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ object: { is_deleted: false } });
+        mockMakeSquareRequest.mockResolvedValueOnce({ customer: { group_ids: ['GRP_1', 'OTHER'] } });
 
         const result = await validateSingleRewardDiscount({
             merchantId: 1,
@@ -457,12 +446,9 @@ describe('validateSingleRewardDiscount', () => {
     });
 
     it('should treat customer API failure as non-fatal (valid result)', async () => {
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({ object: { is_deleted: false } })
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ object: { is_deleted: false } });
         // Customer fetch throws
-        mockFetchWithTimeout.mockRejectedValueOnce(new Error('Customer API down'));
+        mockMakeSquareRequest.mockRejectedValueOnce(new Error('Customer API down'));
 
         const result = await validateSingleRewardDiscount({
             merchantId: 1,
@@ -479,14 +465,8 @@ describe('validateSingleRewardDiscount', () => {
     });
 
     it('should handle customer response with no group_ids field', async () => {
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({ object: { is_deleted: false } })
-        });
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({ customer: {} })  // no group_ids
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ object: { is_deleted: false } });
+        mockMakeSquareRequest.mockResolvedValueOnce({ customer: {} });  // no group_ids
 
         const result = await validateSingleRewardDiscount({
             merchantId: 1,
@@ -504,10 +484,7 @@ describe('validateSingleRewardDiscount', () => {
     });
 
     it('should skip group check when square_group_id is null', async () => {
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({ object: { is_deleted: false } })
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ object: { is_deleted: false } });
 
         const result = await validateSingleRewardDiscount({
             merchantId: 1,
@@ -521,7 +498,7 @@ describe('validateSingleRewardDiscount', () => {
 
         expect(result.valid).toBe(true);
         // Only one fetch call (discount check), no customer check
-        expect(mockFetchWithTimeout).toHaveBeenCalledTimes(1);
+        expect(mockMakeSquareRequest).toHaveBeenCalledTimes(1);
     });
 });
 

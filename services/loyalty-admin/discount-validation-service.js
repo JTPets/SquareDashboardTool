@@ -11,7 +11,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
-const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
+const { makeSquareRequest, getMerchantToken, SquareApiError } = require('../square/square-client');
 const { addCustomerToGroup } = require('./square-customer-group-service');
 const { updateRewardDiscountAmount } = require('./square-discount-catalog-service');
 
@@ -84,7 +84,15 @@ async function validateEarnedRewardsDiscounts({ merchantId, fixIssues = false })
 
     logger.info('Validating earned rewards discounts', { merchantId, fixIssues });
 
-    const accessToken = await getSquareAccessToken(merchantId);
+    // getMerchantToken throws when merchant is missing/inactive/no token;
+    // legacy getSquareAccessToken returned null for the same cases. Catch
+    // the throw and fall through to the same "no access token" branch.
+    let accessToken = null;
+    try {
+        accessToken = await getMerchantToken(merchantId);
+    } catch (err) {
+        logger.debug('No Square access token available', { merchantId, error: err.message });
+    }
     if (!accessToken) {
         return { success: false, error: 'No access token available' };
     }
@@ -301,32 +309,37 @@ async function validateSingleRewardDiscount({ merchantId, reward, accessToken, f
 
     // Check 2: Verify the discount object exists in Square
     if (reward.square_discount_id) {
+        const catalogCheckStart = Date.now();
+        let discountData;
         try {
-            const catalogCheckStart = Date.now();
-            const response = await fetchWithTimeout(
-                `https://connect.squareup.com/v2/catalog/object/${reward.square_discount_id}`,
-                {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json',
-                        'Square-Version': SQUARE_API_VERSION
-                    }
-                },
-                10000
+            discountData = await makeSquareRequest(
+                `/v2/catalog/object/${reward.square_discount_id}`,
+                { method: 'GET', accessToken, timeout: 10000 }
             );
-            const catalogCheckDuration = Date.now() - catalogCheckStart;
 
             loyaltyLogger.squareApi({
                 endpoint: `/catalog/object/${reward.square_discount_id}`,
                 method: 'GET',
-                status: response.status,
-                duration: catalogCheckDuration,
-                success: response.ok,
+                status: 200,
+                duration: Date.now() - catalogCheckStart,
+                success: true,
                 merchantId,
                 context: 'validateRewardSquareObjects',
             });
+        } catch (error) {
+            const catalogCheckDuration = Date.now() - catalogCheckStart;
 
-            if (response.status === 404) {
+            if (error instanceof SquareApiError && error.status === 404) {
+                loyaltyLogger.squareApi({
+                    endpoint: `/catalog/object/${reward.square_discount_id}`,
+                    method: 'GET',
+                    status: 404,
+                    duration: catalogCheckDuration,
+                    success: false,
+                    merchantId,
+                    context: 'validateRewardSquareObjects',
+                });
+
                 result.valid = false;
                 result.issue = 'DISCOUNT_NOT_FOUND';
                 result.details = {
@@ -349,115 +362,125 @@ async function validateSingleRewardDiscount({ merchantId, reward, accessToken, f
                 return result;
             }
 
-            if (!response.ok) {
-                const errorData = await response.json();
+            if (error instanceof SquareApiError) {
+                loyaltyLogger.squareApi({
+                    endpoint: `/catalog/object/${reward.square_discount_id}`,
+                    method: 'GET',
+                    status: error.status,
+                    duration: catalogCheckDuration,
+                    success: false,
+                    merchantId,
+                    context: 'validateRewardSquareObjects',
+                });
+
                 result.valid = false;
                 result.issue = 'DISCOUNT_API_ERROR';
                 result.details = {
                     message: 'Error checking discount in Square',
-                    error: errorData
+                    error: { errors: error.details || [] }
                 };
                 return result;
             }
 
-            // Discount exists - verify it's still valid
-            const discountData = await response.json();
-            const discountObj = discountData.object;
-
-            if (discountObj.is_deleted) {
-                result.valid = false;
-                result.issue = 'DISCOUNT_DELETED';
-                result.details = {
-                    message: 'Discount was deleted in Square',
-                    squareDiscountId: reward.square_discount_id
-                };
-
-                if (fixIssues) {
-                    // LOGIC CHANGE: uses shared recreateDiscountIfInvalid (BACKLOG-69)
-                    const recreateResult = await recreateDiscountIfInvalid({ merchantId, reward });
-
-                    if (recreateResult.success) {
-                        result.fixed = true;
-                        result.fixAction = 'RECREATED_DELETED_DISCOUNT';
-                    } else {
-                        result.details.fixError = recreateResult.error;
-                    }
-                }
-
-                return result;
-            }
-
-        } catch (error) {
+            // Non-SquareApiError (network, timeout, etc.)
             result.valid = false;
             result.issue = 'VALIDATION_ERROR';
             result.details = { message: error.message };
+            return result;
+        }
+
+        // Discount exists - verify it's still valid
+        const discountObj = discountData.object;
+
+        if (discountObj.is_deleted) {
+            result.valid = false;
+            result.issue = 'DISCOUNT_DELETED';
+            result.details = {
+                message: 'Discount was deleted in Square',
+                squareDiscountId: reward.square_discount_id
+            };
+
+            if (fixIssues) {
+                // LOGIC CHANGE: uses shared recreateDiscountIfInvalid (BACKLOG-69)
+                const recreateResult = await recreateDiscountIfInvalid({ merchantId, reward });
+
+                if (recreateResult.success) {
+                    result.fixed = true;
+                    result.fixAction = 'RECREATED_DELETED_DISCOUNT';
+                } else {
+                    result.details.fixError = recreateResult.error;
+                }
+            }
+
             return result;
         }
     }
 
     // Check 3: Verify customer group membership
     if (reward.square_group_id && reward.square_customer_id) {
+        const customerCheckStart = Date.now();
+        let customerData;
         try {
-            const customerCheckStart = Date.now();
-            const response = await fetchWithTimeout(
-                `https://connect.squareup.com/v2/customers/${reward.square_customer_id}`,
-                {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json',
-                        'Square-Version': SQUARE_API_VERSION
-                    }
-                },
-                10000
+            customerData = await makeSquareRequest(
+                `/v2/customers/${reward.square_customer_id}`,
+                { method: 'GET', accessToken, timeout: 10000 }
             );
-            const customerCheckDuration = Date.now() - customerCheckStart;
 
             loyaltyLogger.squareApi({
                 endpoint: `/customers/${reward.square_customer_id}`,
                 method: 'GET',
-                status: response.status,
-                duration: customerCheckDuration,
-                success: response.ok,
+                status: 200,
+                duration: Date.now() - customerCheckStart,
+                success: true,
                 merchantId,
                 context: 'validateRewardSquareObjects',
             });
-
-            if (response.ok) {
-                const customerData = await response.json();
-                const groupIds = customerData.customer?.group_ids || [];
-
-                if (!groupIds.includes(reward.square_group_id)) {
-                    result.valid = false;
-                    result.issue = 'CUSTOMER_NOT_IN_GROUP';
-                    result.details = {
-                        message: 'Customer not in discount group',
-                        squareGroupId: reward.square_group_id,
-                        customerGroups: groupIds
-                    };
-
-                    if (fixIssues) {
-                        // Re-add customer to group
-                        const addResult = await addCustomerToGroup({
-                            merchantId,
-                            squareCustomerId: reward.square_customer_id,
-                            groupId: reward.square_group_id
-                        });
-
-                        if (addResult.success) {
-                            result.fixed = true;
-                            result.fixAction = 'READDED_TO_GROUP';
-                        }
-                    }
-
-                    return result;
-                }
-            }
         } catch (error) {
-            // Non-fatal - customer lookup may fail
+            // Non-fatal - customer lookup may fail (preserves legacy behavior
+            // where a non-ok customer response silently skipped the group check).
+            const status = error instanceof SquareApiError ? error.status : undefined;
+            loyaltyLogger.squareApi({
+                endpoint: `/customers/${reward.square_customer_id}`,
+                method: 'GET',
+                status,
+                duration: Date.now() - customerCheckStart,
+                success: false,
+                merchantId,
+                context: 'validateRewardSquareObjects',
+            });
             logger.warn('Could not verify customer group membership', {
                 rewardId: reward.id,
                 error: error.message
             });
+            return result;
+        }
+
+        const groupIds = customerData.customer?.group_ids || [];
+
+        if (!groupIds.includes(reward.square_group_id)) {
+            result.valid = false;
+            result.issue = 'CUSTOMER_NOT_IN_GROUP';
+            result.details = {
+                message: 'Customer not in discount group',
+                squareGroupId: reward.square_group_id,
+                customerGroups: groupIds
+            };
+
+            if (fixIssues) {
+                // Re-add customer to group
+                const addResult = await addCustomerToGroup({
+                    merchantId,
+                    squareCustomerId: reward.square_customer_id,
+                    groupId: reward.square_group_id
+                });
+
+                if (addResult.success) {
+                    result.fixed = true;
+                    result.fixAction = 'READDED_TO_GROUP';
+                }
+            }
+
+            return result;
         }
     }
 
