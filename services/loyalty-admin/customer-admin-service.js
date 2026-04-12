@@ -17,7 +17,6 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
-const { getSquareAccessToken } = require('./shared-utils');
 const { cacheCustomerDetails, getCachedCustomer } = require('./customer-cache-service');
 const { LoyaltyCustomerService } = require('./customer-identification-service');
 // LOGIC CHANGE (BACKLOG-17): Delegate Square API call to customer-details-service

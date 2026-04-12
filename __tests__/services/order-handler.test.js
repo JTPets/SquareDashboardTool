@@ -118,7 +118,8 @@ const mockCartActivity = {
 jest.mock('../../services/cart/cart-activity-service', () => mockCartActivity);
 
 jest.mock('../../config/constants', () => ({
-    SQUARE: { API_VERSION: '2025-01-16' }
+    SQUARE: { API_VERSION: '2025-01-16' },
+    RETRY: { MAX_ATTEMPTS: 3, BASE_DELAY_MS: 1000 }
 }));
 
 const logger = require('../../utils/logger');

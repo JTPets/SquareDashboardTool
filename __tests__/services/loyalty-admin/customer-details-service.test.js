@@ -18,14 +18,12 @@ jest.mock('../../../utils/loyalty-logger', () => ({
     },
 }));
 
-const mockInitialize = jest.fn();
-const mockGetCustomer = jest.fn();
+const mockMakeSquareRequest = jest.fn();
+const mockGetMerchantToken = jest.fn();
 
-jest.mock('../../../services/loyalty-admin/square-api-client', () => ({
-    SquareApiClient: jest.fn().mockImplementation(() => ({
-        initialize: mockInitialize,
-        getCustomer: mockGetCustomer,
-    })),
+jest.mock('../../../services/square/square-client', () => ({
+    makeSquareRequest: mockMakeSquareRequest,
+    getMerchantToken: mockGetMerchantToken,
 }));
 
 const db = require('../../../utils/database');
@@ -34,10 +32,15 @@ const { getCustomerDetails, cacheCustomerDetails } = require('../../../services/
 const MERCHANT_ID = 1;
 const CUSTOMER_ID = 'cust-123';
 
+// Helper: mock GET /customers/{id} response (service unwraps data.customer)
+function mockCustomerResponse(customer) {
+    mockMakeSquareRequest.mockResolvedValueOnce({ customer });
+}
+
 describe('customer-details-service', () => {
     beforeEach(() => {
         jest.clearAllMocks();
-        mockInitialize.mockReturnThis();
+        mockGetMerchantToken.mockResolvedValue('test-token');
     });
 
     // ========================================================================
@@ -46,7 +49,7 @@ describe('customer-details-service', () => {
 
     describe('getCustomerDetails', () => {
         test('returns formatted customer from Square API', async () => {
-            mockGetCustomer.mockResolvedValue({
+            mockCustomerResponse({
                 id: CUSTOMER_ID,
                 given_name: 'John',
                 family_name: 'Doe',
@@ -75,7 +78,7 @@ describe('customer-details-service', () => {
         });
 
         test('uses company_name as displayName when no given/family name', async () => {
-            mockGetCustomer.mockResolvedValue({
+            mockCustomerResponse({
                 id: CUSTOMER_ID,
                 given_name: null,
                 family_name: null,
@@ -90,7 +93,7 @@ describe('customer-details-service', () => {
         });
 
         test('returns null displayName when no names available', async () => {
-            mockGetCustomer.mockResolvedValue({
+            mockCustomerResponse({
                 id: CUSTOMER_ID,
                 created_at: '2025-01-01',
                 updated_at: '2025-01-01',
@@ -102,7 +105,7 @@ describe('customer-details-service', () => {
         });
 
         test('returns null on Square API error', async () => {
-            mockGetCustomer.mockRejectedValue(new Error('API timeout'));
+            mockMakeSquareRequest.mockRejectedValueOnce(new Error('API timeout'));
 
             const result = await getCustomerDetails(CUSTOMER_ID, MERCHANT_ID);
 
@@ -124,7 +127,7 @@ describe('customer-details-service', () => {
 
             expect(result).toEqual({ id: CUSTOMER_ID, phone: '555-1234', cached: true });
             // Should NOT call Square API
-            expect(mockGetCustomer).not.toHaveBeenCalled();
+            expect(mockMakeSquareRequest).not.toHaveBeenCalled();
         });
 
         test('fetches from Square API when not cached', async () => {
@@ -133,7 +136,7 @@ describe('customer-details-service', () => {
             // Upsert call
             db.query.mockResolvedValueOnce({ rows: [] });
 
-            mockGetCustomer.mockResolvedValue({
+            mockCustomerResponse({
                 id: CUSTOMER_ID,
                 given_name: 'Jane',
                 family_name: 'Doe',
@@ -157,7 +160,7 @@ describe('customer-details-service', () => {
             db.query.mockResolvedValueOnce({ rows: [{ phone_number: null }] });
             db.query.mockResolvedValueOnce({ rows: [] });
 
-            mockGetCustomer.mockResolvedValue({
+            mockCustomerResponse({
                 id: CUSTOMER_ID,
                 given_name: 'Bob',
                 phone_number: '555-0000',
@@ -168,12 +171,12 @@ describe('customer-details-service', () => {
             const result = await cacheCustomerDetails(CUSTOMER_ID, MERCHANT_ID);
 
             expect(result.givenName).toBe('Bob');
-            expect(mockGetCustomer).toHaveBeenCalled();
+            expect(mockMakeSquareRequest).toHaveBeenCalled();
         });
 
         test('returns null when Square API returns nothing', async () => {
             db.query.mockResolvedValueOnce({ rows: [] });
-            mockGetCustomer.mockRejectedValue(new Error('API error'));
+            mockMakeSquareRequest.mockRejectedValueOnce(new Error('API error'));
 
             const result = await cacheCustomerDetails(CUSTOMER_ID, MERCHANT_ID);
 
