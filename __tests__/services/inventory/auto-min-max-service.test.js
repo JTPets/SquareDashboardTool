@@ -47,8 +47,15 @@ function makeRow(overrides = {}) {
         expiry_tier: null,
         item_created_at: oldItemDate(),  // old enough by default
         last_sold_at: null,
+        last_received_at: null,
+        last_auto_increase_at: null,
         ...overrides,
     };
+}
+
+// Helper: ISO timestamp N days ago
+function daysAgo(n) {
+    return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
 }
 
 // Helper: date within last 30 days
@@ -276,6 +283,72 @@ describe('generateRecommendations', () => {
         const recs = await service.generateRecommendations(MERCHANT_ID);
         const cap = Math.ceil(0.5 * 30); // 15
         expect(recs[0].recommendedMin).toBeLessThanOrEqual(cap);
+    });
+
+    // --- Rule 2: Restock gate (prevents infinite min ratchet on supply-constrained items) ---
+
+    test('Rule 2 restock gate: no previous auto-increase (first bump ever) → allowed', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ quantity: '0', velocity_91d: '0.2', current_min: '0',
+                days_of_stock: '0', last_sold_at: recentDate(),
+                last_auto_increase_at: null, last_received_at: null })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].recommendedMin).toBe(1);
+        expect(recs[0].rule).toBe('SOLDOUT_FAST_MOVER');
+    });
+
+    test('Rule 2 restock gate: last_received_at after last auto-increase → allowed', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ quantity: '0', velocity_91d: '0.2', current_min: '0',
+                days_of_stock: '0', last_sold_at: recentDate(),
+                last_auto_increase_at: daysAgo(10),  // increased 10 days ago
+                last_received_at: daysAgo(3) })       // restocked 3 days ago (after increase)
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].recommendedMin).toBe(1);
+        expect(recs[0].rule).toBe('SOLDOUT_FAST_MOVER');
+    });
+
+    test('Rule 2 restock gate: last_received_at before last auto-increase → skipped', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ quantity: '0', velocity_91d: '0.2', current_min: '0',
+                days_of_stock: '0', last_sold_at: recentDate(),
+                last_auto_increase_at: daysAgo(3),   // increased 3 days ago
+                last_received_at: daysAgo(10) })      // last restock was 10 days ago (before increase)
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].recommendedMin).toBeNull();
+        expect(recs[0].skipped).toBe('no_restock_since_last_increase');
+    });
+
+    test('Rule 2 restock gate: last_received_at IS NULL with prior increase → skipped', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ quantity: '0', velocity_91d: '0.2', current_min: '0',
+                days_of_stock: '0', last_sold_at: recentDate(),
+                last_auto_increase_at: daysAgo(5),
+                last_received_at: null })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].recommendedMin).toBeNull();
+        expect(recs[0].skipped).toBe('no_restock_since_last_increase');
+        expect(recs[0].reason).toMatch(/no restock since last auto-increase/i);
+    });
+
+    test('Rule 1 (OVERSTOCKED) unaffected by restock gate', async () => {
+        // qty=9, min=2, vel=0.5 → OVERSTOCKED; gate fields set to block Rule 2 but Rule 1 must still fire
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ days_of_stock: '95', current_min: '2', velocity_91d: '0.5', quantity: '9',
+                last_auto_increase_at: daysAgo(3), last_received_at: null })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].rule).toBe('OVERSTOCKED');
+        expect(recs[0].recommendedMin).toBe(1);
     });
 
     // --- Rule 3: Expiring product ---

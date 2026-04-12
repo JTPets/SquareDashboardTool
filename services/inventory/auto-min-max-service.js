@@ -9,6 +9,8 @@
  *                                AND (qty - min) <= vel * REORDER_PROXIMITY_DAYS → recommend min - 1
  *                                (env: REORDER_PROXIMITY_DAYS, default 14)
  *   Rule 2 (SOLDOUT_FAST_MOVER): qty=0, velocity>=0.15, min < ceil(vel*30) → min + 1
+ *                                Restock gate: skips if last_received_at ≤ last auto-increase date
+ *                                (prevents infinite ratchet on supply-constrained items)
  *   Rule 3 (EXPIRING):          tier IN (AUTO25, AUTO50, EXPIRED) → recommend 0
  *
  * Eligibility (skip if any):
@@ -58,7 +60,16 @@ const DATA_QUERY = `
             WHERE lpe.variation_id = sv.variation_id
               AND lpe.merchant_id = $1
               AND lpe.is_refund = FALSE
-        ) AS last_sold_at
+        ) AS last_sold_at,
+        vls.last_received_at,
+        (
+            SELECT MAX(msa.created_at)
+            FROM min_stock_audit msa
+            WHERE msa.variation_id = sv.variation_id
+              AND msa.location_id = sv.location_id
+              AND msa.merchant_id = $1
+              AND msa.new_min > msa.previous_min
+        ) AS last_auto_increase_at
     FROM sales_velocity sv
     JOIN variations v ON v.id = sv.variation_id AND v.merchant_id = sv.merchant_id
     JOIN items i ON i.id = v.item_id AND i.merchant_id = sv.merchant_id
@@ -541,6 +552,22 @@ function _evaluateRules(row, thirtyDaysAgo, ninetyOneDaysAgo) {
         if (!recentlySold) {
             return _buildRec(row, null, 'SOLDOUT_FAST_MOVER',
                 'Sold out but no recent sales — possible supplier issue');
+        }
+
+        // Restock gate: prevent ratcheting min upward on persistently out-of-stock items.
+        // Allow only if this is the first auto-increase ever, OR a new receipt arrived
+        // after the last auto-increase (variation_location_settings.last_received_at).
+        const lastIncreaseAt = row.last_auto_increase_at
+            ? new Date(row.last_auto_increase_at) : null;
+        const lastReceivedAt = row.last_received_at
+            ? new Date(row.last_received_at) : null;
+
+        if (lastIncreaseAt !== null) {
+            if (!lastReceivedAt || lastReceivedAt <= lastIncreaseAt) {
+                return _buildRec(row, null, 'SOLDOUT_FAST_MOVER',
+                    'No restock since last auto-increase — skipping to prevent ratchet',
+                    'no_restock_since_last_increase');
+            }
         }
 
         const recommended = Math.min(min + 1, cap);
