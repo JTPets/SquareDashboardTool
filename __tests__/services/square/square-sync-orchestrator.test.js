@@ -41,7 +41,17 @@ const { fullSync } = require('../../../services/square/square-sync-orchestrator'
 
 describe('Square Sync Orchestrator', () => {
     beforeEach(() => {
-        jest.clearAllMocks();
+        // resetAllMocks (not clearAllMocks) so leftover mockResolvedValue /
+        // mockRejectedValue implementations from prior tests cannot leak into
+        // later tests — either within this file or into any other suite that
+        // shares these jest.fn() instances through the module registry.
+        jest.resetAllMocks();
+    });
+
+    afterAll(() => {
+        // Belt-and-braces: restore all mocks when this file is done so
+        // nothing walks out into the next test file in the worker.
+        jest.restoreAllMocks();
     });
 
     describe('fullSync', () => {
