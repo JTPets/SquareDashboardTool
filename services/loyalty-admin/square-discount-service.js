@@ -18,7 +18,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
-const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
+const { makeSquareRequest, getMerchantToken, SquareApiError } = require('../square/square-client');
 const { getCustomerDetails } = require('./customer-admin-service');
 const { deleteCatalogObjects, deleteCustomerGroupWithMembers } = require('../../utils/square-catalog-cleanup');
 
@@ -39,54 +39,57 @@ const { createRewardDiscount } = require('./square-discount-catalog-service');
  * @returns {Promise<Object|null>} Square Loyalty program object or null if not set up
  */
 async function getSquareLoyaltyProgram(merchantId) {
+    // getMerchantToken throws when merchant is missing/inactive/no token;
+    // legacy getSquareAccessToken returned null for the same cases. Catch
+    // the throw and fall through to the same "no access token" branch.
+    let accessToken;
     try {
-        const accessToken = await getSquareAccessToken(merchantId);
-        if (!accessToken) {
-            logger.warn('No access token for merchant when fetching loyalty program', { merchantId });
-            return null;
-        }
+        accessToken = await getMerchantToken(merchantId);
+    } catch (err) {
+        logger.warn('No access token for merchant when fetching loyalty program', { merchantId });
+        return null;
+    }
 
-        const loyaltyProgramStart = Date.now();
-        const response = await fetchWithTimeout('https://connect.squareup.com/v2/loyalty/programs/main', {
+    const loyaltyProgramStart = Date.now();
+    try {
+        const data = await makeSquareRequest('/v2/loyalty/programs/main', {
             method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-                'Square-Version': SQUARE_API_VERSION
-            }
-        }, 10000); // 10 second timeout
-        const loyaltyProgramDuration = Date.now() - loyaltyProgramStart;
+            accessToken,
+            timeout: 10000 // 10 second timeout
+        });
 
         loyaltyLogger.squareApi({
             endpoint: '/loyalty/programs/main',
             method: 'GET',
-            status: response.status,
-            duration: loyaltyProgramDuration,
-            success: response.ok || response.status === 404,
+            status: 200,
+            duration: Date.now() - loyaltyProgramStart,
+            success: true,
             merchantId,
             context: 'getSquareLoyaltyProgram',
         });
 
-        if (response.status === 404) {
+        return data.program || null;
+
+    } catch (error) {
+        const loyaltyProgramDuration = Date.now() - loyaltyProgramStart;
+        const status = error instanceof SquareApiError ? error.status : 0;
+
+        loyaltyLogger.squareApi({
+            endpoint: '/loyalty/programs/main',
+            method: 'GET',
+            status,
+            duration: loyaltyProgramDuration,
+            success: status === 404,
+            merchantId,
+            context: 'getSquareLoyaltyProgram',
+        });
+
+        if (error instanceof SquareApiError && error.status === 404) {
             // No loyalty program configured
             logger.info('No Square Loyalty program found for merchant', { merchantId });
             return null;
         }
 
-        if (!response.ok) {
-            const errText = await response.text();
-            logger.error('Error fetching Square Loyalty program', {
-                status: response.status,
-                error: errText,
-                merchantId
-            });
-            return null;
-        }
-
-        const data = await response.json();
-        return data.program || null;
-
-    } catch (error) {
         logger.error('Error fetching Square Loyalty program', {
             error: error.message,
             stack: error.stack,
@@ -397,144 +400,158 @@ async function updateCustomerRewardNote({ operation, merchantId, squareCustomerI
     const MAX_RETRIES = 2;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        // getMerchantToken throws when merchant is missing/inactive/no token;
+        // legacy getSquareAccessToken returned null for the same cases.
+        let accessToken;
         try {
-            const accessToken = await getSquareAccessToken(merchantId);
-            if (!accessToken) {
-                logger.warn('No access token for reward note update', { merchantId, operation });
-                return { success: false, error: 'No access token available' };
-            }
+            accessToken = await getMerchantToken(merchantId);
+        } catch (err) {
+            logger.warn('No access token for reward note update', { merchantId, operation });
+            return { success: false, error: 'No access token available' };
+        }
 
-            const rewardLine = `🎁 REWARD: Free ${offerName}`;
+        const rewardLine = `🎁 REWARD: Free ${offerName}`;
 
-            // Step 1: GET current customer to read note and version
-            const getStart = Date.now();
-            const getResponse = await fetchWithTimeout(
-                `https://connect.squareup.com/v2/customers/${squareCustomerId}`,
-                {
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json',
-                        'Square-Version': SQUARE_API_VERSION
-                    }
-                },
-                10000
+        // Step 1: GET current customer to read note and version
+        const getStart = Date.now();
+        let customerData;
+        try {
+            customerData = await makeSquareRequest(
+                `/v2/customers/${squareCustomerId}`,
+                { method: 'GET', accessToken, timeout: 10000 }
             );
-            const getDuration = Date.now() - getStart;
 
             loyaltyLogger.squareApi({
                 endpoint: `/customers/${squareCustomerId}`,
                 method: 'GET',
-                status: getResponse.status,
+                status: 200,
+                duration: Date.now() - getStart,
+                success: true,
+                merchantId,
+                context: 'updateCustomerRewardNote',
+            });
+        } catch (error) {
+            const getDuration = Date.now() - getStart;
+            const status = error instanceof SquareApiError ? error.status : 0;
+
+            loyaltyLogger.squareApi({
+                endpoint: `/customers/${squareCustomerId}`,
+                method: 'GET',
+                status,
                 duration: getDuration,
-                success: getResponse.ok,
+                success: false,
                 merchantId,
                 context: 'updateCustomerRewardNote',
             });
 
-            if (!getResponse.ok) {
-                const errText = await getResponse.text();
-                logger.error('Failed to fetch customer for reward note', {
-                    merchantId, squareCustomerId, operation, status: getResponse.status, error: errText
+            logger.error('Failed to fetch customer for reward note', {
+                merchantId, squareCustomerId, operation, status, error: error.message
+            });
+
+            if (error instanceof SquareApiError) {
+                return { success: false, error: `Square API error: ${status}` };
+            }
+            return { success: false, error: error.message };
+        }
+
+        const customer = customerData.customer;
+        const currentNote = customer.note || '';
+        const version = customer.version;
+
+        // Step 2: Build updated note
+        let updatedNote;
+
+        if (operation === 'add') {
+            // Check if line already exists (idempotent)
+            const lines = currentNote.split('\n');
+            if (lines.some(line => line.trim() === rewardLine)) {
+                logger.info('Reward note already exists, skipping', {
+                    merchantId, squareCustomerId, offerName
                 });
-                return { success: false, error: `Square API error: ${getResponse.status}` };
+                return { success: true };
             }
-
-            const customerData = await getResponse.json();
-            const customer = customerData.customer;
-            const currentNote = customer.note || '';
-            const version = customer.version;
-
-            // Step 2: Build updated note
-            let updatedNote;
-
-            if (operation === 'add') {
-                // Check if line already exists (idempotent)
-                const lines = currentNote.split('\n');
-                if (lines.some(line => line.trim() === rewardLine)) {
-                    logger.info('Reward note already exists, skipping', {
-                        merchantId, squareCustomerId, offerName
-                    });
-                    return { success: true };
-                }
-                // Append reward line
-                updatedNote = currentNote ? `${currentNote}\n${rewardLine}` : rewardLine;
-            } else if (operation === 'remove') {
-                // Strip matching line(s)
-                const lines = currentNote.split('\n');
-                const filtered = lines.filter(line => line.trim() !== rewardLine);
-                if (filtered.length === lines.length) {
-                    logger.info('Reward note not found, skipping removal', {
-                        merchantId, squareCustomerId, offerName
-                    });
-                    return { success: true };
-                }
-                // Clean up extra blank lines
-                updatedNote = filtered
-                    .join('\n')
-                    .replace(/\n{3,}/g, '\n\n')
-                    .trim();
-            } else {
-                return { success: false, error: `Invalid operation: ${operation}` };
+            // Append reward line
+            updatedNote = currentNote ? `${currentNote}\n${rewardLine}` : rewardLine;
+        } else if (operation === 'remove') {
+            // Strip matching line(s)
+            const lines = currentNote.split('\n');
+            const filtered = lines.filter(line => line.trim() !== rewardLine);
+            if (filtered.length === lines.length) {
+                logger.info('Reward note not found, skipping removal', {
+                    merchantId, squareCustomerId, offerName
+                });
+                return { success: true };
             }
+            // Clean up extra blank lines
+            updatedNote = filtered
+                .join('\n')
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
+        } else {
+            return { success: false, error: `Invalid operation: ${operation}` };
+        }
 
-            // Step 3: PUT update with version for optimistic concurrency
-            const putStart = Date.now();
-            const putResponse = await fetchWithTimeout(
-                `https://connect.squareup.com/v2/customers/${squareCustomerId}`,
+        // Step 3: PUT update with version for optimistic concurrency
+        const putStart = Date.now();
+        try {
+            await makeSquareRequest(
+                `/v2/customers/${squareCustomerId}`,
                 {
                     method: 'PUT',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json',
-                        'Square-Version': SQUARE_API_VERSION
-                    },
+                    accessToken,
+                    timeout: 10000,
                     body: JSON.stringify({
                         note: updatedNote,
                         version
                     })
-                },
-                10000
+                }
             );
-            const putDuration = Date.now() - putStart;
 
             loyaltyLogger.squareApi({
                 endpoint: `/customers/${squareCustomerId}`,
                 method: 'PUT',
-                status: putResponse.status,
+                status: 200,
+                duration: Date.now() - putStart,
+                success: true,
+                merchantId,
+                context: 'updateCustomerRewardNote',
+            });
+        } catch (error) {
+            const putDuration = Date.now() - putStart;
+            const status = error instanceof SquareApiError ? error.status : 0;
+
+            loyaltyLogger.squareApi({
+                endpoint: `/customers/${squareCustomerId}`,
+                method: 'PUT',
+                status,
                 duration: putDuration,
-                success: putResponse.ok,
+                success: false,
                 merchantId,
                 context: 'updateCustomerRewardNote',
             });
 
-            if (putResponse.status === 409 && attempt < MAX_RETRIES) {
+            if (status === 409 && attempt < MAX_RETRIES) {
                 logger.warn('Customer note version conflict (409), retrying', {
                     merchantId, squareCustomerId, operation, attempt: attempt + 1
                 });
                 continue;
             }
 
-            if (!putResponse.ok) {
-                const errText = await putResponse.text();
-                logger.error('Failed to update customer reward note', {
-                    merchantId, squareCustomerId, operation, status: putResponse.status, error: errText
-                });
-                return { success: false, error: `Square API error: ${putResponse.status}` };
+            logger.error('Failed to update customer reward note', {
+                merchantId, squareCustomerId, operation, status, error: error.message
+            });
+
+            if (error instanceof SquareApiError) {
+                return { success: false, error: `Square API error: ${status}` };
             }
-
-            logger.info('Updated customer reward note', {
-                merchantId, squareCustomerId, operation, offerName
-            });
-
-            return { success: true };
-
-        } catch (error) {
-            logger.error('Error updating customer reward note', {
-                error: error.message, stack: error.stack, merchantId, squareCustomerId, operation, offerName
-            });
             return { success: false, error: error.message };
         }
+
+        logger.info('Updated customer reward note', {
+            merchantId, squareCustomerId, operation, offerName
+        });
+
+        return { success: true };
     }
 
     return { success: false, error: 'Max retries exceeded for version conflict' };
