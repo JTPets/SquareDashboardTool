@@ -89,6 +89,29 @@ function calculateReorderQuantity({
 }
 
 /**
+ * Detect a min/max conflict: max is set and <= min.
+ *
+ * Returns a conflict descriptor when min and max are both > 0 and max <= min,
+ * so read-side callers can surface the conflict instead of silently dropping
+ * the item (max cap would otherwise force suggested qty to 0).
+ *
+ * @param {number} stockAlertMin
+ * @param {number|null} stockAlertMax
+ * @returns {null|{type:string, stockAlertMin:number, stockAlertMax:number}}
+ */
+function detectMinMaxConflict(stockAlertMin, stockAlertMax) {
+    if (stockAlertMax === null || stockAlertMax === undefined) return null;
+    if (stockAlertMax <= 0) return null;
+    if (stockAlertMin === null || stockAlertMin === undefined || stockAlertMin <= 0) return null;
+    if (stockAlertMax > stockAlertMin) return null;
+    return {
+        type: 'min_exceeds_max',
+        stockAlertMin,
+        stockAlertMax
+    };
+}
+
+/**
  * Calculate days of stock remaining.
  *
  * @param {object} params
@@ -104,5 +127,6 @@ function calculateDaysOfStock({ currentStock, velocity }) {
 
 module.exports = {
     calculateReorderQuantity,
-    calculateDaysOfStock
+    calculateDaysOfStock,
+    detectMinMaxConflict
 };

@@ -25,6 +25,37 @@ const isPositiveInt = (value, fieldName) => {
     return true;
 };
 
+/**
+ * Cross-field validator: stock_alert_min must be strictly less than stock_alert_max.
+ *
+ * Normalization rules:
+ *   - stock_alert_max = 0      → treated as NULL (unlimited), no conflict possible
+ *   - stock_alert_max = null   → unlimited, no conflict possible
+ *   - stock_alert_max > 0      → must be > stock_alert_min (if min is set and > 0)
+ *
+ * Only runs when BOTH fields are provided in the request body. Single-field
+ * updates (e.g. updating only min) rely on the DB CHECK constraint for safety.
+ *
+ * @throws {Error} if max <= min (triggers express-validator 400 response)
+ * @returns {boolean} true when valid
+ */
+const validateMinMaxConsistency = (req) => {
+    const body = req.body || {};
+    // Only evaluate if both provided in the same request
+    if (body.stock_alert_min === undefined || body.stock_alert_max === undefined) {
+        return true;
+    }
+    const min = body.stock_alert_min === null ? null : Number(body.stock_alert_min);
+    let max = body.stock_alert_max === null ? null : Number(body.stock_alert_max);
+    // Normalize 0 → null (unlimited)
+    if (max === 0) max = null;
+    if (max === null || min === null) return true;
+    if (min >= max) {
+        throw new Error('stock_alert_max must be greater than stock_alert_min');
+    }
+    return true;
+};
+
 // GET /api/categories
 const getCategories = [handleValidationErrors];
 
@@ -52,8 +83,15 @@ const getVariationsWithCosts = [handleValidationErrors];
 const updateVariationExtended = [
     param('id').isString().notEmpty(),
     body('case_pack_quantity').optional().custom((value) => isNonNegativeInt(value, 'case_pack_quantity')),
-    body('stock_alert_min').optional().custom((value) => isNonNegativeInt(value, 'stock_alert_min')),
-    body('stock_alert_max').optional().custom((value) => isNonNegativeInt(value, 'stock_alert_max')),
+    body('stock_alert_min').optional({ nullable: true }).custom((value) => {
+        if (value === null) return true;
+        return isNonNegativeInt(value, 'stock_alert_min');
+    }),
+    body('stock_alert_max').optional({ nullable: true }).custom((value) => {
+        if (value === null) return true;
+        return isNonNegativeInt(value, 'stock_alert_max');
+    }),
+    body().custom((_value, { req }) => validateMinMaxConsistency(req)),
     body('preferred_stock_level').optional().custom((value) => isNonNegativeInt(value, 'preferred_stock_level')),
     body('shelf_location').optional().isString().trim(),
     body('bin_location').optional().isString().trim(),
@@ -172,6 +210,7 @@ const fixLocations = [handleValidationErrors];
 const fixInventoryAlerts = [handleValidationErrors];
 
 module.exports = {
+    validateMinMaxConsistency,
     getCategories,
     getItems,
     getVariations,

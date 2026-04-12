@@ -13,7 +13,7 @@ const { getMerchantSettings } = require('../merchant');
 const logger = require('../../utils/logger');
 const { batchResolveImageUrls } = require('../../utils/image-utils');
 const { calculateOrderOptions } = require('../bundles/bundle-calculator');
-const { calculateReorderQuantity } = require('./reorder-math');
+const { calculateReorderQuantity, detectMinMaxConflict } = require('./reorder-math');
 
 /**
  * Get reorder suggestions for a merchant.
@@ -322,8 +322,16 @@ function processSuggestionRows(rows, { supplyDaysNum, safetyDays, priorityConfig
             const leadTime = parseInt(row.lead_time_days) || 0;
             const daysUntilStockout = parseFloat(row.days_until_stockout) || 999;
 
-            // Don't suggest if AVAILABLE already above max (null = unlimited, so skip this check)
-            if (stockAlertMax !== null && availableQty >= stockAlertMax) {
+            // Detect min/max conflict. When present, we ignore the max cap entirely
+            // (preferred_stock_level is intentionally left selected in SQL but unused
+            // here — dead weight, TODO: remove from SELECT after confirming no other
+            // consumer depends on it).
+            const minMaxConflict = detectMinMaxConflict(stockAlertMin, stockAlertMax);
+
+            // Don't suggest if AVAILABLE already above max (null = unlimited, so skip this check).
+            // SAFETY: skip this short-circuit when min/max are in conflict — otherwise a
+            // below-minimum item with a bad max silently disappears from suggestions.
+            if (!minMaxConflict && stockAlertMax !== null && availableQty >= stockAlertMax) {
                 return null;
             }
 
@@ -365,6 +373,11 @@ function processSuggestionRows(rows, { supplyDaysNum, safetyDays, priorityConfig
                 reorder_reason = 'Below minimum stock level';
             }
 
+            // When min/max are in conflict, treat stockAlertMax as null so the
+            // cap doesn't force the suggestion to zero. The UI will surface a
+            // warning chip; merchant decides how to resolve.
+            const effectiveMax = minMaxConflict ? null : stockAlertMax;
+
             const finalQty = calculateReorderQuantity({
                 velocity: dailyAvg,
                 supplyDays: supplyDaysNum,
@@ -373,7 +386,7 @@ function processSuggestionRows(rows, { supplyDaysNum, safetyDays, priorityConfig
                 casePack,
                 reorderMultiple,
                 stockAlertMin,
-                stockAlertMax,
+                stockAlertMax: effectiveMax,
                 currentStock: availableQty
             });
 
@@ -444,7 +457,12 @@ function processSuggestionRows(rows, { supplyDaysNum, safetyDays, priorityConfig
                 does_not_expire: row.does_not_expire || false,
                 days_until_expiry: row.days_until_expiry,
                 variation_age_days: row.variation_age_days !== null ? parseInt(row.variation_age_days) : null,
-                active_discount_tier: row.active_discount_tier || null
+                active_discount_tier: row.active_discount_tier || null,
+                // Surface min/max conflict for the UI. null when no conflict.
+                conflict: minMaxConflict ? minMaxConflict.type : null,
+                conflict_detail: minMaxConflict
+                    ? { stock_alert_min: minMaxConflict.stockAlertMin, stock_alert_max: minMaxConflict.stockAlertMax }
+                    : null
             };
         })
         .filter(item => item !== null);

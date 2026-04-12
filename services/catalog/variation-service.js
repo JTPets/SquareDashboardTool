@@ -218,15 +218,51 @@ async function updateExtendedFields(variationId, merchantId, updates) {
         return { success: false, error: 'Variation not found', status: 404 };
     }
 
+    // Normalize stock_alert_max=0 → NULL (unlimited). Applied pre-write so DB
+    // only ever stores NULL or a positive cap; simplifies all downstream reads.
+    const normalizedUpdates = { ...updates };
+    if (normalizedUpdates.stock_alert_max === 0) {
+        normalizedUpdates.stock_alert_max = null;
+    }
+
+    // Defense-in-depth: cross-check against stored counterpart when only one
+    // side is being updated. The validator only catches conflicts when both
+    // fields appear in the same request; the DB CHECK constraint catches the
+    // rest, but we surface a clean 400 here instead of a 500.
+    const updatingMin = normalizedUpdates.stock_alert_min !== undefined;
+    const updatingMax = normalizedUpdates.stock_alert_max !== undefined;
+    if (updatingMin !== updatingMax) {
+        const stored = await db.query(
+            'SELECT stock_alert_min, stock_alert_max FROM variations WHERE id = $1 AND merchant_id = $2',
+            [variationId, merchantId]
+        );
+        if (stored.rows.length > 0) {
+            const row = stored.rows[0];
+            const effectiveMin = updatingMin
+                ? (normalizedUpdates.stock_alert_min === null ? null : Number(normalizedUpdates.stock_alert_min))
+                : (row.stock_alert_min === null ? null : Number(row.stock_alert_min));
+            const effectiveMax = updatingMax
+                ? (normalizedUpdates.stock_alert_max === null ? null : Number(normalizedUpdates.stock_alert_max))
+                : (row.stock_alert_max === null ? null : Number(row.stock_alert_max));
+            if (effectiveMin !== null && effectiveMax !== null && effectiveMin >= effectiveMax) {
+                return {
+                    success: false,
+                    error: 'stock_alert_max must be greater than stock_alert_min',
+                    status: 400
+                };
+            }
+        }
+    }
+
     const updateFields = [];
     const values = [];
     let paramCount = 1;
 
     // Track if case_pack_quantity is being updated
-    const casePackUpdate = updates.case_pack_quantity !== undefined;
-    const newCasePackValue = updates.case_pack_quantity;
+    const casePackUpdate = normalizedUpdates.case_pack_quantity !== undefined;
+    const newCasePackValue = normalizedUpdates.case_pack_quantity;
 
-    for (const [key, value] of Object.entries(updates)) {
+    for (const [key, value] of Object.entries(normalizedUpdates)) {
         if (ALLOWED_EXTENDED_FIELDS.includes(key)) {
             updateFields.push(`${key} = $${paramCount}`);
             values.push(value);
@@ -301,10 +337,12 @@ async function updateMinStock(variationId, merchantId, minStock, locationId = nu
         return { success: false, error: 'min_stock must be a non-negative number or null', status: 400 };
     }
 
-    // Get variation details (verify ownership)
+    // Get variation details (verify ownership). Also pulls stock_alert_max so we
+    // can cross-check min < max before pushing to Square — defense-in-depth
+    // layered on top of the DB CHECK constraint (chk_v_min_less_than_max).
     const variationResult = await db.query(
         `SELECT v.id, v.sku, v.name, v.item_id, v.track_inventory,
-                v.inventory_alert_threshold, i.name as item_name
+                v.inventory_alert_threshold, v.stock_alert_max, i.name as item_name
          FROM variations v
          JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
          WHERE v.id = $1 AND v.merchant_id = $2`,
@@ -317,6 +355,20 @@ async function updateMinStock(variationId, merchantId, minStock, locationId = nu
 
     const variation = variationResult.rows[0];
     const previousValue = variation.inventory_alert_threshold;
+
+    // Cross-check against the variation-level stored max. The per-location
+    // max is also enforced by the DB CHECK constraint when the UPSERT runs.
+    if (minStock !== null && minStock > 0 && variation.stock_alert_max !== null
+            && variation.stock_alert_max !== undefined) {
+        const storedMax = Number(variation.stock_alert_max);
+        if (storedMax > 0 && minStock >= storedMax) {
+            return {
+                success: false,
+                error: 'stock_alert_max must be greater than stock_alert_min',
+                status: 400
+            };
+        }
+    }
 
     // Determine which location to use
     let targetLocationId = locationId;

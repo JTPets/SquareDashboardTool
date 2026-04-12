@@ -1099,6 +1099,48 @@ async function ensureSchema() {
         { table: 'merchants', column: 'last_received_sync_at', sql: 'ALTER TABLE merchants ADD COLUMN IF NOT EXISTS last_received_sync_at TIMESTAMPTZ' },
     ];
 
+    // Migration 019: enforce stock_alert_min < stock_alert_max on both tables.
+    // Normalize 0 → NULL first, then add CHECK. Idempotent via pg_constraint lookup.
+    try {
+        const variationsExists = await query(`
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'variations'
+        `);
+        if (variationsExists.rows.length > 0) {
+            await query('UPDATE variations SET stock_alert_max = NULL WHERE stock_alert_max = 0');
+            const vConstraint = await query(`SELECT 1 FROM pg_constraint WHERE conname = 'chk_v_min_less_than_max'`);
+            if (vConstraint.rows.length === 0) {
+                await query(`ALTER TABLE variations
+                    ADD CONSTRAINT chk_v_min_less_than_max
+                    CHECK (stock_alert_min IS NULL OR stock_alert_max IS NULL
+                           OR stock_alert_min < stock_alert_max)`);
+                logger.info('Added chk_v_min_less_than_max constraint to variations');
+            }
+        }
+        const vlsExists = await query(`
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'variation_location_settings'
+        `);
+        if (vlsExists.rows.length > 0) {
+            await query('UPDATE variation_location_settings SET stock_alert_max = NULL WHERE stock_alert_max = 0');
+            const vlsConstraint = await query(`SELECT 1 FROM pg_constraint WHERE conname = 'chk_vls_min_less_than_max'`);
+            if (vlsConstraint.rows.length === 0) {
+                await query(`ALTER TABLE variation_location_settings
+                    ADD CONSTRAINT chk_vls_min_less_than_max
+                    CHECK (stock_alert_min IS NULL OR stock_alert_max IS NULL
+                           OR stock_alert_min < stock_alert_max)`);
+                logger.info('Added chk_vls_min_less_than_max constraint to variation_location_settings');
+            }
+        }
+    } catch (err) {
+        // If constraint add fails because existing data conflicts, log loudly — do not
+        // auto-fix conflicting merchant data. Merchant must resolve via catalog settings.
+        logger.error('Failed to add min/max CHECK constraint (migration 019). '
+            + 'Existing rows likely have stock_alert_min >= stock_alert_max. '
+            + 'Resolve conflicts in catalog settings and restart.',
+            { error: err.message });
+    }
+
     // ==================== VARIATION EXPIRATION TABLE ====================
     // Ensure variation_expiration table exists (needed for review tracking columns)
     const expirationTableCheck = await query(`

@@ -458,6 +458,94 @@ describe('variation-service', () => {
         it('throws when variationId is missing', async () => {
             await expect(updateExtendedFields(null, merchantId, {})).rejects.toThrow('variationId is required');
         });
+
+        // ---- min/max cross-field safety (Layer 1 defense-in-depth) ----
+
+        it('normalizes stock_alert_max=0 to NULL before writing', async () => {
+            // verifyVariationOwnership
+            db.query.mockResolvedValueOnce({ rows: [{ id: 'VAR1' }] });
+            // Cross-check lookup (min is undefined in this update, so max alone triggers it)
+            db.query.mockResolvedValueOnce({ rows: [{ stock_alert_min: 5, stock_alert_max: 50 }] });
+            // UPDATE RETURNING
+            db.query.mockResolvedValueOnce({ rows: [{ id: 'VAR1', stock_alert_max: null }] });
+
+            const result = await updateExtendedFields('VAR1', merchantId, {
+                stock_alert_max: 0
+            });
+
+            expect(result.success).toBe(true);
+            // Verify NULL was passed to the UPDATE, not 0
+            const [, updateParams] = db.query.mock.calls[2];
+            expect(updateParams[0]).toBeNull();
+        });
+
+        it('rejects stock_alert_max <= stored stock_alert_min when updating only max', async () => {
+            db.query.mockResolvedValueOnce({ rows: [{ id: 'VAR1' }] });
+            // Stored min=10, updating max=10 (conflict)
+            db.query.mockResolvedValueOnce({ rows: [{ stock_alert_min: 10, stock_alert_max: 50 }] });
+
+            const result = await updateExtendedFields('VAR1', merchantId, {
+                stock_alert_max: 10
+            });
+
+            expect(result.success).toBe(false);
+            expect(result.status).toBe(400);
+            expect(result.error).toMatch(/stock_alert_max must be greater than stock_alert_min/);
+        });
+
+        it('rejects stock_alert_min >= stored stock_alert_max when updating only min', async () => {
+            db.query.mockResolvedValueOnce({ rows: [{ id: 'VAR1' }] });
+            // Stored max=20, updating min=25 (conflict)
+            db.query.mockResolvedValueOnce({ rows: [{ stock_alert_min: 5, stock_alert_max: 20 }] });
+
+            const result = await updateExtendedFields('VAR1', merchantId, {
+                stock_alert_min: 25
+            });
+
+            expect(result.success).toBe(false);
+            expect(result.status).toBe(400);
+        });
+
+        it('accepts valid min update when stored max is higher', async () => {
+            db.query.mockResolvedValueOnce({ rows: [{ id: 'VAR1' }] });
+            db.query.mockResolvedValueOnce({ rows: [{ stock_alert_min: 5, stock_alert_max: 50 }] });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 'VAR1', stock_alert_min: 10 }] });
+
+            const result = await updateExtendedFields('VAR1', merchantId, {
+                stock_alert_min: 10
+            });
+
+            expect(result.success).toBe(true);
+        });
+
+        it('skips cross-check when both min and max are in the same request', async () => {
+            // validator catches both-in-same-request conflicts; service does no extra query
+            db.query.mockResolvedValueOnce({ rows: [{ id: 'VAR1' }] });
+            db.query.mockResolvedValueOnce({
+                rows: [{ id: 'VAR1', stock_alert_min: 5, stock_alert_max: 20 }]
+            });
+
+            const result = await updateExtendedFields('VAR1', merchantId, {
+                stock_alert_min: 5,
+                stock_alert_max: 20
+            });
+
+            expect(result.success).toBe(true);
+            // Only ownership + UPDATE — no extra cross-check query
+            expect(db.query).toHaveBeenCalledTimes(2);
+        });
+
+        it('skips cross-check when stored counterparts are both NULL', async () => {
+            db.query.mockResolvedValueOnce({ rows: [{ id: 'VAR1' }] });
+            db.query.mockResolvedValueOnce({ rows: [{ stock_alert_min: null, stock_alert_max: null }] });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 'VAR1', stock_alert_min: 10 }] });
+
+            const result = await updateExtendedFields('VAR1', merchantId, {
+                stock_alert_min: 10
+            });
+
+            expect(result.success).toBe(true);
+        });
     });
 
     // ==================== updateMinStock ====================
@@ -465,7 +553,8 @@ describe('variation-service', () => {
         const mockVariation = {
             id: 'VAR1', sku: 'SKU-001', name: 'Small Bag',
             item_id: 'ITEM1', track_inventory: true,
-            inventory_alert_threshold: 5, item_name: 'Dog Food'
+            inventory_alert_threshold: 5, item_name: 'Dog Food',
+            stock_alert_max: null
         };
 
         it('pushes min stock to Square and updates local DB', async () => {
@@ -612,6 +701,65 @@ describe('variation-service', () => {
             // The variation-level UPDATE
             const updateCall = db.query.mock.calls[2];
             expect(updateCall[1]).toContain('LOW_QUANTITY');
+        });
+
+        // ---- min/max cross-field safety (Layer 1 defense-in-depth) ----
+
+        it('rejects new min when stored stock_alert_max would conflict', async () => {
+            db.query.mockResolvedValueOnce({
+                rows: [{ ...mockVariation, stock_alert_max: 10 }]
+            });
+
+            const result = await updateMinStock('VAR1', merchantId, 10);
+
+            expect(result.success).toBe(false);
+            expect(result.status).toBe(400);
+            expect(result.error).toMatch(/stock_alert_max must be greater than stock_alert_min/);
+            // Square must not be called on rejection
+            expect(squareApi.setSquareInventoryAlertThreshold).not.toHaveBeenCalled();
+        });
+
+        it('accepts new min when stored stock_alert_max leaves headroom', async () => {
+            db.query.mockResolvedValueOnce({
+                rows: [{ ...mockVariation, stock_alert_max: 100 }]
+            });
+            db.query.mockResolvedValueOnce({ rows: [{ location_id: 'LOC1' }] });
+            squareApi.setSquareInventoryAlertThreshold.mockResolvedValueOnce({});
+            db.query.mockResolvedValueOnce({ rows: [] });
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            const result = await updateMinStock('VAR1', merchantId, 10);
+
+            expect(result.success).toBe(true);
+        });
+
+        it('accepts any min when stored stock_alert_max is NULL (unlimited)', async () => {
+            db.query.mockResolvedValueOnce({
+                rows: [{ ...mockVariation, stock_alert_max: null }]
+            });
+            db.query.mockResolvedValueOnce({ rows: [{ location_id: 'LOC1' }] });
+            squareApi.setSquareInventoryAlertThreshold.mockResolvedValueOnce({});
+            db.query.mockResolvedValueOnce({ rows: [] });
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            const result = await updateMinStock('VAR1', merchantId, 9999);
+
+            expect(result.success).toBe(true);
+        });
+
+        it('skips cross-check when minStock=null (disabling alerts)', async () => {
+            db.query.mockResolvedValueOnce({
+                rows: [{ ...mockVariation, stock_alert_max: 5 }] // hostile stored max
+            });
+            db.query.mockResolvedValueOnce({ rows: [{ location_id: 'LOC1' }] });
+            squareApi.setSquareInventoryAlertThreshold.mockResolvedValueOnce({});
+            db.query.mockResolvedValueOnce({ rows: [] });
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            // null min means "disable alerts" — never conflicts
+            const result = await updateMinStock('VAR1', merchantId, null);
+
+            expect(result.success).toBe(true);
         });
     });
 
