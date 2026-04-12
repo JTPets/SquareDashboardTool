@@ -305,7 +305,7 @@ describe('runSmartSync', () => {
 
     it('uses tier 3 (91d only) when only 91d is stale', async () => {
         const recentDate = new Date().toISOString();
-        const staleDate = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(); // 5h (>3h interval)
+        const staleDate = new Date(Date.now() - 13 * 60 * 60 * 1000).toISOString(); // 13h (>12h env interval)
         getActiveLocationCount.mockResolvedValue(5);
         squareApi.syncSalesVelocity.mockResolvedValue(30);
 
