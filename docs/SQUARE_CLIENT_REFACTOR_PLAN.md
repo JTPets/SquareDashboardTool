@@ -58,3 +58,52 @@ no change to Square API behavior, retry semantics, or token handling.
 - Test: `batch` respects concurrency cap
 - Test: token caching scoped to instance, not global
 - Keep file under 300 lines — split class into `square-client-class.js` if needed
+
+## Section 3 — Migration Spec
+
+**Simple group** (`square-locations.js`, `square-location-preflight.js`,
+`catalog-health-service.js`, `location-health-service.js`,
+`utils/square-webhooks.js`). These call sites use at most two client
+primitives and have no idempotency or pagination logic. Migrate by
+instantiating `new SquareClient({ merchantId })` at function entry and
+replacing `makeSquareRequest(endpoint, { accessToken, ... })` with
+`client.get(path)` / `client.request(...)`. `utils/square-webhooks.js`
+keeps its functional `generateIdempotencyKey` import unchanged since it
+performs no HTTP. Expected churn: ≤ 15 lines per file, no test changes
+beyond mock swaps. Land all five in a single PR to establish the
+migration pattern before touching higher-risk code.
+
+**Medium group** (`square-custom-attributes.js`, `square-pricing.js`,
+`square-vendors.js`, `square-velocity.js`, `square-diagnostics.js`,
+`inventory-receive-sync.js`, `match-suggestions-service.js`,
+`vendor-query-service.js`, `utils/square-subscriptions.js`,
+`scripts/combined-order-backfill.js`). These use `sleep` and/or
+`generateIdempotencyKey` and exercise version-mismatch or pagination
+paths. Migrate one file per PR. Replace manual idempotency-key generation
+with `client.post(path, body, { idempotent: true })`. Replace manual
+cursor loops with `client.paginate(...)` where shape matches; leave
+bespoke loops alone when they interleave custom business logic between
+pages. Keep `sleep` imports where callers pace work outside a single
+request (e.g., velocity page throttling, backfill scripts).
+`vendor-query-service.js` retains its lazy `require` to preserve the
+existing cycle-break. Each PR must keep the full existing test suite
+green with no snapshot or mock-arity changes beyond the direct call-site
+swap.
+
+**Complex group** (`services/square/index.js`, `services/square/api.js`,
+`square-inventory.js`, `square-catalog-sync.js`,
+`vendor/catalog-create-service.js`). These are either public barrels or
+long-running flows where retry pacing, idempotency, and version conflicts
+are load-bearing. Migrate last, one PR per file, behind a feature flag
+where practical. `index.js` gains the class on its re-export surface
+without removing any existing functional export — downstream consumers
+outside this plan must continue to work unchanged. `api.js` adopts the
+class internally but keeps its own exported signature stable.
+`square-inventory.js` and `catalog-create-service.js` must have their
+idempotency-key generation traced end-to-end in tests to prove the new
+`{ idempotent: true }` path produces the same uniqueness guarantees as
+today. `square-catalog-sync.js` needs a dedicated soak test against a
+sandbox merchant before rollout because its batch+sleep pacing directly
+drives Square rate-limit behavior. No deletions of the functional
+exports until every consumer in this document has been migrated and one
+full release cycle has elapsed.
