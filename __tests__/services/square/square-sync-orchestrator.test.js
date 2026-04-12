@@ -40,35 +40,17 @@ const { syncSalesVelocityAllPeriods } = require('../../../services/square/square
 const { fullSync } = require('../../../services/square/square-sync-orchestrator');
 
 describe('Square Sync Orchestrator', () => {
-    beforeEach(() => {
-        // resetAllMocks (not clearAllMocks) so leftover mockResolvedValue /
-        // mockRejectedValue implementations from prior tests cannot leak
-        // into later tests. clearAllMocks only drops call history; reset
-        // also drops implementations, which is what we need here because
-        // every test below sets its own mockResolvedValue for each mock.
-        jest.resetAllMocks();
-    });
-
-    afterEach(() => {
-        // Each test sets its own mockResolvedValue / mockRejectedValue on
-        // the module-factory jest.fn()s. If we didn't tear them down after
-        // the test, the *last* test in this file would leave every mocked
-        // sub-module (square-locations, square-vendors, square-catalog-sync,
-        // square-inventory, square-velocity) with a lingering implementation
-        // attached to its jest.fn() instance. Those sub-modules are the
-        // exact modules the facade `services/square` re-exports, so a
-        // shared module-registry entry could surface the stale behavior
-        // inside sibling sync-orchestrator.test.js.
-        jest.resetAllMocks();
-    });
+    // Per-test mock lifecycle is handled globally in jest.config.js via
+    // clearMocks: true and restoreMocks: true. A manual resetAllMocks() in
+    // beforeEach/afterEach is redundant and, on Jest 29 / Node 22, has been
+    // observed to interfere with the global restoreMocks pass and break
+    // mockImplementation() in sibling suites.
 
     afterAll(() => {
         // Final teardown when this file is done: restore original impls of
-        // any spied-upon methods, then reset every remaining jest.fn().
-        // Combined with the afterEach above, this guarantees no mock state
-        // walks out of this file into whatever runs next in the worker.
+        // any spied-upon methods so nothing walks out of this file into
+        // whatever runs next in the worker.
         jest.restoreAllMocks();
-        jest.resetAllMocks();
     });
 
     describe('fullSync', () => {

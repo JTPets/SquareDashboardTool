@@ -29,13 +29,11 @@ const { loggedSync, isSyncNeeded, runSmartSync, getSyncHistory, getSyncStatus } 
 
 const MID = 42;
 
-beforeEach(() => {
-    // resetAllMocks (not just clearAllMocks) so leftover mockResolvedValue /
-    // mockResolvedValueOnce implementations from prior tests or suites cannot
-    // leak into these tests. clearMocks only resets call history; it does
-    // NOT drain the once-queue or reset default implementations.
-    jest.resetAllMocks();
-});
+// Mock lifecycle is handled globally in jest.config.js via
+// clearMocks: true and restoreMocks: true. A manual jest.resetAllMocks()
+// here is redundant and, on Jest 29 / Node 22, has been observed to
+// interfere with the global restoreMocks pass — specifically breaking
+// mockImplementation() set inside a test (e.g. the tier-3 test below).
 
 // ── loggedSync ────────────────────────────────────────────────────────────────
 
