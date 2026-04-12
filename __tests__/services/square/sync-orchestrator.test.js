@@ -252,23 +252,51 @@ describe('runSmartSync', () => {
         squareApi.syncVendors.mockResolvedValue(2);
         squareApi.syncSalesVelocityAllPeriods.mockResolvedValue({ '91d': 50, '182d': 30, '365d': 20 });
 
-        db.query
-            .mockResolvedValueOnce({ rows: [{ completed_at: staleDate }] })  // locations isSyncNeeded
-            .mockResolvedValueOnce({ rows: [{ id: 1 }] })                    // loggedSync INSERT
-            .mockRejectedValueOnce(new Error('locations failed'))             // loggedSync UPDATE fails after fn error
-            .mockResolvedValueOnce({ rows: [{ completed_at: staleDate }] })  // vendors isSyncNeeded
-            .mockResolvedValueOnce({ rows: [{ id: 2 }] })                    // loggedSync INSERT
-            .mockResolvedValueOnce({ rows: [] })                              // loggedSync UPDATE
-            .mockResolvedValueOnce({ rows: [{ count: '100' }] })             // item count
-            .mockResolvedValueOnce({ rows: [{ completed_at: recentDate }] }) // catalog fresh
-            .mockResolvedValueOnce({ rows: [{ count: '100' }] })             // inv count
-            .mockResolvedValueOnce({ rows: [{ completed_at: recentDate }] }) // inventory fresh
-            .mockResolvedValueOnce({ rows: [{ completed_at: staleDate }] })  // sales_91d
-            .mockResolvedValueOnce({ rows: [{ completed_at: staleDate }] })  // sales_182d
-            .mockResolvedValueOnce({ rows: [{ completed_at: staleDate }] })  // sales_365d
-            .mockResolvedValueOnce({ rows: [] })                              // upsert 91d
-            .mockResolvedValueOnce({ rows: [] })                              // upsert 182d
-            .mockResolvedValueOnce({ rows: [] });                             // upsert 365d
+        // Dispatch by SQL content (same pattern as the tier-3 test).
+        // A positional mockResolvedValueOnce queue here is fragile: if the
+        // number of db.query calls ever drifts from what this test expects
+        // (e.g. a new query added, one removed, Promise.all re-ordered),
+        // leftover entries would sit in the queue. resetAllMocks() in the
+        // beforeEach drains them before the next test starts, but a
+        // content-keyed implementation removes the concern entirely and
+        // makes the test self-describing.
+        db.query.mockImplementation((sql, params) => {
+            const type = params && params[0];
+
+            // loggedSync INSERT (returns id)
+            if (/INSERT\s+INTO\s+sync_history/.test(sql) && /RETURNING\s+id/.test(sql)) {
+                return Promise.resolve({ rows: [{ id: 1 }] });
+            }
+            // _writeSalesHistoryRows INSERT (upsert for a sales period) — no RETURNING
+            if (/INSERT\s+INTO\s+sync_history/.test(sql)) {
+                return Promise.resolve({ rows: [] });
+            }
+            // loggedSync failed-status UPDATE for locations must reject to exercise
+            // the inner catch in loggedSync (original behavior of this test).
+            // params for the failed-UPDATE are [error.message, durationSeconds, syncType, ...].
+            if (/UPDATE\s+sync_history/.test(sql) && /status\s*=\s*'failed'/.test(sql) && params && params[2] === 'locations') {
+                return Promise.reject(new Error('locations failed'));
+            }
+            // Any other UPDATE resolves
+            if (/UPDATE\s+sync_history/.test(sql)) {
+                return Promise.resolve({ rows: [] });
+            }
+            // item count
+            if (/COUNT\(\*\)\s+FROM\s+items/.test(sql)) {
+                return Promise.resolve({ rows: [{ count: '100' }] });
+            }
+            // inventory count
+            if (/COUNT\(\*\)\s+FROM\s+inventory_counts/.test(sql)) {
+                return Promise.resolve({ rows: [{ count: '100' }] });
+            }
+            // isSyncNeeded: SELECT ... completed_at FROM sync_history
+            // Catalog + inventory fresh; everything else stale.
+            if (/FROM\s+sync_history/.test(sql) && /completed_at/.test(sql)) {
+                const fresh = type === 'catalog' || type === 'inventory';
+                return Promise.resolve({ rows: [{ completed_at: fresh ? recentDate : staleDate }] });
+            }
+            return Promise.resolve({ rows: [] });
+        });
 
         const r = await runSmartSync({ merchantId: MID });
         expect(r.status).toBe('partial');
