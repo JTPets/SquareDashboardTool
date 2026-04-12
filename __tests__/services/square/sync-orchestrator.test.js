@@ -283,20 +283,40 @@ describe('runSmartSync', () => {
         getActiveLocationCount.mockResolvedValue(5);
         squareApi.syncSalesVelocity.mockResolvedValue(30);
 
-        db.query
-            .mockResolvedValueOnce({ rows: [{ completed_at: recentDate }] }) // locations fresh
-            .mockResolvedValueOnce({ rows: [{ completed_at: recentDate }] }) // vendors fresh
-            .mockResolvedValueOnce({ rows: [{ count: '100' }] })             // item count
-            .mockResolvedValueOnce({ rows: [{ completed_at: recentDate }] }) // catalog fresh
-            .mockResolvedValueOnce({ rows: [{ count: '100' }] })             // inv count
-            .mockResolvedValueOnce({ rows: [{ completed_at: recentDate }] }) // inventory fresh
-            .mockResolvedValueOnce({ rows: [{ completed_at: staleDate }] })  // sales_91d stale (5h>3h)
-            .mockResolvedValueOnce({ rows: [{ completed_at: recentDate }] }) // sales_182d fresh
-            .mockResolvedValueOnce({ rows: [{ completed_at: recentDate }] }) // sales_365d fresh
-            .mockResolvedValueOnce({ rows: [{ records_synced: 20 }] })       // force365 check
-            // loggedSync for sales_91d
-            .mockResolvedValueOnce({ rows: [{ id: 5 }] })
-            .mockResolvedValueOnce({ rows: [] });
+        // Dispatch by query content — robust against call-order changes
+        // (e.g. Promise.all scheduling) that would break a positional
+        // mockResolvedValueOnce queue. Only the per-type completed_at
+        // response actually varies per call; everything else is stable.
+        db.query.mockImplementation((sql, params) => {
+            // isSyncNeeded: SELECT ... completed_at FROM sync_history
+            if (/FROM\s+sync_history[\s\S]*status\s*=\s*'success'/.test(sql)
+                && /ORDER BY/.test(sql) && /completed_at/.test(sql)) {
+                const type = params && params[0];
+                const completed_at = type === 'sales_91d' ? staleDate : recentDate;
+                return Promise.resolve({ rows: [{ completed_at }] });
+            }
+            // item count
+            if (/COUNT\(\*\)\s+FROM\s+items/.test(sql)) {
+                return Promise.resolve({ rows: [{ count: '100' }] });
+            }
+            // inventory count
+            if (/COUNT\(\*\)\s+FROM\s+inventory_counts/.test(sql)) {
+                return Promise.resolve({ rows: [{ count: '100' }] });
+            }
+            // force365 catch-up check: SELECT records_synced FROM sync_history
+            if (/records_synced\s+FROM\s+sync_history/.test(sql)) {
+                return Promise.resolve({ rows: [{ records_synced: 20 }] });
+            }
+            // loggedSync INSERT (RETURNING id)
+            if (/INSERT\s+INTO\s+sync_history/.test(sql)) {
+                return Promise.resolve({ rows: [{ id: 5 }] });
+            }
+            // loggedSync UPDATE
+            if (/UPDATE\s+sync_history/.test(sql)) {
+                return Promise.resolve({ rows: [] });
+            }
+            return Promise.resolve({ rows: [] });
+        });
 
         const r = await runSmartSync({ merchantId: MID });
         expect(r.synced).toContain('sales_91d');
