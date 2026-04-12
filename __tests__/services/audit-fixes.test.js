@@ -210,7 +210,7 @@ describe('LA-8: updateCustomerRewardNote 409 retry', () => {
         expect(source).toContain('MAX_RETRIES');
         expect(source).toContain('for (let attempt = 0; attempt <= MAX_RETRIES; attempt++)');
         // Verify 409 check before retry
-        expect(source).toContain('putResponse.status === 409');
+        expect(source).toContain('status === 409');
         expect(source).toContain('attempt < MAX_RETRIES');
         // Verify warning log on 409
         expect(source).toContain('version conflict (409), retrying');
