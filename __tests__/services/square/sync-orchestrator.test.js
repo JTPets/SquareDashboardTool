@@ -30,7 +30,11 @@ const { loggedSync, isSyncNeeded, runSmartSync, getSyncHistory, getSyncStatus } 
 const MID = 42;
 
 beforeEach(() => {
-    jest.clearAllMocks();
+    // resetAllMocks (not just clearAllMocks) so leftover mockResolvedValue /
+    // mockResolvedValueOnce implementations from prior tests or suites cannot
+    // leak into these tests. clearMocks only resets call history; it does
+    // NOT drain the once-queue or reset default implementations.
+    jest.resetAllMocks();
 });
 
 // ── loggedSync ────────────────────────────────────────────────────────────────
