@@ -13,7 +13,7 @@
  */
 
 const logger = require('../../utils/logger');
-const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
+const { makeSquareRequest, getMerchantToken, SquareApiError } = require('../square/square-client');
 const { searchCachedCustomers, cacheCustomerDetails } = require('./customer-cache-service');
 
 /**
@@ -48,8 +48,16 @@ async function searchCustomers(query, merchantId) {
         };
     }
 
-    // Get Square access token
-    const accessToken = await getSquareAccessToken(merchantId);
+    // Get Square access token. getMerchantToken throws if the merchant is
+    // missing/inactive or has no token configured; the legacy helper returned
+    // null for the same cases. Catch the throw to preserve the null-token
+    // fallback-to-cache behavior.
+    let accessToken = null;
+    try {
+        accessToken = await getMerchantToken(merchantId);
+    } catch (err) {
+        logger.debug('No Square access token available', { merchantId, error: err.message });
+    }
     if (!accessToken) {
         // No Square token - return cached results only
         if (cachedCustomers.length > 0) {
@@ -99,19 +107,17 @@ async function searchCustomers(query, merchantId) {
         };
     }
 
-    const response = await fetchWithTimeout('https://connect.squareup.com/v2/customers/search', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-            'Square-Version': SQUARE_API_VERSION
-        },
-        body: JSON.stringify(searchBody)
-    }, 15000);
-
-    if (!response.ok) {
-        const errText = await response.text();
-        logger.error('Square customer search failed', { status: response.status, error: errText });
+    let data;
+    try {
+        data = await makeSquareRequest('/v2/customers/search', {
+            method: 'POST',
+            accessToken,
+            body: JSON.stringify(searchBody),
+            timeout: 15000
+        });
+    } catch (err) {
+        const status = err instanceof SquareApiError ? err.status : undefined;
+        logger.error('Square customer search failed', { status, error: err.message });
         // Return cached results if Square API fails
         if (cachedCustomers.length > 0) {
             return {
@@ -122,11 +128,10 @@ async function searchCustomers(query, merchantId) {
             };
         }
         const error = new Error('Square API error');
-        error.statusCode = response.status;
+        error.statusCode = status || 500;
         throw error;
     }
 
-    const data = await response.json();
     const squareCustomers = (data.customers || []).map(c => ({
         id: c.id,
         displayName: [c.given_name, c.family_name].filter(Boolean).join(' ') || c.company_name || 'Unknown',
