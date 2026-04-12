@@ -43,6 +43,7 @@ function makeRow(overrides = {}) {
         quantity: '0',
         days_of_stock: '999999',
         current_min: '0',
+        current_max: null,
         min_stock_pinned: false,
         expiry_tier: null,
         item_created_at: oldItemDate(),  // old enough by default
@@ -462,6 +463,84 @@ describe('generateRecommendations', () => {
         expect(recs).toHaveLength(0);
     });
 
+    // --- Min/Max conflict guard (Rule 2 increases) ---
+
+    test('Conflict guard: new_min < current_max → increase allowed', async () => {
+        // min=0, vel=0.5, recommended=1; current_max=5 → 1 < 5 → allowed
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ quantity: '0', velocity_91d: '0.5', current_min: '0',
+                current_max: '5', days_of_stock: '0', last_sold_at: recentDate() })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].recommendedMin).toBe(1);
+        expect(recs[0].skipped).toBeUndefined();
+        expect(recs[0].warning).toBeUndefined();
+    });
+
+    test('Conflict guard: new_min === current_max → skipped with min_would_meet_or_exceed_max', async () => {
+        // min=0, vel=0.5, recommended=1; current_max=1 → 1 >= 1 → skip
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ quantity: '0', velocity_91d: '0.5', current_min: '0',
+                current_max: '1', days_of_stock: '0', last_sold_at: recentDate() })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].recommendedMin).toBeNull();
+        expect(recs[0].skipped).toBe('min_would_meet_or_exceed_max');
+        expect(recs[0].conflict_detail).toEqual({ new_min: 1, current_max: 1 });
+    });
+
+    test('Conflict guard: new_min > current_max → skipped with min_would_meet_or_exceed_max', async () => {
+        // min=3, vel=0.5, recommended=4 (capped at ceil(0.5*30)=15); current_max=2 → 4 > 2 → skip
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ quantity: '0', velocity_91d: '0.5', current_min: '3',
+                current_max: '2', days_of_stock: '0', last_sold_at: recentDate() })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].skipped).toBe('min_would_meet_or_exceed_max');
+        expect(recs[0].conflict_detail).toEqual({ new_min: 4, current_max: 2 });
+        expect(recs[0].reason).toMatch(/would meet or exceed/i);
+    });
+
+    test('Conflict guard: current_max IS NULL → increase allowed with no_max_set warning', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ quantity: '0', velocity_91d: '0.5', current_min: '0',
+                current_max: null, days_of_stock: '0', last_sold_at: recentDate() })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].recommendedMin).toBe(1);
+        expect(recs[0].skipped).toBeUndefined();
+        expect(recs[0].warning).toBe('no_max_set');
+    });
+
+    test('Conflict guard: current_max = 0 → increase allowed with no_max_set warning', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ quantity: '0', velocity_91d: '0.5', current_min: '0',
+                current_max: '0', days_of_stock: '0', last_sold_at: recentDate() })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].recommendedMin).toBe(1);
+        expect(recs[0].skipped).toBeUndefined();
+        expect(recs[0].warning).toBe('no_max_set');
+    });
+
+    test('Conflict guard: does not affect Rule 1 (decreases)', async () => {
+        // Rule 1 reduces min; conflict guard only applies to increases.
+        db.query.mockResolvedValueOnce({ rows: [
+            makeRow({ days_of_stock: '95', current_min: '2', current_max: '1',
+                velocity_91d: '0.5', quantity: '9' })
+        ]});
+        const recs = await service.generateRecommendations(MERCHANT_ID);
+        expect(recs).toHaveLength(1);
+        expect(recs[0].rule).toBe('OVERSTOCKED');
+        expect(recs[0].recommendedMin).toBe(1);
+        expect(recs[0].skipped).toBeUndefined();
+    });
+
     test('Guardrail 3: zero velocity item with expiry tier still gets Rule 3 (min → 0)', async () => {
         // Rule 3 is checked before the velocity guard — expiry overrides everything
         db.query.mockResolvedValueOnce({ rows: [
@@ -646,6 +725,68 @@ describe('applyWeeklyAdjustments', () => {
             .mockResolvedValueOnce({ rows: [] }); // DATA_QUERY — no rows
         const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
         expect(result.adjustments).toEqual([]);
+    });
+
+    test('conflict skips: returned in result.conflicts and logged to both audit tables', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] }) // stale check
+            .mockResolvedValueOnce({ rows: [
+                makeRow({ variation_id: 'var-conflict', location_id: 'loc1',
+                    item_name: 'Cat Food 5kg', variation_name: 'Chicken',
+                    quantity: '0', velocity_91d: '0.5', current_min: '3',
+                    current_max: '2', days_of_stock: '0', last_sold_at: recentDate() }),
+            ]}); // DATA_QUERY — only a conflict rec, no applicable
+
+        const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
+
+        // No adjustments applied — all skipped
+        expect(result.reduced).toBe(0);
+        expect(result.increased).toBe(0);
+        expect(result.conflicts).toHaveLength(1);
+        expect(result.conflicts[0]).toMatchObject({
+            variationId: 'var-conflict',
+            locationId: 'loc1',
+            itemName: 'Cat Food 5kg',
+            conflictDetail: { new_min: 4, current_max: 2 }
+        });
+
+        // Both audit tables received a row — find them by SQL fragment
+        const auditLogInserts = db.query.mock.calls.filter(c =>
+            typeof c[0] === 'string' && c[0].includes('INSERT INTO min_max_audit_log'));
+        const conflictAuditInsert = auditLogInserts.find(c => c[1].includes('min_would_meet_or_exceed_max'));
+        expect(conflictAuditInsert).toBeDefined();
+
+        const stockAuditInserts = db.query.mock.calls.filter(c =>
+            typeof c[0] === 'string' && c[0].includes('INSERT INTO min_stock_audit')
+            && c[0].includes('SKIPPED_CONFLICT'));
+        expect(stockAuditInserts).toHaveLength(1);
+        expect(stockAuditInserts[0][1]).toContain('var-conflict');
+    });
+
+    test('conflict skips: present even when applicable recs also exist', async () => {
+        // var-ok: sold-out fast mover → recommend 1 (no conflict: max=null)
+        // var-conflict: min=3, max=2 → conflict skip
+        db.query
+            .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] })
+            .mockResolvedValueOnce({ rows: [
+                makeRow({ variation_id: 'var-ok', location_id: 'loc1',
+                    quantity: '0', velocity_91d: '0.5', current_min: '0',
+                    current_max: null, days_of_stock: '0', last_sold_at: recentDate() }),
+                makeRow({ variation_id: 'var-conflict', location_id: 'loc1',
+                    quantity: '0', velocity_91d: '0.5', current_min: '3',
+                    current_max: '2', days_of_stock: '0', last_sold_at: recentDate() }),
+            ]})
+            .mockResolvedValueOnce({ rows: [{ total: '100' }] });
+
+        db.transaction.mockImplementationOnce(async (fn) => {
+            const mockClient = { query: jest.fn().mockResolvedValue({ rows: [{ stock_alert_min: 0 }] }) };
+            return fn(mockClient);
+        });
+
+        const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
+        expect(result.increased).toBe(1);
+        expect(result.conflicts).toHaveLength(1);
+        expect(result.conflicts[0].variationId).toBe('var-conflict');
     });
 
     test('does not call pushMinStockThresholdsToSquare (job owns sync)', async () => {

@@ -86,9 +86,13 @@ function renderTable(items) {
     }
 
     tbody.innerHTML = items.map(row => {
-        const isReduced = row.new_min < row.previous_min;
-        const isIncreased = row.new_min > row.previous_min;
-        const rowClass = isReduced ? 'mmh-row-reduced' : isIncreased ? 'mmh-row-increased' : '';
+        const isConflict = row.rule === 'SKIPPED_CONFLICT';
+        const isReduced = !isConflict && row.new_min < row.previous_min;
+        const isIncreased = !isConflict && row.new_min > row.previous_min;
+        const rowClass = isConflict
+            ? 'mmh-row-conflict'
+            : isReduced ? 'mmh-row-reduced'
+            : isIncreased ? 'mmh-row-increased' : '';
 
         const date = formatDateTime(row.created_at);
         const itemName = escapeHtml(row.item_name || '—');
@@ -98,6 +102,10 @@ function renderTable(items) {
         const reason = escapeHtml(row.reason || '—');
         const variationId = escapeAttr(row.variation_id);
         const locationId = escapeAttr(row.location_id);
+        const ruleCell = isConflict
+            ? `<span class="mmh-badge-warning" title="Review required">${rule}</span>`
+            : rule;
+        const newMinCell = isConflict ? '—' : escapeHtml(String(row.new_min));
 
         return `
           <tr class="${escapeAttr(rowClass)}">
@@ -105,9 +113,9 @@ function renderTable(items) {
             <td>${itemName}</td>
             <td>${varName}</td>
             <td>${sku}</td>
-            <td>${rule}</td>
+            <td>${ruleCell}</td>
             <td>${escapeHtml(String(row.previous_min))}</td>
-            <td>${escapeHtml(String(row.new_min))}</td>
+            <td>${newMinCell}</td>
             <td>${reason}</td>
             <td>
               <button class="mmh-pin-btn"
@@ -129,6 +137,7 @@ function formatRule(rule) {
         EXPIRING: 'Expiring',
         MANUAL_APPLY: 'Manual',
         CRON_AUTO: 'Auto (cron)',
+        SKIPPED_CONFLICT: 'Min ≥ Max — review',
     };
     return labels[rule] || rule || '—';
 }

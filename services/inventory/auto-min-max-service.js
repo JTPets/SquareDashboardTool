@@ -51,6 +51,7 @@ const DATA_QUERY = `
             ELSE 999999
         END AS days_of_stock,
         COALESCE(vls.stock_alert_min, 0) AS current_min,
+        COALESCE(vls.stock_alert_max, v.stock_alert_max) AS current_max,
         COALESCE(vls.min_stock_pinned, FALSE) AS min_stock_pinned,
         edt.tier_code AS expiry_tier,
         i.created_at AS item_created_at,
@@ -154,10 +155,20 @@ async function applyWeeklyAdjustments(merchantId) {
 
     const pinned = recs.filter(r => r.skipped === 'pinned').length;
     const tooNew = recs.filter(r => r.skipped === 'tooNew').length;
+    const conflictRecs = recs.filter(r => r.skipped === 'min_would_meet_or_exceed_max');
     // Supplier-issue warnings (recommendedMin=null, no skipped flag) are also skipped
     const applicable = recs.filter(r => !r.skipped && r.recommendedMin !== null);
     const notApplicable = recs.filter(r => r.skipped || r.recommendedMin === null);
     const skipped = recs.length - applicable.length - pinned - tooNew;
+    const conflicts = conflictRecs.map(r => ({
+        variationId: r.variationId,
+        locationId: r.locationId,
+        itemName: r.itemName,
+        variationName: r.variationName,
+        sku: r.sku,
+        currentMin: r.currentMin,
+        conflictDetail: r.conflict_detail || null
+    }));
 
     // Persist skipped items to min_max_audit_log for the suppression dashboard
     await _logSkippedItems(merchantId, notApplicable);
@@ -187,8 +198,8 @@ async function applyWeeklyAdjustments(merchantId) {
     }
 
     if (applicable.length === 0) {
-        logger.info('No applicable min stock adjustments', { merchantId, pinned, tooNew });
-        return { reduced: 0, increased: 0, skipped, pinned, tooNew, adjustments: [] };
+        logger.info('No applicable min stock adjustments', { merchantId, pinned, tooNew, conflicts: conflicts.length });
+        return { reduced: 0, increased: 0, skipped, pinned, tooNew, conflicts, adjustments: [] };
     }
 
     await db.transaction(async (client) => {
@@ -213,8 +224,9 @@ async function applyWeeklyAdjustments(merchantId) {
         previousMin: r.currentMin
     }));
 
-    logger.info('Applied weekly min stock adjustments', { merchantId, reduced, increased, skipped, pinned, tooNew });
-    return { reduced, increased, skipped, pinned, tooNew, adjustments };
+    logger.info('Applied weekly min stock adjustments',
+        { merchantId, reduced, increased, skipped, pinned, tooNew, conflicts: conflicts.length });
+    return { reduced, increased, skipped, pinned, tooNew, conflicts, adjustments };
 }
 
 /**
@@ -573,14 +585,32 @@ function _evaluateRules(row, thirtyDaysAgo, ninetyOneDaysAgo) {
         const recommended = Math.min(min + 1, cap);
         if (recommended <= min) return null;
 
-        return _buildRec(row, recommended, 'SOLDOUT_FAST_MOVER',
+        // Conflict guard: do not raise min to or above an existing max.
+        // Auto-bumping the max would trample merchant intent, so we skip and surface
+        // the conflict for manual review. current_max NULL or 0 means "no ceiling set"
+        // — allow the increase but flag with 'no_max_set' so merchants see the gap.
+        const maxRaw = row.current_max;
+        const currentMax = (maxRaw === null || maxRaw === undefined || maxRaw === '')
+            ? null : parseInt(maxRaw);
+        if (currentMax !== null && currentMax > 0 && recommended >= currentMax) {
+            return _buildRec(row, null, 'SOLDOUT_FAST_MOVER',
+                `Recommended min ${recommended} would meet or exceed current max ${currentMax} — review required`,
+                'min_would_meet_or_exceed_max',
+                { new_min: recommended, current_max: currentMax });
+        }
+
+        const rec = _buildRec(row, recommended, 'SOLDOUT_FAST_MOVER',
             `Sold out with ${vel.toFixed(2)} daily sales — increase min`);
+        if (currentMax === null || currentMax === 0) {
+            rec.warning = 'no_max_set';
+        }
+        return rec;
     }
 
     return null;
 }
 
-function _buildRec(row, recommendedMin, rule, reason, skipped = null) {
+function _buildRec(row, recommendedMin, rule, reason, skipped = null, conflictDetail = null) {
     const rec = {
         variationId: row.variation_id,
         locationId: row.location_id,
@@ -596,6 +626,7 @@ function _buildRec(row, recommendedMin, rule, reason, skipped = null) {
         quantity: parseInt(row.quantity) || 0,
     };
     if (skipped) rec.skipped = skipped;
+    if (conflictDetail) rec.conflict_detail = conflictDetail;
     return rec;
 }
 
@@ -650,14 +681,37 @@ async function _logSkippedItems(merchantId, recs) {
     if (!recs.length) return;
     const now = new Date().toISOString();
     for (const rec of recs) {
-        const skipReason = rec.reason || 'No recommendation applicable';
+        // Conflict skips carry a machine-readable code so the audit UI can render
+        // a distinct warning style. Prose (with conflict_detail) goes into `reason`
+        // so downstream viewers get context without parsing skip_reason.
+        const isConflict = rec.skipped === 'min_would_meet_or_exceed_max';
+        const skipReason = isConflict
+            ? 'min_would_meet_or_exceed_max'
+            : (rec.reason || 'No recommendation applicable');
+        const reasonCol = isConflict ? (rec.reason || null) : null;
+
         await db.query(
             `INSERT INTO min_max_audit_log
                  (merchant_id, variation_id, location_id, old_min, new_min,
                   reason, skipped, skip_reason, created_at)
-             VALUES ($1, $2, $3, $4, NULL, NULL, TRUE, $5, $6)`,
-            [merchantId, rec.variationId, rec.locationId, rec.currentMin, skipReason, now]
+             VALUES ($1, $2, $3, $4, NULL, $5, TRUE, $6, $7)`,
+            [merchantId, rec.variationId, rec.locationId, rec.currentMin,
+                reasonCol, skipReason, now]
         );
+
+        // Conflict skips must appear in the merchant-facing history UI with a
+        // warning style. getHistory reads min_stock_audit, so we record a no-op
+        // row there (new_min = previous_min) with rule='SKIPPED_CONFLICT'.
+        if (isConflict) {
+            await db.query(
+                `INSERT INTO min_stock_audit
+                     (merchant_id, variation_id, location_id, previous_min, new_min,
+                      rule, reason, velocity_91d, days_of_stock, quantity, created_at)
+                 VALUES ($1, $2, $3, $4, $4, 'SKIPPED_CONFLICT', $5, NULL, NULL, NULL, $6)`,
+                [merchantId, rec.variationId, rec.locationId, rec.currentMin,
+                    rec.reason || 'Min would meet or exceed max — review required', now]
+            );
+        }
     }
 }
 
