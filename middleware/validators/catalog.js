@@ -6,6 +6,7 @@
 
 const { body, param, query } = require('express-validator');
 const { handleValidationErrors } = require('./index');
+const db = require('../../utils/database');
 
 // Helper to validate non-negative integer (handles both string and number types from JSON)
 const isNonNegativeInt = (value, fieldName) => {
@@ -26,15 +27,35 @@ const isPositiveInt = (value, fieldName) => {
 };
 
 /**
+ * Core cross-field check: throws if a concrete min/max pair violates min < max.
+ *
+ * Normalization:
+ *   - null / undefined for either side  → pass (nothing to compare)
+ *   - stock_alert_max = 0                → treated as NULL (unlimited), pass
+ *
+ * @param {number|string|null|undefined} rawMin
+ * @param {number|string|null|undefined} rawMax
+ * @throws {Error} if min >= max after normalization
+ * @returns {boolean} true when valid
+ */
+const assertMinLessThanMax = (rawMin, rawMax) => {
+    const min = rawMin === null || rawMin === undefined ? null : Number(rawMin);
+    let max = rawMax === null || rawMax === undefined ? null : Number(rawMax);
+    // Normalize 0 → null (unlimited)
+    if (max === 0) max = null;
+    if (max === null || min === null) return true;
+    if (min >= max) {
+        throw new Error('stock_alert_max must be greater than stock_alert_min');
+    }
+    return true;
+};
+
+/**
  * Cross-field validator: stock_alert_min must be strictly less than stock_alert_max.
  *
- * Normalization rules:
- *   - stock_alert_max = 0      → treated as NULL (unlimited), no conflict possible
- *   - stock_alert_max = null   → unlimited, no conflict possible
- *   - stock_alert_max > 0      → must be > stock_alert_min (if min is set and > 0)
- *
  * Only runs when BOTH fields are provided in the request body. Single-field
- * updates (e.g. updating only min) rely on the DB CHECK constraint for safety.
+ * updates (e.g. updating only min) rely on the service-level guard plus the DB
+ * CHECK constraint for safety.
  *
  * @throws {Error} if max <= min (triggers express-validator 400 response)
  * @returns {boolean} true when valid
@@ -45,15 +66,45 @@ const validateMinMaxConsistency = (req) => {
     if (body.stock_alert_min === undefined || body.stock_alert_max === undefined) {
         return true;
     }
-    const min = body.stock_alert_min === null ? null : Number(body.stock_alert_min);
-    let max = body.stock_alert_max === null ? null : Number(body.stock_alert_max);
-    // Normalize 0 → null (unlimited)
-    if (max === 0) max = null;
-    if (max === null || min === null) return true;
-    if (min >= max) {
-        throw new Error('stock_alert_max must be greater than stock_alert_min');
-    }
-    return true;
+    return assertMinLessThanMax(body.stock_alert_min, body.stock_alert_max);
+};
+
+/**
+ * Async cross-field check for the PATCH /min-stock endpoint.
+ *
+ * The endpoint only accepts `min_stock` (no max field is ever sent), so we
+ * fetch the stored variations.stock_alert_max for the merchant+variation and
+ * verify the new min is strictly less than it. Skips the DB call when the
+ * incoming value can't produce a conflict (null, 0, or negative — validated
+ * elsewhere). A missing variation is ignored here; the service layer will
+ * return 404.
+ *
+ * Layered with the existing service-level guard and DB CHECK constraint for
+ * defense-in-depth, and mirrors the cross-field behavior on the /extended
+ * endpoint.
+ *
+ * @param {import('express').Request} req
+ * @returns {Promise<boolean>} true when valid
+ * @throws {Error} 'stock_alert_max must be greater than stock_alert_min'
+ */
+const validateMinStockAgainstStoredMax = async (req) => {
+    const body = req.body || {};
+    const rawMin = body.min_stock;
+    if (rawMin === undefined || rawMin === null) return true;
+    const min = Number(rawMin);
+    if (!Number.isFinite(min) || min <= 0) return true;
+
+    const variationId = req.params && req.params.id;
+    const merchantId = req.merchantContext && req.merchantContext.id;
+    if (!variationId || !merchantId) return true;
+
+    const result = await db.query(
+        'SELECT stock_alert_max FROM variations WHERE id = $1 AND merchant_id = $2',
+        [variationId, merchantId]
+    );
+    if (result.rows.length === 0) return true;
+
+    return assertMinLessThanMax(min, result.rows[0].stock_alert_max);
 };
 
 // GET /api/categories
@@ -109,6 +160,10 @@ const updateMinStock = [
         return isNonNegativeInt(value, 'min_stock');
     }),
     body('location_id').optional().isString(),
+    // Cross-field check: fetch stored stock_alert_max and verify min < max.
+    // Endpoint only carries min, so we read max from DB. See
+    // validateMinStockAgainstStoredMax for details.
+    body().custom(async (_value, { req }) => validateMinStockAgainstStoredMax(req)),
     handleValidationErrors
 ];
 
@@ -210,7 +265,9 @@ const fixLocations = [handleValidationErrors];
 const fixInventoryAlerts = [handleValidationErrors];
 
 module.exports = {
+    assertMinLessThanMax,
     validateMinMaxConsistency,
+    validateMinStockAgainstStoredMax,
     getCategories,
     getItems,
     getVariations,
