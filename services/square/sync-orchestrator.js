@@ -85,6 +85,7 @@ async function _writeSalesHistoryRows(periods, result, merchantId) {
 
 async function runSmartSync({ merchantId } = {}) {
     logger.info('Smart sync initiated', { merchantId });
+    console.log('[smart-sync] START merchantId=', merchantId, 'typeof=', typeof merchantId);
 
     // TODO(pre-franchise): make per-merchant (MT-6)
     const intervals = {
@@ -96,6 +97,7 @@ async function runSmartSync({ merchantId } = {}) {
         sales_182d: parseInt(process.env.SYNC_SALES_182D_INTERVAL_HOURS || '24'),
         sales_365d: parseInt(process.env.SYNC_SALES_365D_INTERVAL_HOURS || '168')
     };
+    console.log('[smart-sync] intervals=', intervals);
 
     const synced = [], errors = [], skipped = {}, summary = {};
 
@@ -107,7 +109,9 @@ async function runSmartSync({ merchantId } = {}) {
     // ── Locations (force if 0 active) ──
     const locationCount = await getActiveLocationCount(merchantId);
     const locCheck = await isSyncNeeded('locations', intervals.locations, merchantId);
+    console.log('[smart-sync] locations: count=', locationCount, 'check=', locCheck);
     if (locationCount === 0 || locCheck.needed) {
+        console.log('[smart-sync] -> BRANCH: locations');
         try {
             const r = await loggedSync('locations', () => squareApi.syncLocations(merchantId), merchantId);
             synced.push('locations'); summary.locations = r;
@@ -116,7 +120,9 @@ async function runSmartSync({ merchantId } = {}) {
 
     // ── Vendors ──
     const vendCheck = await isSyncNeeded('vendors', intervals.vendors, merchantId);
+    console.log('[smart-sync] vendors: check=', vendCheck);
     if (vendCheck.needed) {
+        console.log('[smart-sync] -> BRANCH: vendors');
         try {
             const r = await loggedSync('vendors', () => squareApi.syncVendors(merchantId), merchantId);
             synced.push('vendors'); summary.vendors = r;
@@ -126,7 +132,9 @@ async function runSmartSync({ merchantId } = {}) {
     // ── Catalog (force if 0 items) ──
     const itemCount = parseInt((await db.query('SELECT COUNT(*) FROM items WHERE merchant_id = $1', [merchantId])).rows[0].count);
     const catCheck = await isSyncNeeded('catalog', intervals.catalog, merchantId);
+    console.log('[smart-sync] catalog: itemCount=', itemCount, 'check=', catCheck);
     if (itemCount === 0 || catCheck.needed) {
+        console.log('[smart-sync] -> BRANCH: catalog');
         try {
             const r = await loggedSync('catalog', async () => {
                 const stats = await squareApi.syncCatalog(merchantId);
@@ -141,7 +149,9 @@ async function runSmartSync({ merchantId } = {}) {
     // ── Inventory (force if 0 counts) ──
     const invCount = parseInt((await db.query('SELECT COUNT(*) FROM inventory_counts WHERE merchant_id = $1', [merchantId])).rows[0].count);
     const invCheck = await isSyncNeeded('inventory', intervals.inventory, merchantId);
+    console.log('[smart-sync] inventory: invCount=', invCount, 'check=', invCheck);
     if (invCount === 0 || invCheck.needed) {
+        console.log('[smart-sync] -> BRANCH: inventory');
         try {
             const r = await loggedSync('inventory', () => squareApi.syncInventory(merchantId), merchantId);
             synced.push('inventory'); summary.inventory = r;
@@ -154,6 +164,7 @@ async function runSmartSync({ merchantId } = {}) {
         isSyncNeeded('sales_182d', intervals.sales_182d, merchantId),
         isSyncNeeded('sales_365d', intervals.sales_365d, merchantId)
     ]);
+    console.log('[smart-sync] sales checks: s91=', s91, 's182=', s182, 's365=', s365);
 
     // Catch-up: 365d synced with 0 records but 91d now has data
     let force365 = false;
@@ -165,7 +176,9 @@ async function runSmartSync({ merchantId } = {}) {
         }
     }
 
+    console.log('[smart-sync] force365=', force365);
     if (s365.needed || force365) {
+        console.log('[smart-sync] -> BRANCH: tier1 (365d full)');
         try {
             const r = await squareApi.syncSalesVelocityAllPeriods(merchantId, 365);
             await _writeSalesHistoryRows(['sales_91d', 'sales_182d', 'sales_365d'], r, merchantId);
@@ -173,6 +186,7 @@ async function runSmartSync({ merchantId } = {}) {
             Object.assign(summary, { sales_91d: r['91d'], sales_182d: r['182d'], sales_365d: r['365d'], salesVelocityOptimization: 'tier1_365d_full_fetch' });
         } catch (e) { errors.push({ type: 'sales_velocity_365d', error: e.message }); }
     } else if (s182.needed) {
+        console.log('[smart-sync] -> BRANCH: tier2 (182d medium)');
         try {
             const r = await squareApi.syncSalesVelocityAllPeriods(merchantId, 182);
             await _writeSalesHistoryRows(['sales_91d', 'sales_182d'], r, merchantId);
@@ -181,6 +195,7 @@ async function runSmartSync({ merchantId } = {}) {
             skipMsg('sales_365d', s365);
         } catch (e) { errors.push({ type: 'sales_velocity_182d', error: e.message }); }
     } else if (s91.needed) {
+        console.log('[smart-sync] -> BRANCH: tier3 (91d minimal)');
         try {
             const r = await loggedSync('sales_91d', () => squareApi.syncSalesVelocity(91, merchantId), merchantId);
             synced.push('sales_91d');
@@ -188,9 +203,11 @@ async function runSmartSync({ merchantId } = {}) {
         } catch (e) { errors.push({ type: 'sales_91d', error: e.message }); }
         skipMsg('sales_182d', s182); skipMsg('sales_365d', s365);
     } else {
+        console.log('[smart-sync] -> BRANCH: sales all fresh (nothing to do)');
         skipMsg('sales_91d', s91); skipMsg('sales_182d', s182); skipMsg('sales_365d', s365);
     }
 
+    console.log('[smart-sync] FINAL synced=', synced, 'errors=', errors, 'summary=', summary);
     return { status: errors.length === 0 ? 'success' : 'partial', synced, skipped, summary, errors: errors.length > 0 ? errors : undefined };
 }
 
