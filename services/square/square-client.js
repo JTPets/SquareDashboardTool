@@ -5,9 +5,15 @@
  * merchant token resolution, and shared utilities. All other square-* modules
  * depend on this module.
  *
+ * Endpoint convention: the base URL is `https://connect.squareup.com`; every
+ * endpoint passed to `makeSquareRequest` must start with `/v2/...` (e.g.
+ * `/v2/locations`, `/v2/customers/search`). Callers are responsible for
+ * including the `/v2` prefix.
+ *
  * Exports:
  *   getMerchantToken(merchantId)          — decrypt per-merchant access token
  *   makeSquareRequest(endpoint, options)  — HTTP client with retry + rate-limit
+ *   SquareApiError                        — typed error with status/endpoint/details/nonRetryable
  *   sleep(ms)                             — delay utility
  *   generateIdempotencyKey(prefix)        — re-export from utils/idempotency
  *
@@ -26,6 +32,31 @@ const SQUARE_BASE_URL = 'https://connect.squareup.com';
 
 // LOGIC CHANGE: use centralized retry config from constants (C-1)
 const { SQUARE: { API_VERSION: SQUARE_API_VERSION }, RETRY: { MAX_ATTEMPTS: MAX_RETRIES, BASE_DELAY_MS: RETRY_DELAY_MS } } = require('../../config/constants');
+
+/**
+ * Typed error thrown by `makeSquareRequest` for non-2xx responses.
+ *
+ * Fields:
+ *   status        — HTTP status code returned by Square
+ *   endpoint      — request path (e.g. `/v2/customers/search`)
+ *   details       — array of Square error objects (from `data.errors`)
+ *   nonRetryable  — true for 400/401/409 and non-retryable error codes
+ *
+ * `squareErrors` is kept as an alias of `details` for backward compatibility
+ * with existing callers that key off the legacy field name.
+ */
+class SquareApiError extends Error {
+    constructor(message, { status, endpoint, details = [], nonRetryable = false } = {}) {
+        super(message);
+        this.name = 'SquareApiError';
+        this.status = status;
+        this.endpoint = endpoint;
+        this.details = details;
+        this.nonRetryable = nonRetryable;
+        // Backward-compat alias (existing callers use err.squareErrors)
+        this.squareErrors = details;
+    }
+}
 
 /**
  * Get decrypted access token for a merchant
@@ -77,8 +108,10 @@ async function getMerchantToken(merchantId) {
 
 /**
  * Make a Square API request with error handling and retry logic
- * @param {string} endpoint - API endpoint path
+ * @param {string} endpoint - API endpoint path (must start with `/v2/...`)
  * @param {Object} options - Fetch options (can include accessToken for multi-tenant)
+ * @param {string} [options.accessToken] - Required. Per-merchant access token.
+ * @param {number} [options.timeout=30000] - Per-request timeout in milliseconds.
  * @returns {Promise<Object>} Response data
  */
 async function makeSquareRequest(endpoint, options = {}) {
@@ -97,6 +130,9 @@ async function makeSquareRequest(endpoint, options = {}) {
     };
     // Remove accessToken from options so it doesn't get passed to fetch
     delete options.accessToken;
+    // Extract timeout (default 30_000 ms) so it isn't passed to fetch
+    const timeout = typeof options.timeout === 'number' ? options.timeout : 30000;
+    delete options.timeout;
 
     let lastError;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -104,7 +140,7 @@ async function makeSquareRequest(endpoint, options = {}) {
             const response = await fetch(url, {
                 ...options,
                 headers,
-                signal: AbortSignal.timeout(30000)
+                signal: AbortSignal.timeout(timeout)
             });
 
             const data = await response.json();
@@ -120,9 +156,12 @@ async function makeSquareRequest(endpoint, options = {}) {
 
                 // Handle auth errors - don't retry
                 if (response.status === 401) {
-                    const err = new Error('Square API authentication failed. Check your access token.');
-                    err.nonRetryable = true;
-                    throw err;
+                    throw new SquareApiError('Square API authentication failed. Check your access token.', {
+                        status: 401,
+                        endpoint,
+                        details: data.errors || [],
+                        nonRetryable: true
+                    });
                 }
 
                 // Check for non-retryable errors (idempotency conflicts, version conflicts, validation errors)
@@ -138,23 +177,34 @@ async function makeSquareRequest(endpoint, options = {}) {
                 // Don't retry 400/409 errors or specific non-retryable error codes
                 if (response.status === 400 || response.status === 409 || hasNonRetryableError) {
                     // Throw immediately without retry by breaking out of the loop
-                    const err = new Error(`Square API error: ${response.status} - ${JSON.stringify(data.errors || data)}`);
-                    err.nonRetryable = true;
-                    err.squareErrors = data.errors || [];
-                    throw err;
+                    throw new SquareApiError(
+                        `Square API error: ${response.status} - ${JSON.stringify(data.errors || data)}`,
+                        {
+                            status: response.status,
+                            endpoint,
+                            details: data.errors || [],
+                            nonRetryable: true
+                        }
+                    );
                 }
 
-                const err = new Error(`Square API error: ${response.status} - ${JSON.stringify(data.errors || data)}`);
-                err.squareErrors = data.errors || [];
-                throw err;
+                throw new SquareApiError(
+                    `Square API error: ${response.status} - ${JSON.stringify(data.errors || data)}`,
+                    {
+                        status: response.status,
+                        endpoint,
+                        details: data.errors || [],
+                        nonRetryable: false
+                    }
+                );
             }
 
             return data;
         } catch (error) {
             // Convert AbortError to a descriptive timeout error
             if (error.name === 'AbortError') {
-                lastError = new Error(`Square API request timed out after 30s: ${endpoint}`);
-                logger.warn('Square API request timed out', { endpoint, attempt: attempt + 1 });
+                lastError = new Error(`Square API request timed out after ${timeout}ms: ${endpoint}`);
+                logger.warn('Square API request timed out', { endpoint, attempt: attempt + 1, timeout });
                 if (attempt < MAX_RETRIES - 1) {
                     const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
                     await sleep(delay);
@@ -190,6 +240,7 @@ function sleep(ms) {
 module.exports = {
     getMerchantToken,
     makeSquareRequest,
+    SquareApiError,
     sleep,
     generateIdempotencyKey,
     // Constants (used by other square modules)

@@ -257,6 +257,145 @@ describe('Square Client Service', () => {
                 expect(e.squareErrors).toEqual([{ code: 'INVALID_REQUEST_ERROR' }]);
             }
         });
+
+        // ==================== timeout option ====================
+        test('default timeout is 30000ms when option omitted', async () => {
+            fetch.mockResolvedValue({
+                ok: true,
+                json: () => Promise.resolve({}),
+            });
+
+            await squareClient.makeSquareRequest('/v2/test', { accessToken: 'tok' });
+            expect(AbortSignal.timeout).toHaveBeenCalledWith(30000);
+        });
+
+        test('custom timeout option is passed to AbortSignal.timeout', async () => {
+            fetch.mockResolvedValue({
+                ok: true,
+                json: () => Promise.resolve({}),
+            });
+
+            await squareClient.makeSquareRequest('/v2/test', { accessToken: 'tok', timeout: 5000 });
+            expect(AbortSignal.timeout).toHaveBeenCalledWith(5000);
+        });
+
+        test('custom timeout surfaces in timeout error message and triggers abort path', async () => {
+            const abortError = new Error('The operation was aborted');
+            abortError.name = 'AbortError';
+            fetch.mockRejectedValue(abortError);
+
+            const promise = squareClient.makeSquareRequest('/v2/slow', {
+                accessToken: 'tok',
+                timeout: 7500,
+            });
+            const assertion = expect(promise).rejects.toThrow('timed out after 7500ms: /v2/slow');
+            await jest.runAllTimersAsync();
+            await assertion;
+            // All three attempts should have used the custom timeout
+            expect(AbortSignal.timeout).toHaveBeenCalledWith(7500);
+            expect(AbortSignal.timeout).not.toHaveBeenCalledWith(30000);
+        });
+
+        test('timeout option is not forwarded to fetch', async () => {
+            fetch.mockResolvedValue({
+                ok: true,
+                json: () => Promise.resolve({}),
+            });
+
+            await squareClient.makeSquareRequest('/v2/test', { accessToken: 'tok', timeout: 1234 });
+            const fetchOpts = fetch.mock.calls[0][1];
+            expect(fetchOpts).not.toHaveProperty('timeout');
+            expect(fetchOpts).not.toHaveProperty('accessToken');
+        });
+
+        // ==================== SquareApiError ====================
+        test('throws SquareApiError with status/endpoint/details on non-2xx', async () => {
+            fetch.mockResolvedValue({
+                ok: false,
+                status: 404,
+                json: () => Promise.resolve({ errors: [{ code: 'NOT_FOUND', detail: 'Customer missing' }] }),
+            });
+
+            const promise = squareClient.makeSquareRequest('/v2/customers/abc', { accessToken: 'tok' });
+            const assertion = promise.catch((e) => e);
+            await jest.runAllTimersAsync();
+            const err = await assertion;
+
+            expect(err).toBeInstanceOf(squareClient.SquareApiError);
+            expect(err.status).toBe(404);
+            expect(err.endpoint).toBe('/v2/customers/abc');
+            expect(err.details).toEqual([{ code: 'NOT_FOUND', detail: 'Customer missing' }]);
+            expect(err.nonRetryable).toBe(false);
+            // Backward-compat alias still populated
+            expect(err.squareErrors).toEqual([{ code: 'NOT_FOUND', detail: 'Customer missing' }]);
+        });
+
+        test('401 throws SquareApiError with nonRetryable: true', async () => {
+            fetch.mockResolvedValue({
+                ok: false,
+                status: 401,
+                json: () => Promise.resolve({ errors: [{ code: 'UNAUTHORIZED' }] }),
+            });
+
+            let caught;
+            try {
+                await squareClient.makeSquareRequest('/v2/secured', { accessToken: 'bad' });
+            } catch (e) {
+                caught = e;
+            }
+
+            expect(caught).toBeInstanceOf(squareClient.SquareApiError);
+            expect(caught.status).toBe(401);
+            expect(caught.endpoint).toBe('/v2/secured');
+            expect(caught.details).toEqual([{ code: 'UNAUTHORIZED' }]);
+            expect(caught.nonRetryable).toBe(true);
+            expect(fetch).toHaveBeenCalledTimes(1);
+        });
+
+        test('400 throws SquareApiError with nonRetryable: true', async () => {
+            fetch.mockResolvedValue({
+                ok: false,
+                status: 400,
+                json: () => Promise.resolve({ errors: [{ code: 'INVALID_REQUEST_ERROR' }] }),
+            });
+
+            let caught;
+            try {
+                await squareClient.makeSquareRequest('/v2/test', { accessToken: 'tok' });
+            } catch (e) {
+                caught = e;
+            }
+            expect(caught).toBeInstanceOf(squareClient.SquareApiError);
+            expect(caught.status).toBe(400);
+            expect(caught.endpoint).toBe('/v2/test');
+            expect(caught.nonRetryable).toBe(true);
+        });
+
+        test('429 still retries (SquareApiError behavior unchanged)', async () => {
+            fetch
+                .mockResolvedValueOnce({
+                    ok: false,
+                    status: 429,
+                    json: () => Promise.resolve({ errors: [] }),
+                    headers: { get: () => '1' },
+                })
+                .mockResolvedValueOnce({
+                    ok: false,
+                    status: 429,
+                    json: () => Promise.resolve({ errors: [] }),
+                    headers: { get: () => '1' },
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    json: () => Promise.resolve({ ok: true }),
+                });
+
+            const promise = squareClient.makeSquareRequest('/v2/test', { accessToken: 'tok' });
+            await jest.runAllTimersAsync();
+            const data = await promise;
+            expect(data.ok).toBe(true);
+            expect(fetch).toHaveBeenCalledTimes(3);
+        });
     });
 
     // ==================== sleep ====================
@@ -280,6 +419,24 @@ describe('Square Client Service', () => {
 
         test('exports generateIdempotencyKey', () => {
             expect(typeof squareClient.generateIdempotencyKey).toBe('function');
+        });
+
+        test('exports SquareApiError class', () => {
+            expect(typeof squareClient.SquareApiError).toBe('function');
+            const err = new squareClient.SquareApiError('boom', {
+                status: 500,
+                endpoint: '/v2/x',
+                details: [{ code: 'X' }],
+                nonRetryable: false,
+            });
+            expect(err).toBeInstanceOf(Error);
+            expect(err.name).toBe('SquareApiError');
+            expect(err.message).toBe('boom');
+            expect(err.status).toBe(500);
+            expect(err.endpoint).toBe('/v2/x');
+            expect(err.details).toEqual([{ code: 'X' }]);
+            expect(err.nonRetryable).toBe(false);
+            expect(err.squareErrors).toEqual([{ code: 'X' }]);
         });
     });
 });
