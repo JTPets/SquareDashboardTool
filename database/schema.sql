@@ -130,6 +130,7 @@ CREATE TABLE merchants (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     last_sync_at TIMESTAMPTZ,
+    last_received_sync_at TIMESTAMPTZ,
     custom_attributes_initialized_at TIMESTAMPTZ DEFAULT NULL,
     admin_email TEXT,
     CONSTRAINT valid_subscription_status CHECK (
