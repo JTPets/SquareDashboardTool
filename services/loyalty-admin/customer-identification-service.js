@@ -14,9 +14,97 @@
  */
 
 const db = require('../../utils/database');
+const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
-const { SquareApiClient } = require('./square-api-client');
+const { makeSquareRequest, getMerchantToken } = require('../square/square-client');
 const customerDetailsService = require('./customer-details-service');
+
+const SEARCH_MAX_PAGES = 20;
+
+/**
+ * Paginated POST /v2/loyalty/events/search — collects all events across pages.
+ * @param {string} accessToken - Square access token
+ * @param {Object} query - Search query body
+ * @param {number} merchantId - For logging
+ * @returns {Promise<Array>} All events across pages
+ */
+async function searchLoyaltyEventsPaged(accessToken, query, merchantId) {
+    const allEvents = [];
+    let cursor = null;
+    let page = 0;
+
+    do {
+        const requestBody = cursor ? { ...query, cursor } : { ...query };
+        const data = await makeSquareRequest('/v2/loyalty/events/search', {
+            method: 'POST',
+            accessToken,
+            body: JSON.stringify(requestBody),
+            timeout: 10000,
+        });
+        allEvents.push(...(data.events || []));
+        cursor = data.cursor || null;
+        page++;
+
+        if (page >= SEARCH_MAX_PAGES && cursor) {
+            logger.error('searchLoyaltyEvents hit max pagination limit', {
+                merchantId, pages: page, totalEvents: allEvents.length, maxPages: SEARCH_MAX_PAGES,
+            });
+            break;
+        }
+    } while (cursor);
+
+    return allEvents;
+}
+
+/**
+ * Paginated POST /v2/customers/search — collects all customers across pages.
+ * @param {string} accessToken - Square access token
+ * @param {Object} query - Search query body
+ * @param {number} merchantId - For logging
+ * @returns {Promise<Array>} All customers across pages
+ */
+async function searchCustomersPaged(accessToken, query, merchantId) {
+    const allCustomers = [];
+    let cursor = null;
+    let page = 0;
+
+    do {
+        const requestBody = cursor ? { ...query, cursor } : { ...query };
+        const data = await makeSquareRequest('/v2/customers/search', {
+            method: 'POST',
+            accessToken,
+            body: JSON.stringify(requestBody),
+            timeout: 10000,
+        });
+        allCustomers.push(...(data.customers || []));
+        cursor = data.cursor || null;
+        page++;
+
+        if (page >= SEARCH_MAX_PAGES && cursor) {
+            logger.error('searchCustomers hit max pagination limit', {
+                merchantId, pages: page, totalCustomers: allCustomers.length, maxPages: SEARCH_MAX_PAGES,
+            });
+            break;
+        }
+    } while (cursor);
+
+    return allCustomers;
+}
+
+/**
+ * GET /v2/loyalty/accounts/{id} — returns the loyalty_account object or null on 404.
+ * @param {string} accessToken
+ * @param {string} accountId
+ * @returns {Promise<Object|null>}
+ */
+async function getLoyaltyAccount(accessToken, accountId) {
+    const data = await makeSquareRequest(`/v2/loyalty/accounts/${accountId}`, {
+        method: 'GET',
+        accessToken,
+        timeout: 10000,
+    });
+    return data.loyalty_account || null;
+}
 
 /**
  * Customer identification result
@@ -37,15 +125,16 @@ class LoyaltyCustomerService {
   constructor(merchantId, tracer = null) {
     this.merchantId = merchantId;
     this.tracer = tracer;
-    this.squareClient = null;
+    this.accessToken = null;
   }
 
   /**
-   * Initialize the service with Square client
+   * Initialize the service by resolving the merchant's Square access token.
+   * Throws if the merchant is missing/inactive or has no token configured.
    * @returns {Promise<LoyaltyCustomerService>}
    */
   async initialize() {
-    this.squareClient = await new SquareApiClient(this.merchantId).initialize();
+    this.accessToken = await getMerchantToken(this.merchantId);
     return this;
   }
 
@@ -208,7 +297,7 @@ class LoyaltyCustomerService {
 
     try {
       // Search for loyalty events by order_id
-      const events = await this.squareClient.searchLoyaltyEvents({
+      const events = await searchLoyaltyEventsPaged(this.accessToken, {
         query: {
           filter: {
             order_filter: {
@@ -217,7 +306,7 @@ class LoyaltyCustomerService {
           },
         },
         limit: 10,
-      });
+      }, this.merchantId);
 
       if (events.length === 0) {
         loyaltyLogger.debug({
@@ -236,7 +325,7 @@ class LoyaltyCustomerService {
         return { customerId: null, method: 'LOYALTY_API', success: false };
       }
 
-      const loyaltyAccount = await this.squareClient.getLoyaltyAccount(loyaltyAccountId);
+      const loyaltyAccount = await getLoyaltyAccount(this.accessToken, loyaltyAccountId);
       const customerId = loyaltyAccount?.customer_id;
 
       if (customerId) {
@@ -306,7 +395,7 @@ class LoyaltyCustomerService {
 
     try {
       // First try to find via loyalty events for this order
-      const events = await this.squareClient.searchLoyaltyEvents({
+      const events = await searchLoyaltyEventsPaged(this.accessToken, {
         query: {
           filter: {
             order_filter: {
@@ -315,11 +404,11 @@ class LoyaltyCustomerService {
           },
         },
         limit: 10,
-      });
+      }, this.merchantId);
 
       for (const event of events) {
         if (event.loyalty_account_id) {
-          const loyaltyAccount = await this.squareClient.getLoyaltyAccount(event.loyalty_account_id);
+          const loyaltyAccount = await getLoyaltyAccount(this.accessToken, event.loyalty_account_id);
           const customerId = loyaltyAccount?.customer_id;
 
           if (customerId) {
@@ -415,7 +504,7 @@ class LoyaltyCustomerService {
       // Try phone first (more reliable)
       if (phoneNumber) {
         const normalizedPhone = phoneNumber.replace(/[^\d+]/g, '');
-        const customers = await this.squareClient.searchCustomers({
+        const customers = await searchCustomersPaged(this.accessToken, {
           query: {
             filter: {
               phone_number: {
@@ -424,7 +513,7 @@ class LoyaltyCustomerService {
             },
           },
           limit: 1,
-        });
+        }, this.merchantId);
 
         if (customers.length > 0) {
           const customerId = customers[0].id;
@@ -447,7 +536,7 @@ class LoyaltyCustomerService {
 
       // Fallback to email
       if (emailAddress) {
-        const customers = await this.squareClient.searchCustomers({
+        const customers = await searchCustomersPaged(this.accessToken, {
           query: {
             filter: {
               email_address: {
@@ -456,7 +545,7 @@ class LoyaltyCustomerService {
             },
           },
           limit: 1,
-        });
+        }, this.merchantId);
 
         if (customers.length > 0) {
           const customerId = customers[0].id;

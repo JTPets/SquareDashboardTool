@@ -29,10 +29,6 @@ jest.mock('../../../utils/loyalty-logger', () => ({
     loyaltyLogger: { squareApi: jest.fn(), debug: jest.fn() }
 }));
 
-jest.mock('../../../services/loyalty-admin/shared-utils', () => ({
-    getSquareAccessToken: jest.fn()
-}));
-
 // LOGIC CHANGE (BACKLOG-17): Mock customer-details-service since customer-admin-service
 // now delegates the Square API call to it instead of using raw fetchWithTimeout.
 const mockFetchCustomerFromSquare = jest.fn();

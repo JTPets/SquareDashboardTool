@@ -12,7 +12,7 @@
 
 const db = require('../../utils/database');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
-const { SquareApiClient } = require('./square-api-client');
+const { makeSquareRequest, getMerchantToken } = require('../square/square-client');
 
 /**
  * Get customer details from Square API
@@ -22,8 +22,13 @@ const { SquareApiClient } = require('./square-api-client');
  */
 async function getCustomerDetails(customerId, merchantId) {
     try {
-        const squareClient = await new SquareApiClient(merchantId).initialize();
-        const customer = await squareClient.getCustomer(customerId);
+        const accessToken = await getMerchantToken(merchantId);
+        const data = await makeSquareRequest(`/v2/customers/${customerId}`, {
+            method: 'GET',
+            accessToken,
+            timeout: 10000,
+        });
+        const customer = data.customer;
         return {
             id: customer.id,
             givenName: customer.given_name || null,

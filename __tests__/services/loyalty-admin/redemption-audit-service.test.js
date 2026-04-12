@@ -24,16 +24,11 @@ jest.mock('../../../utils/logger', () => ({
     error: jest.fn()
 }));
 
-const mockFetchWithTimeout = jest.fn();
-jest.mock('../../../services/loyalty-admin/shared-utils', () => ({
-    fetchWithTimeout: mockFetchWithTimeout
-}));
-
-const mockDecryptToken = jest.fn(t => `decrypted_${t}`);
-const mockIsEncryptedToken = jest.fn();
-jest.mock('../../../utils/token-encryption', () => ({
-    decryptToken: mockDecryptToken,
-    isEncryptedToken: mockIsEncryptedToken
+const mockMakeSquareRequest = jest.fn();
+const mockGetMerchantToken = jest.fn();
+jest.mock('../../../services/square/square-client', () => ({
+    makeSquareRequest: mockMakeSquareRequest,
+    getMerchantToken: mockGetMerchantToken
 }));
 
 jest.mock('../../../services/loyalty-admin/constants', () => ({
@@ -54,11 +49,8 @@ const { auditMissedRedemptions } = require('../../../services/loyalty-admin/rede
 // HELPERS
 // ============================================================================
 
-function mockMerchantToken(token = 'encrypted_token', isEncrypted = true) {
-    db.query.mockResolvedValueOnce({
-        rows: [{ square_access_token: token }]
-    });
-    mockIsEncryptedToken.mockReturnValueOnce(isEncrypted);
+function mockMerchantToken(token = 'decrypted_token') {
+    mockGetMerchantToken.mockResolvedValueOnce(token);
 }
 
 function mockEarnedRewards(rewards = []) {
@@ -81,6 +73,10 @@ function mockCustomerName(name = null) {
     });
 }
 
+function mockOrderFetch(order) {
+    mockMakeSquareRequest.mockResolvedValueOnce({ order });
+}
+
 // ============================================================================
 // TESTS — auditMissedRedemptions
 // ============================================================================
@@ -89,35 +85,26 @@ describe('auditMissedRedemptions', () => {
     beforeEach(() => jest.clearAllMocks());
 
     it('should throw when no access token configured', async () => {
-        db.query.mockResolvedValueOnce({ rows: [] });
+        mockGetMerchantToken.mockRejectedValueOnce(new Error('Merchant 1 has no access token configured'));
 
         await expect(auditMissedRedemptions({ merchantId: 1 }))
             .rejects.toThrow('No Square access token configured');
     });
 
     it('should throw when merchant not found', async () => {
-        db.query.mockResolvedValueOnce({ rows: [] });
+        mockGetMerchantToken.mockRejectedValueOnce(new Error('Merchant 999 not found or inactive'));
 
         await expect(auditMissedRedemptions({ merchantId: 999 }))
             .rejects.toThrow('No Square access token configured');
     });
 
-    it('should decrypt encrypted tokens', async () => {
-        mockMerchantToken('enc_token_123', true);
+    it('should fetch access token via getMerchantToken', async () => {
+        mockMerchantToken('decrypted_token_abc');
         mockEarnedRewards([]);
 
         await auditMissedRedemptions({ merchantId: 1 });
 
-        expect(mockDecryptToken).toHaveBeenCalledWith('enc_token_123');
-    });
-
-    it('should use raw token when not encrypted', async () => {
-        mockMerchantToken('raw_token', false);
-        mockEarnedRewards([]);
-
-        await auditMissedRedemptions({ merchantId: 1 });
-
-        expect(mockDecryptToken).not.toHaveBeenCalled();
+        expect(mockGetMerchantToken).toHaveBeenCalledWith(1);
     });
 
     it('should return early with zero counts when no earned rewards exist', async () => {
@@ -161,21 +148,16 @@ describe('auditMissedRedemptions', () => {
         mockRedeemedOrders(['ORD_1']);
 
         // Only ORD_2 should be fetched
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({
-                order: {
-                    id: 'ORD_2', customer_id: 'CUST_1', created_at: '2026-03-14T12:00:00Z',
-                    location_id: 'LOC_1', discounts: [], line_items: []
-                }
-            })
+        mockOrderFetch({
+            id: 'ORD_2', customer_id: 'CUST_1', created_at: '2026-03-14T12:00:00Z',
+            location_id: 'LOC_1', discounts: [], line_items: []
         });
         mockDetectRewardRedemptionFromOrder.mockResolvedValueOnce({ detected: false });
 
         const result = await auditMissedRedemptions({ merchantId: 1 });
 
         expect(result.scanned.orders).toBe(1);
-        expect(mockFetchWithTimeout).toHaveBeenCalledTimes(1);
+        expect(mockMakeSquareRequest).toHaveBeenCalledTimes(1);
     });
 
     it('should filter out orders outside the time window', async () => {
@@ -207,14 +189,9 @@ describe('auditMissedRedemptions', () => {
         mockRedeemedOrders([]);
 
         // Fetch order from Square
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({
-                order: {
-                    id: 'ORD_1', customer_id: 'CUST_1', created_at: '2026-03-14T12:00:00Z',
-                    location_id: 'LOC_1', discounts: [], line_items: []
-                }
-            })
+        mockOrderFetch({
+            id: 'ORD_1', customer_id: 'CUST_1', created_at: '2026-03-14T12:00:00Z',
+            location_id: 'LOC_1', discounts: [], line_items: []
         });
 
         // Detection finds a match
@@ -255,14 +232,9 @@ describe('auditMissedRedemptions', () => {
         ]);
         mockRedeemedOrders([]);
 
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({
-                order: {
-                    id: 'ORD_1', customer_id: 'CUST_1', created_at: '2026-03-14T10:00:00Z',
-                    location_id: 'LOC_1', discounts: [], line_items: []
-                }
-            })
+        mockOrderFetch({
+            id: 'ORD_1', customer_id: 'CUST_1', created_at: '2026-03-14T10:00:00Z',
+            location_id: 'LOC_1', discounts: [], line_items: []
         });
 
         mockDetectRewardRedemptionFromOrder.mockResolvedValueOnce({
@@ -304,14 +276,9 @@ describe('auditMissedRedemptions', () => {
         ]);
         mockRedeemedOrders([]);
 
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({
-                order: {
-                    id: 'ORD_1', customer_id: 'CUST_1', created_at: '2026-03-14T10:00:00Z',
-                    location_id: 'LOC_1', discounts: [], line_items: []
-                }
-            })
+        mockOrderFetch({
+            id: 'ORD_1', customer_id: 'CUST_1', created_at: '2026-03-14T10:00:00Z',
+            location_id: 'LOC_1', discounts: [], line_items: []
         });
 
         mockDetectRewardRedemptionFromOrder.mockResolvedValueOnce({
@@ -341,14 +308,9 @@ describe('auditMissedRedemptions', () => {
         ]);
         mockRedeemedOrders([]);
 
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({
-                order: {
-                    id: 'ORD_1', customer_id: 'CUST_1', created_at: '2026-03-14T12:00:00Z',
-                    location_id: 'LOC_1', discounts: [], line_items: []
-                }
-            })
+        mockOrderFetch({
+            id: 'ORD_1', customer_id: 'CUST_1', created_at: '2026-03-14T12:00:00Z',
+            location_id: 'LOC_1', discounts: [], line_items: []
         });
 
         // Detection returns multiple redemptions for one order
@@ -388,10 +350,10 @@ describe('auditMissedRedemptions', () => {
         ]);
         mockRedeemedOrders([]);
 
-        // Fetch returns non-OK
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: false, status: 404, statusText: 'Not Found'
-        });
+        // Fetch throws (e.g. 404)
+        const err = new Error('Square API error: 404');
+        err.status = 404;
+        mockMakeSquareRequest.mockRejectedValueOnce(err);
 
         const result = await auditMissedRedemptions({ merchantId: 1 });
 
@@ -409,14 +371,9 @@ describe('auditMissedRedemptions', () => {
         ]);
         mockRedeemedOrders([]);
 
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({
-                order: {
-                    id: 'ORD_1', customer_id: 'CUST_1', created_at: '2026-03-14T12:00:00Z',
-                    location_id: 'LOC_1', discounts: [], line_items: []
-                }
-            })
+        mockOrderFetch({
+            id: 'ORD_1', customer_id: 'CUST_1', created_at: '2026-03-14T12:00:00Z',
+            location_id: 'LOC_1', discounts: [], line_items: []
         });
         mockDetectRewardRedemptionFromOrder.mockResolvedValueOnce({ detected: false });
 
@@ -436,14 +393,9 @@ describe('auditMissedRedemptions', () => {
         mockRedeemedOrders([]);
 
         // Fetch succeeds but detection throws
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({
-                order: {
-                    id: 'ORD_1', customer_id: 'CUST_1', created_at: '2026-03-14T12:00:00Z',
-                    location_id: 'LOC_1', discounts: [], line_items: []
-                }
-            })
+        mockOrderFetch({
+            id: 'ORD_1', customer_id: 'CUST_1', created_at: '2026-03-14T12:00:00Z',
+            location_id: 'LOC_1', discounts: [], line_items: []
         });
         mockDetectRewardRedemptionFromOrder.mockRejectedValueOnce(new Error('Unexpected DB error'));
 
@@ -464,14 +416,9 @@ describe('auditMissedRedemptions', () => {
         ]);
         mockRedeemedOrders([]);
 
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({
-                order: {
-                    id: 'ORD_1', customer_id: 'CUST_1', created_at: '2026-03-14T10:00:00Z',
-                    location_id: 'LOC_1', discounts: [], line_items: []
-                }
-            })
+        mockOrderFetch({
+            id: 'ORD_1', customer_id: 'CUST_1', created_at: '2026-03-14T10:00:00Z',
+            location_id: 'LOC_1', discounts: [], line_items: []
         });
 
         mockDetectRewardRedemptionFromOrder.mockResolvedValueOnce({
@@ -503,15 +450,10 @@ describe('auditMissedRedemptions', () => {
         ]);
         mockRedeemedOrders([]);
 
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({
-                order: {
-                    id: 'ORD_1', customer_id: null,  // Square order lacks customer_id
-                    created_at: '2026-03-14T12:00:00Z',
-                    location_id: 'LOC_1', discounts: [], line_items: []
-                }
-            })
+        mockOrderFetch({
+            id: 'ORD_1', customer_id: null,  // Square order lacks customer_id
+            created_at: '2026-03-14T12:00:00Z',
+            location_id: 'LOC_1', discounts: [], line_items: []
         });
         mockDetectRewardRedemptionFromOrder.mockResolvedValueOnce({ detected: false });
 
@@ -537,7 +479,9 @@ describe('auditMissedRedemptions', () => {
         await auditMissedRedemptions({ merchantId: 1 });
 
         // Batch query should use deduplicated customer IDs
-        const batchCall = db.query.mock.calls[2]; // 3rd query
+        // Token lookup no longer goes through db.query (uses getMerchantToken),
+        // so batch order query is the 2nd db.query call (index 1).
+        const batchCall = db.query.mock.calls[1];
         expect(batchCall[1][1]).toEqual(['CUST_1']); // only one, deduplicated
     });
 
@@ -551,14 +495,9 @@ describe('auditMissedRedemptions', () => {
         ]);
         mockRedeemedOrders([]);
 
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({
-                order: {
-                    id: 'ORD_1', customer_id: 'CUST_1', created_at: '2026-03-14T12:00:00Z',
-                    location_id: 'LOC_1', discounts: [], line_items: []
-                }
-            })
+        mockOrderFetch({
+            id: 'ORD_1', customer_id: 'CUST_1', created_at: '2026-03-14T12:00:00Z',
+            location_id: 'LOC_1', discounts: [], line_items: []
         });
 
         mockDetectRewardRedemptionFromOrder.mockResolvedValueOnce({

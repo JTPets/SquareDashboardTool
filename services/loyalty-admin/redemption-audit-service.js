@@ -12,8 +12,7 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
-const { decryptToken, isEncryptedToken } = require('../../utils/token-encryption');
-const { fetchWithTimeout, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
+const { makeSquareRequest, getMerchantToken } = require('../square/square-client');
 const { RedemptionTypes } = require('./constants');
 const { detectRewardRedemptionFromOrder, redeemReward } = require('./reward-service');
 
@@ -25,26 +24,15 @@ const { detectRewardRedemptionFromOrder, redeemReward } = require('./reward-serv
  */
 async function fetchOrderFromSquare(orderId, accessToken) {
     try {
-        const response = await fetchWithTimeout(`https://connect.squareup.com/v2/orders/${orderId}`, {
+        const data = await makeSquareRequest(`/v2/orders/${orderId}`, {
             method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-                'Square-Version': SQUARE_API_VERSION
-            }
-        }, 10000);
-
-        if (!response.ok) {
-            logger.warn('Audit: Square API returned non-OK status', {
-                orderId, status: response.status, statusText: response.statusText
-            });
-            return null;
-        }
-        const data = await response.json();
+            accessToken,
+            timeout: 10000
+        });
         return data.order || null;
     } catch (err) {
-        logger.error('Audit: Square API fetch threw', {
-            orderId, error: err.message, code: err.code || err.cause?.code
+        logger.warn('Audit: Square API fetch failed', {
+            orderId, error: err.message, status: err.status
         });
         return null;
     }
@@ -68,16 +56,13 @@ function delay(ms) {
  * @returns {Promise<Object>} Audit results
  */
 async function auditMissedRedemptions({ merchantId, days = 7, dryRun = true }) {
-    // Get decrypted Square access token
-    const tokenResult = await db.query(
-        'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
-        [merchantId]
-    );
-    if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
+    // Get decrypted Square access token (throws if merchant missing/inactive/no token)
+    let accessToken;
+    try {
+        accessToken = await getMerchantToken(merchantId);
+    } catch (err) {
         throw new Error('No Square access token configured for this merchant');
     }
-    const rawToken = tokenResult.rows[0].square_access_token;
-    const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
 
     // Get all earned (not redeemed) rewards for the merchant
     const earnedResult = await db.query(`

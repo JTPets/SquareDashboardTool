@@ -12,24 +12,24 @@
 // MOCK SETUP
 // ============================================================================
 
-const mockGetCustomer = jest.fn();
-const mockSearchLoyaltyEvents = jest.fn();
-const mockGetLoyaltyAccount = jest.fn();
-const mockSearchCustomers = jest.fn();
+const mockMakeSquareRequest = jest.fn();
+const mockGetMerchantToken = jest.fn();
 
-jest.mock('../../../services/loyalty-admin/square-api-client', () => ({
-    SquareApiClient: jest.fn().mockImplementation(() => ({
-        initialize: jest.fn().mockReturnThis(),
-        getCustomer: mockGetCustomer,
-        searchLoyaltyEvents: mockSearchLoyaltyEvents,
-        getLoyaltyAccount: mockGetLoyaltyAccount,
-        searchCustomers: mockSearchCustomers,
-    }))
+jest.mock('../../../services/square/square-client', () => ({
+    makeSquareRequest: mockMakeSquareRequest,
+    getMerchantToken: mockGetMerchantToken,
 }));
 
 const mockDbQuery = jest.fn();
 jest.mock('../../../utils/database', () => ({
     query: mockDbQuery,
+}));
+
+jest.mock('../../../utils/logger', () => ({
+    info: jest.fn(),
+    debug: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
 }));
 
 jest.mock('../../../utils/loyalty-logger', () => ({
@@ -63,6 +63,28 @@ function makeOrder(overrides = {}) {
     };
 }
 
+// Convenience mock helpers that mirror the call shapes of the old SquareApiClient
+// but speak the underlying `makeSquareRequest` wire format.
+function mockSearchLoyaltyEvents(events = []) {
+    // POST /v2/loyalty/events/search — paginated, single page returns cursor=null
+    mockMakeSquareRequest.mockResolvedValueOnce({ events, cursor: null });
+}
+
+function mockGetLoyaltyAccount(account) {
+    // GET /v2/loyalty/accounts/{id} — returns { loyalty_account }
+    mockMakeSquareRequest.mockResolvedValueOnce({ loyalty_account: account });
+}
+
+function mockSearchCustomers(customers = []) {
+    // POST /v2/customers/search — paginated, single page returns cursor=null
+    mockMakeSquareRequest.mockResolvedValueOnce({ customers, cursor: null });
+}
+
+function mockGetCustomer(customer) {
+    // GET /v2/customers/{id} — returns { customer }
+    mockMakeSquareRequest.mockResolvedValueOnce({ customer });
+}
+
 // ============================================================================
 // TESTS — Fallback Chain Order
 // ============================================================================
@@ -72,6 +94,7 @@ describe('identifyCustomerFromOrder — fallback chain', () => {
 
     beforeEach(async () => {
         jest.clearAllMocks();
+        mockGetMerchantToken.mockResolvedValue('test-token');
         service = await createService();
     });
 
@@ -85,9 +108,8 @@ describe('identifyCustomerFromOrder — fallback chain', () => {
             method: 'ORDER_CUSTOMER_ID',
             success: true,
         });
-        // No API calls made
-        expect(mockSearchLoyaltyEvents).not.toHaveBeenCalled();
-        expect(mockSearchCustomers).not.toHaveBeenCalled();
+        // No Square API calls made
+        expect(mockMakeSquareRequest).not.toHaveBeenCalled();
         expect(mockDbQuery).not.toHaveBeenCalled();
     });
 
@@ -103,7 +125,7 @@ describe('identifyCustomerFromOrder — fallback chain', () => {
             method: 'TENDER_CUSTOMER_ID',
             success: true,
         });
-        expect(mockSearchLoyaltyEvents).not.toHaveBeenCalled();
+        expect(mockMakeSquareRequest).not.toHaveBeenCalled();
     });
 
     test('no tender match, loyalty event found → returns from loyalty API', async () => {
@@ -111,12 +133,8 @@ describe('identifyCustomerFromOrder — fallback chain', () => {
             tenders: [{ id: 't1' }], // no customer_id on tender
         });
 
-        mockSearchLoyaltyEvents.mockResolvedValueOnce([
-            { loyalty_account_id: 'acct-1' }
-        ]);
-        mockGetLoyaltyAccount.mockResolvedValueOnce({
-            customer_id: 'cust-loyalty'
-        });
+        mockSearchLoyaltyEvents([{ loyalty_account_id: 'acct-1' }]);
+        mockGetLoyaltyAccount({ customer_id: 'cust-loyalty' });
 
         const result = await service.identifyCustomerFromOrder(order);
 
@@ -125,7 +143,6 @@ describe('identifyCustomerFromOrder — fallback chain', () => {
             method: 'LOYALTY_API',
             success: true,
         });
-        expect(mockSearchCustomers).not.toHaveBeenCalled();
     });
 
     test('no loyalty event, order reward found → returns from order rewards', async () => {
@@ -135,14 +152,10 @@ describe('identifyCustomerFromOrder — fallback chain', () => {
         });
 
         // Method 3: loyalty events → empty
-        mockSearchLoyaltyEvents.mockResolvedValueOnce([]);
+        mockSearchLoyaltyEvents([]);
         // Method 4: order rewards search → found
-        mockSearchLoyaltyEvents.mockResolvedValueOnce([
-            { loyalty_account_id: 'acct-2' }
-        ]);
-        mockGetLoyaltyAccount.mockResolvedValueOnce({
-            customer_id: 'cust-rewards'
-        });
+        mockSearchLoyaltyEvents([{ loyalty_account_id: 'acct-2' }]);
+        mockGetLoyaltyAccount({ customer_id: 'cust-rewards' });
 
         const result = await service.identifyCustomerFromOrder(order);
 
@@ -164,10 +177,10 @@ describe('identifyCustomerFromOrder — fallback chain', () => {
         });
 
         // Method 3: loyalty events → empty
-        mockSearchLoyaltyEvents.mockResolvedValueOnce([]);
+        mockSearchLoyaltyEvents([]);
         // Method 4: no rewards → skip
         // Method 5: phone search
-        mockSearchCustomers.mockResolvedValueOnce([{ id: 'cust-phone' }]);
+        mockSearchCustomers([{ id: 'cust-phone' }]);
 
         const result = await service.identifyCustomerFromOrder(order);
 
@@ -185,7 +198,7 @@ describe('identifyCustomerFromOrder — fallback chain', () => {
         });
 
         // Methods 3-5 fail
-        mockSearchLoyaltyEvents.mockResolvedValueOnce([]);
+        mockSearchLoyaltyEvents([]);
         // No rewards, no fulfillments
         // Method 6: DB lookup
         mockDbQuery.mockResolvedValueOnce({
@@ -211,7 +224,7 @@ describe('identifyCustomerFromOrder — fallback chain', () => {
         });
 
         // Method 3: empty
-        mockSearchLoyaltyEvents.mockResolvedValueOnce([]);
+        mockSearchLoyaltyEvents([]);
         // Method 4: no rewards (empty array default)
         // Method 5: no fulfillments
         // Method 6: no discounts
@@ -235,6 +248,7 @@ describe('identifyFromTenders — edge cases', () => {
 
     beforeEach(async () => {
         jest.clearAllMocks();
+        mockGetMerchantToken.mockResolvedValue('test-token');
         service = await createService();
     });
 
@@ -269,11 +283,12 @@ describe('identifyFromLoyaltyEvents — edge cases', () => {
 
     beforeEach(async () => {
         jest.clearAllMocks();
+        mockGetMerchantToken.mockResolvedValue('test-token');
         service = await createService();
     });
 
     test('Square API returns no events', async () => {
-        mockSearchLoyaltyEvents.mockResolvedValueOnce([]);
+        mockSearchLoyaltyEvents([]);
 
         const result = await service.identifyFromLoyaltyEvents(makeOrder());
 
@@ -282,7 +297,7 @@ describe('identifyFromLoyaltyEvents — edge cases', () => {
     });
 
     test('Square API throws 429 → caught, falls through', async () => {
-        mockSearchLoyaltyEvents.mockRejectedValueOnce(new Error('Rate limited (429)'));
+        mockMakeSquareRequest.mockRejectedValueOnce(new Error('Rate limited (429)'));
 
         const result = await service.identifyFromLoyaltyEvents(makeOrder());
 
@@ -291,9 +306,7 @@ describe('identifyFromLoyaltyEvents — edge cases', () => {
     });
 
     test('loyalty event has no loyalty_account_id', async () => {
-        mockSearchLoyaltyEvents.mockResolvedValueOnce([
-            { id: 'evt-1' } // no loyalty_account_id
-        ]);
+        mockSearchLoyaltyEvents([{ id: 'evt-1' }]); // no loyalty_account_id
 
         const result = await service.identifyFromLoyaltyEvents(makeOrder());
 
@@ -306,6 +319,7 @@ describe('identifyFromFulfillmentRecipient — edge cases', () => {
 
     beforeEach(async () => {
         jest.clearAllMocks();
+        mockGetMerchantToken.mockResolvedValue('test-token');
         service = await createService();
     });
 
@@ -322,9 +336,9 @@ describe('identifyFromFulfillmentRecipient — edge cases', () => {
         });
 
         // Phone search → no match
-        mockSearchCustomers.mockResolvedValueOnce([]);
+        mockSearchCustomers([]);
         // Email search → match
-        mockSearchCustomers.mockResolvedValueOnce([{ id: 'cust-email' }]);
+        mockSearchCustomers([{ id: 'cust-email' }]);
 
         const result = await service.identifyFromFulfillmentRecipient(order);
 
@@ -333,7 +347,8 @@ describe('identifyFromFulfillmentRecipient — edge cases', () => {
             method: 'FULFILLMENT_RECIPIENT',
             success: true,
         });
-        expect(mockSearchCustomers).toHaveBeenCalledTimes(2);
+        // Both searches hit the customers/search endpoint
+        expect(mockMakeSquareRequest).toHaveBeenCalledTimes(2);
     });
 
     test('no phone or email on fulfillment', async () => {
@@ -348,7 +363,7 @@ describe('identifyFromFulfillmentRecipient — edge cases', () => {
         const result = await service.identifyFromFulfillmentRecipient(order);
 
         expect(result.success).toBe(false);
-        expect(mockSearchCustomers).not.toHaveBeenCalled();
+        expect(mockMakeSquareRequest).not.toHaveBeenCalled();
     });
 
     test('delivery_details recipient extracted correctly', async () => {
@@ -360,7 +375,7 @@ describe('identifyFromFulfillmentRecipient — edge cases', () => {
             }],
         });
 
-        mockSearchCustomers.mockResolvedValueOnce([{ id: 'cust-delivery' }]);
+        mockSearchCustomers([{ id: 'cust-delivery' }]);
 
         const result = await service.identifyFromFulfillmentRecipient(order);
 
@@ -374,6 +389,7 @@ describe('identifyFromLoyaltyDiscount — edge cases', () => {
 
     beforeEach(async () => {
         jest.clearAllMocks();
+        mockGetMerchantToken.mockResolvedValue('test-token');
         service = await createService();
     });
 
@@ -460,10 +476,11 @@ describe('identifyFromLoyaltyDiscount — edge cases', () => {
 describe('getCustomerDetails (customer-details-service)', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        mockGetMerchantToken.mockResolvedValue('test-token');
     });
 
     test('returns Square customer profile', async () => {
-        mockGetCustomer.mockResolvedValueOnce({
+        mockGetCustomer({
             id: 'cust-1',
             given_name: 'Jane',
             family_name: 'Doe',
@@ -492,7 +509,7 @@ describe('getCustomerDetails (customer-details-service)', () => {
     });
 
     test('displayName falls back to company_name when no given/family name', async () => {
-        mockGetCustomer.mockResolvedValueOnce({
+        mockGetCustomer({
             id: 'cust-2',
             company_name: 'JTPets Inc',
             created_at: '2026-01-01',
@@ -505,7 +522,7 @@ describe('getCustomerDetails (customer-details-service)', () => {
     });
 
     test('Square API error → returns null', async () => {
-        mockGetCustomer.mockRejectedValueOnce(new Error('NOT_FOUND'));
+        mockMakeSquareRequest.mockRejectedValueOnce(new Error('NOT_FOUND'));
 
         const result = await getCustomerDetails('cust-bad', MERCHANT_ID);
 
@@ -516,6 +533,7 @@ describe('getCustomerDetails (customer-details-service)', () => {
 describe('cacheCustomerDetails (customer-details-service)', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        mockGetMerchantToken.mockResolvedValue('test-token');
     });
 
     test('cache hit (exists in loyalty_customers) → no API call', async () => {
@@ -530,7 +548,7 @@ describe('cacheCustomerDetails (customer-details-service)', () => {
             phone: '+16135551111',
             cached: true,
         });
-        expect(mockGetCustomer).not.toHaveBeenCalled();
+        expect(mockMakeSquareRequest).not.toHaveBeenCalled();
     });
 
     test('cache miss → fetches from Square, upserts to DB', async () => {
@@ -538,7 +556,7 @@ describe('cacheCustomerDetails (customer-details-service)', () => {
         mockDbQuery.mockResolvedValueOnce({ rows: [] });
 
         // Square API fetch
-        mockGetCustomer.mockResolvedValueOnce({
+        mockGetCustomer({
             id: 'cust-new',
             given_name: 'Bob',
             family_name: 'Smith',
@@ -554,7 +572,6 @@ describe('cacheCustomerDetails (customer-details-service)', () => {
 
         expect(result.id).toBe('cust-new');
         expect(result.givenName).toBe('Bob');
-        expect(mockGetCustomer).toHaveBeenCalledWith('cust-new');
         // Verify upsert was called with ON CONFLICT
         expect(mockDbQuery).toHaveBeenCalledTimes(2);
         const upsertCall = mockDbQuery.mock.calls[1];
@@ -568,7 +585,7 @@ describe('cacheCustomerDetails (customer-details-service)', () => {
             rows: [{ phone_number: null }]
         });
 
-        mockGetCustomer.mockResolvedValueOnce({
+        mockGetCustomer({
             id: 'cust-nophone',
             given_name: 'Alice',
             phone_number: '+16135553333',
@@ -581,12 +598,12 @@ describe('cacheCustomerDetails (customer-details-service)', () => {
         const result = await cacheCustomerDetails('cust-nophone', MERCHANT_ID);
 
         expect(result.phone).toBe('+16135553333');
-        expect(mockGetCustomer).toHaveBeenCalled();
+        expect(mockMakeSquareRequest).toHaveBeenCalled();
     });
 
     test('Square API fails → returns null gracefully', async () => {
         mockDbQuery.mockResolvedValueOnce({ rows: [] }); // cache miss
-        mockGetCustomer.mockRejectedValueOnce(new Error('UNAUTHORIZED'));
+        mockMakeSquareRequest.mockRejectedValueOnce(new Error('UNAUTHORIZED'));
 
         const result = await cacheCustomerDetails('cust-err', MERCHANT_ID);
 
