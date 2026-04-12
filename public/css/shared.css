@@ -1576,6 +1576,24 @@ tr:hover {
   background: #f0fdf4;
 }
 
+/* Conflict rows (min would meet or exceed max) need merchant attention.
+   Amber + left border distinguish them from reduced (red) / increased (green). */
+.mmh-table tr.mmh-row-conflict {
+  background: #fff7ed;
+  border-left: 3px solid #d97706;
+}
+
+.mmh-badge-warning {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+  font-weight: 600;
+  font-size: 12px;
+}
+
 .mmh-table tr:hover {
   filter: brightness(0.97);
 }

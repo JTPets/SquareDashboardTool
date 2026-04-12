@@ -263,6 +263,71 @@ describe('runScheduledAutoMinMax', () => {
         expect(body).not.toContain('parent item location mismatch');
     });
 
+    test('email body includes conflict skip section with item names', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            { id: 1, business_name: 'Shop A' },
+        ]});
+        autoMinMax.applyWeeklyAdjustments.mockResolvedValueOnce(
+            adjustmentResult({
+                reduced: 1, increased: 0,
+                conflicts: [
+                    { variationId: 'v1', locationId: 'loc1',
+                      itemName: 'Cat Food 5kg', variationName: 'Chicken',
+                      sku: 'CF5', currentMin: 3,
+                      conflictDetail: { new_min: 4, current_max: 2 } },
+                    { variationId: 'v2', locationId: 'loc1',
+                      itemName: 'Dog Biscuits', variationName: 'Mini',
+                      sku: 'DB1', currentMin: 2,
+                      conflictDetail: { new_min: 3, current_max: 2 } },
+                ]
+            })
+        );
+
+        await job.runScheduledAutoMinMax();
+
+        const body = emailNotifier.sendAlert.mock.calls[0][1];
+        expect(body).toContain('2 items skipped — min would meet or exceed max (review required)');
+        expect(body).toContain('Cat Food 5kg');
+        expect(body).toContain('Dog Biscuits');
+        expect(body).toContain('recommended min 4');
+        expect(body).toContain('current max 2');
+    });
+
+    test('email sent when only conflicts exist (no reductions or increases)', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            { id: 1, business_name: 'Shop A' },
+        ]});
+        autoMinMax.applyWeeklyAdjustments.mockResolvedValueOnce(
+            adjustmentResult({
+                reduced: 0, increased: 0, adjustments: [],
+                conflicts: [
+                    { variationId: 'v1', locationId: 'loc1',
+                      itemName: 'Cat Food', variationName: 'X', sku: 'CF',
+                      currentMin: 3, conflictDetail: { new_min: 4, current_max: 2 } },
+                ]
+            })
+        );
+
+        await job.runScheduledAutoMinMax();
+        expect(emailNotifier.sendAlert).toHaveBeenCalledTimes(1);
+        const body = emailNotifier.sendAlert.mock.calls[0][1];
+        expect(body).toContain('1 items skipped — min would meet or exceed max');
+        expect(body).toContain('Cat Food');
+    });
+
+    test('email body omits conflict section when no conflicts', async () => {
+        db.query.mockResolvedValueOnce({ rows: [
+            { id: 1, business_name: 'Shop A' },
+        ]});
+        autoMinMax.applyWeeklyAdjustments.mockResolvedValueOnce(
+            adjustmentResult({ reduced: 1, increased: 0, conflicts: [] })
+        );
+
+        await job.runScheduledAutoMinMax();
+        const body = emailNotifier.sendAlert.mock.calls[0][1];
+        expect(body).not.toContain('items skipped — min would meet or exceed max');
+    });
+
     test('does not send email when no adjustments are made', async () => {
         db.query.mockResolvedValueOnce({ rows: [
             { id: 1, business_name: 'Shop A' },

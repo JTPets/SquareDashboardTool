@@ -131,7 +131,8 @@ async function runScheduledAutoMinMax() {
         for (const r of results) {
             if (r.error) continue;
             if (r.aborted) continue; // guardrail alert already sent by service
-            if (r.reduced === 0 && r.increased === 0) continue;
+            const conflicts = Array.isArray(r.conflicts) ? r.conflicts : [];
+            if (r.reduced === 0 && r.increased === 0 && conflicts.length === 0) continue;
 
             const sync = r.syncResult || { synced: 0, failed: 0, repairedParents: 0 };
             const subject = `Min Stock Auto-Adjustment: ${r.reduced} reduced, ${r.increased} increased — ${r.businessName}`;
@@ -147,6 +148,17 @@ async function runScheduledAutoMinMax() {
             ];
             if (sync.repairedParents > 0) {
                 bodyLines.push(`Repaired ${sync.repairedParents} parent item location mismatch(es) before sync`);
+            }
+            if (conflicts.length > 0) {
+                bodyLines.push('');
+                bodyLines.push(`${conflicts.length} items skipped — min would meet or exceed max (review required):`);
+                for (const c of conflicts) {
+                    const name = c.itemName || c.variationName || c.sku || c.variationId;
+                    const detail = c.conflictDetail
+                        ? ` (recommended min ${c.conflictDetail.new_min} ≥ current max ${c.conflictDetail.current_max})`
+                        : '';
+                    bodyLines.push(`  - ${name}${detail}`);
+                }
             }
             bodyLines.push(`\nReview changes at: /min-max-history.html`);
             const body = bodyLines.join('\n');
