@@ -6,6 +6,12 @@
  * occurred_at per (variation_id, location_id) into
  * variation_location_settings.last_received_at.
  *
+ * Delta sync: after the first full-history pull the high-water mark
+ * merchants.last_received_sync_at is written.  Subsequent runs pass
+ * updated_after = (last_received_sync_at - 10 min) to the Square endpoint so
+ * only recent changes are fetched.  The 10-minute overlap guards against
+ * Square eventual-consistency delays.
+ *
  * Called from syncInventory() — piggybacks on the existing sync run.
  *
  * Exports:
@@ -23,6 +29,33 @@ const {
 } = require('../../config/constants');
 
 const BATCH_SIZE = 100;
+const OVERLAP_MINUTES = 10;
+
+/**
+ * Read merchants.last_received_sync_at for the given merchant.
+ * Returns a Date or null (first run / full-history pull).
+ * @param {number} merchantId
+ * @returns {Promise<Date|null>}
+ */
+async function getLastReceivedSyncAt(merchantId) {
+    const result = await db.query(
+        'SELECT last_received_sync_at FROM merchants WHERE id = $1',
+        [merchantId]
+    );
+    const raw = result.rows[0]?.last_received_sync_at;
+    return raw ? new Date(raw) : null;
+}
+
+/**
+ * Write the high-water mark after a successful sync.
+ * @param {number} merchantId
+ */
+async function setLastReceivedSyncAt(merchantId) {
+    await db.query(
+        'UPDATE merchants SET last_received_sync_at = NOW() WHERE id = $1',
+        [merchantId]
+    );
+}
 
 /**
  * Is this inventory change a RECEIVE (stock flowing into IN_STOCK)?
@@ -66,8 +99,9 @@ function collectReceives(changes, latestMap) {
  * @param {string[]} locationIds
  * @param {string} accessToken
  * @param {Map<string,string>} latestMap  - mutated in place
+ * @param {string|undefined} updatedAfter - RFC 3339 string for delta pull, or undefined for full pull
  */
-async function fetchBatchReceives(batch, locationIds, accessToken, latestMap) {
+async function fetchBatchReceives(batch, locationIds, accessToken, latestMap, updatedAfter) {
     let cursor = null;
     let iterations = 0;
 
@@ -77,6 +111,7 @@ async function fetchBatchReceives(batch, locationIds, accessToken, latestMap) {
             location_ids: locationIds,
             types: ['ADJUSTMENT']
         };
+        if (updatedAfter) requestBody.updated_after = updatedAfter;
         if (cursor) requestBody.cursor = cursor;
 
         try {
@@ -134,6 +169,10 @@ async function upsertLastReceivedAt(latestMap, merchantId) {
  * Sync RECEIVE-type inventory adjustments from Square and persist
  * last_received_at per (variation_id, location_id) for the merchant.
  *
+ * On the first run (last_received_sync_at IS NULL) all history is pulled.
+ * On subsequent runs only changes since (last_received_sync_at - 10 min) are
+ * fetched.  The high-water mark is written only after a successful completion.
+ *
  * @param {number} merchantId
  * @param {string} accessToken  - already-fetched merchant token
  * @param {string[]} locationIds
@@ -141,6 +180,14 @@ async function upsertLastReceivedAt(latestMap, merchantId) {
  */
 async function syncReceiveAdjustments(merchantId, accessToken, locationIds) {
     if (!merchantId || !accessToken || !locationIds.length) return 0;
+
+    // --- Delta sync: determine updated_after filter ---
+    const lastSyncAt = await getLastReceivedSyncAt(merchantId);
+    let updatedAfter; // undefined → full pull (no filter sent to Square)
+    if (lastSyncAt) {
+        const withOverlap = new Date(lastSyncAt.getTime() - OVERLAP_MINUTES * 60 * 1000);
+        updatedAfter = withOverlap.toISOString();
+    }
 
     const variationsResult = await db.query(
         'SELECT id FROM variations WHERE merchant_id = $1',
@@ -151,18 +198,36 @@ async function syncReceiveAdjustments(merchantId, accessToken, locationIds) {
     if (catalogObjectIds.length === 0) return 0;
 
     const latestMap = new Map(); // `variationId|locationId` → occurred_at
+    let fatalError = false;
 
     for (let i = 0; i < catalogObjectIds.length; i += BATCH_SIZE) {
         const batch = catalogObjectIds.slice(i, i + BATCH_SIZE);
-        await fetchBatchReceives(batch, locationIds, accessToken, latestMap);
+        try {
+            await fetchBatchReceives(batch, locationIds, accessToken, latestMap, updatedAfter);
+        } catch (err) {
+            // fetchBatchReceives swallows per-batch errors internally; a throw
+            // here is a programming error — treat as fatal and skip the mark update.
+            logger.error('syncReceiveAdjustments: fatal error during batch loop', {
+                merchantId, error: err.message
+            });
+            fatalError = true;
+            break;
+        }
         await sleep(BATCH_DELAY_MS);
     }
 
+    if (fatalError) return 0;
+
     const updated = await upsertLastReceivedAt(latestMap, merchantId);
+
+    // --- High-water mark: only written on successful completion ---
+    await setLastReceivedSyncAt(merchantId);
 
     logger.info('syncReceiveAdjustments complete', {
         merchantId,
-        uniqueVariationLocations: updated
+        uniqueVariationLocations: updated,
+        deltaMode: !!updatedAfter,
+        updatedAfter: updatedAfter || null
     });
 
     return updated;
