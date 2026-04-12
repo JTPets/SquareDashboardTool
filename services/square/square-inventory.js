@@ -21,6 +21,7 @@ const logger = require('../../utils/logger');
 const { getMerchantToken, makeSquareRequest, sleep, generateIdempotencyKey } = require('./square-client');
 const { enableItemAtAllLocations } = require('./square-diagnostics');
 const { repairParentLocationMismatches } = require('./square-location-preflight');
+const { syncReceiveAdjustments } = require('./inventory-receive-sync');
 
 // LOGIC CHANGE: use centralized cache/retry config from constants (C-1)
 const { SQUARE: { MAX_PAGINATION_ITERATIONS }, SYNC: { BATCH_DELAY_MS, INTER_BATCH_DELAY_MS, CATALOG_BATCH_SIZE }, CACHE: { INVOICES_SCOPE_TTL_MS }, RETRY: { MAX_ATTEMPTS } } = require('../../config/constants');
@@ -139,6 +140,15 @@ async function syncInventory(merchantId) {
 
             // Small delay to avoid rate limiting
             await sleep(BATCH_DELAY_MS);
+        }
+
+        // Piggyback: update last_received_at from RECEIVE-type adjustments
+        try {
+            await syncReceiveAdjustments(merchantId, accessToken, locationIds);
+        } catch (receiveErr) {
+            logger.error('syncReceiveAdjustments failed (non-fatal)', {
+                merchantId, error: receiveErr.message
+            });
         }
 
         logger.info('Inventory sync complete', {

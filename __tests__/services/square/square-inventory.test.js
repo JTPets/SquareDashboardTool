@@ -30,6 +30,9 @@ jest.mock('../../../config/constants', () => ({
 jest.mock('../../../services/square/square-diagnostics', () => ({
     enableItemAtAllLocations: jest.fn().mockResolvedValue({ success: true, itemId: 'ITEM1', itemName: 'Test Item' })
 }));
+jest.mock('../../../services/square/inventory-receive-sync', () => ({
+    syncReceiveAdjustments: jest.fn().mockResolvedValue(0)
+}));
 
 const {
     syncInventory,

@@ -406,6 +406,7 @@ CREATE TABLE variation_location_settings (
     sold_out BOOLEAN DEFAULT FALSE,
     active BOOLEAN DEFAULT TRUE,
     min_stock_pinned BOOLEAN DEFAULT FALSE,
+    last_received_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     merchant_id INTEGER NOT NULL REFERENCES merchants(id),

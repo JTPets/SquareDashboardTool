@@ -411,6 +411,8 @@ async function ensureSchema() {
                 shelf_location TEXT,
                 sold_out BOOLEAN DEFAULT FALSE,
                 active BOOLEAN DEFAULT TRUE,
+                min_stock_pinned BOOLEAN DEFAULT FALSE,
+                last_received_at TIMESTAMPTZ,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW(),
                 merchant_id INTEGER NOT NULL REFERENCES merchants(id),
@@ -1090,6 +1092,8 @@ async function ensureSchema() {
         { table: 'variation_location_settings', column: 'sold_out', sql: 'ALTER TABLE variation_location_settings ADD COLUMN IF NOT EXISTS sold_out BOOLEAN DEFAULT FALSE' },
         // BACKLOG-106 v2: merchant pin to prevent auto-adjustment of min stock
         { table: 'variation_location_settings', column: 'min_stock_pinned', sql: 'ALTER TABLE variation_location_settings ADD COLUMN IF NOT EXISTS min_stock_pinned BOOLEAN DEFAULT FALSE' },
+        // Migration 017: timestamp of most recent inventory receipt from Square
+        { table: 'variation_location_settings', column: 'last_received_at', sql: 'ALTER TABLE variation_location_settings ADD COLUMN IF NOT EXISTS last_received_at TIMESTAMPTZ' },
     ];
 
     // ==================== VARIATION EXPIRATION TABLE ====================
