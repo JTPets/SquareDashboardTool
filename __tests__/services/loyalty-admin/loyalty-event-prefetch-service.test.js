@@ -16,13 +16,30 @@ jest.mock('../../../utils/loyalty-logger', () => ({
     loyaltyLogger: { squareApi: jest.fn() },
 }));
 
-jest.mock('../../../services/loyalty-admin/shared-utils', () => ({
-    getSquareAccessToken: jest.fn(),
-    fetchWithTimeout: jest.fn(),
-}));
+const mockMakeSquareRequest = jest.fn();
+const mockGetMerchantToken = jest.fn();
 
+jest.mock('../../../services/square/square-client', () => {
+    class SquareApiError extends Error {
+        constructor(message, { status, endpoint, details = [], nonRetryable = false } = {}) {
+            super(message);
+            this.name = 'SquareApiError';
+            this.status = status;
+            this.endpoint = endpoint;
+            this.details = details;
+            this.nonRetryable = nonRetryable;
+            this.squareErrors = details;
+        }
+    }
+    return {
+        makeSquareRequest: mockMakeSquareRequest,
+        getMerchantToken: mockGetMerchantToken,
+        SquareApiError
+    };
+});
+
+const { SquareApiError } = require('../../../services/square/square-client');
 const { prefetchRecentLoyaltyEvents, findCustomerFromPrefetchedEvents } = require('../../../services/loyalty-admin/loyalty-event-prefetch-service');
-const { getSquareAccessToken, fetchWithTimeout } = require('../../../services/loyalty-admin/shared-utils');
 
 const MERCHANT_ID = 1;
 
@@ -32,41 +49,29 @@ describe('prefetchRecentLoyaltyEvents', () => {
     });
 
     test('returns empty result when no access token', async () => {
-        getSquareAccessToken.mockResolvedValue(null);
+        mockGetMerchantToken.mockRejectedValue(new Error(`Merchant ${MERCHANT_ID} has no access token configured`));
 
         const result = await prefetchRecentLoyaltyEvents(MERCHANT_ID, 7);
 
         expect(result).toEqual({ events: [], byOrderId: {}, byTimestamp: [], loyaltyAccounts: {} });
-        expect(fetchWithTimeout).not.toHaveBeenCalled();
+        expect(mockMakeSquareRequest).not.toHaveBeenCalled();
     });
 
     test('fetches events and builds lookup maps', async () => {
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        mockGetMerchantToken.mockResolvedValue('fake-token');
 
         // Events search response
-        fetchWithTimeout.mockResolvedValueOnce({
-            ok: true,
-            status: 200,
-            json: async () => ({
-                events: [
-                    { order_id: 'ORD_1', loyalty_account_id: 'LACCT_1', created_at: '2026-01-15T12:00:00Z' },
-                    { order_id: 'ORD_2', loyalty_account_id: 'LACCT_2', created_at: '2026-01-16T12:00:00Z' }
-                ],
-                cursor: null
-            })
+        mockMakeSquareRequest.mockResolvedValueOnce({
+            events: [
+                { order_id: 'ORD_1', loyalty_account_id: 'LACCT_1', created_at: '2026-01-15T12:00:00Z' },
+                { order_id: 'ORD_2', loyalty_account_id: 'LACCT_2', created_at: '2026-01-16T12:00:00Z' }
+            ],
+            cursor: null
         });
 
         // Loyalty account lookups
-        fetchWithTimeout.mockResolvedValueOnce({
-            ok: true,
-            status: 200,
-            json: async () => ({ loyalty_account: { customer_id: 'CUST_A' } })
-        });
-        fetchWithTimeout.mockResolvedValueOnce({
-            ok: true,
-            status: 200,
-            json: async () => ({ loyalty_account: { customer_id: 'CUST_B' } })
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ loyalty_account: { customer_id: 'CUST_A' } });
+        mockMakeSquareRequest.mockResolvedValueOnce({ loyalty_account: { customer_id: 'CUST_B' } });
 
         const result = await prefetchRecentLoyaltyEvents(MERCHANT_ID, 7);
 
@@ -79,47 +84,58 @@ describe('prefetchRecentLoyaltyEvents', () => {
     });
 
     test('handles pagination', async () => {
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        mockGetMerchantToken.mockResolvedValue('fake-token');
 
         // Page 1
-        fetchWithTimeout.mockResolvedValueOnce({
-            ok: true,
-            status: 200,
-            json: async () => ({
-                events: [{ order_id: 'ORD_1', loyalty_account_id: 'LACCT_1', created_at: '2026-01-15T12:00:00Z' }],
-                cursor: 'page2'
-            })
+        mockMakeSquareRequest.mockResolvedValueOnce({
+            events: [{ order_id: 'ORD_1', loyalty_account_id: 'LACCT_1', created_at: '2026-01-15T12:00:00Z' }],
+            cursor: 'page2'
         });
         // Page 2
-        fetchWithTimeout.mockResolvedValueOnce({
-            ok: true,
-            status: 200,
-            json: async () => ({
-                events: [{ order_id: 'ORD_2', loyalty_account_id: 'LACCT_1', created_at: '2026-01-16T12:00:00Z' }],
-                cursor: null
-            })
+        mockMakeSquareRequest.mockResolvedValueOnce({
+            events: [{ order_id: 'ORD_2', loyalty_account_id: 'LACCT_1', created_at: '2026-01-16T12:00:00Z' }],
+            cursor: null
         });
         // Account lookup (same account, only fetched once)
-        fetchWithTimeout.mockResolvedValueOnce({
-            ok: true,
-            status: 200,
-            json: async () => ({ loyalty_account: { customer_id: 'CUST_A' } })
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ loyalty_account: { customer_id: 'CUST_A' } });
 
         const result = await prefetchRecentLoyaltyEvents(MERCHANT_ID, 7);
 
         expect(result.events).toHaveLength(2);
         // 2 event search calls + 1 account lookup = 3
-        expect(fetchWithTimeout).toHaveBeenCalledTimes(3);
+        expect(mockMakeSquareRequest).toHaveBeenCalledTimes(3);
+    });
+
+    test('passes cursor on subsequent page requests', async () => {
+        mockGetMerchantToken.mockResolvedValue('fake-token');
+
+        mockMakeSquareRequest.mockResolvedValueOnce({
+            events: [{ order_id: 'ORD_1', loyalty_account_id: 'LACCT_1', created_at: '2026-01-15T12:00:00Z' }],
+            cursor: 'next-cursor-abc'
+        });
+        mockMakeSquareRequest.mockResolvedValueOnce({
+            events: [],
+            cursor: null
+        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ loyalty_account: { customer_id: 'CUST_A' } });
+
+        await prefetchRecentLoyaltyEvents(MERCHANT_ID, 7);
+
+        // First page: no cursor in body
+        const firstCallBody = JSON.parse(mockMakeSquareRequest.mock.calls[0][1].body);
+        expect(firstCallBody.cursor).toBeUndefined();
+
+        // Second page: cursor from page 1
+        const secondCallBody = JSON.parse(mockMakeSquareRequest.mock.calls[1][1].body);
+        expect(secondCallBody.cursor).toBe('next-cursor-abc');
     });
 
     test('stops fetching events on API error', async () => {
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        mockGetMerchantToken.mockResolvedValue('fake-token');
 
-        fetchWithTimeout.mockResolvedValueOnce({
-            ok: false,
-            status: 500,
-        });
+        mockMakeSquareRequest.mockRejectedValueOnce(
+            new SquareApiError('Square API error: 500', { status: 500, endpoint: '/v2/loyalty/events/search' })
+        );
 
         const result = await prefetchRecentLoyaltyEvents(MERCHANT_ID, 7);
 
@@ -127,18 +143,14 @@ describe('prefetchRecentLoyaltyEvents', () => {
     });
 
     test('handles account lookup failure gracefully', async () => {
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        mockGetMerchantToken.mockResolvedValue('fake-token');
 
-        fetchWithTimeout.mockResolvedValueOnce({
-            ok: true,
-            status: 200,
-            json: async () => ({
-                events: [{ order_id: 'ORD_1', loyalty_account_id: 'LACCT_1', created_at: '2026-01-15T12:00:00Z' }],
-                cursor: null
-            })
+        mockMakeSquareRequest.mockResolvedValueOnce({
+            events: [{ order_id: 'ORD_1', loyalty_account_id: 'LACCT_1', created_at: '2026-01-15T12:00:00Z' }],
+            cursor: null
         });
         // Account lookup throws
-        fetchWithTimeout.mockRejectedValueOnce(new Error('Network error'));
+        mockMakeSquareRequest.mockRejectedValueOnce(new Error('Network error'));
 
         const result = await prefetchRecentLoyaltyEvents(MERCHANT_ID, 7);
 
@@ -147,10 +159,15 @@ describe('prefetchRecentLoyaltyEvents', () => {
     });
 
     test('returns empty on unexpected error', async () => {
-        getSquareAccessToken.mockRejectedValue(new Error('Token error'));
+        // Simulate an unexpected post-token error (e.g. during events processing)
+        mockGetMerchantToken.mockResolvedValue('fake-token');
+        mockMakeSquareRequest.mockImplementationOnce(() => {
+            throw new TypeError('unexpected sync failure');
+        });
 
         const result = await prefetchRecentLoyaltyEvents(MERCHANT_ID, 7);
 
+        // Outer catch swallows and returns empty shape
         expect(result).toEqual({ events: [], byOrderId: {}, byTimestamp: [], loyaltyAccounts: {} });
     });
 });

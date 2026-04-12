@@ -6,12 +6,12 @@
  * without per-order API calls.
  *
  * Extracted from backfill-service.js for 300-line compliance.
- * B1/B3 fix: replaced bare fetch() with fetchWithTimeout.
+ * B1/B3 fix: replaced bare fetch() with timeout-bounded Square client.
  */
 
 const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
-const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
+const { makeSquareRequest, getMerchantToken, SquareApiError } = require('../square/square-client');
 
 /**
  * Pre-fetch all recent loyalty ACCUMULATE_POINTS events for batch processing
@@ -23,7 +23,15 @@ const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('
  */
 async function prefetchRecentLoyaltyEvents(merchantId, days = 7) {
     try {
-        const accessToken = await getSquareAccessToken(merchantId);
+        // getMerchantToken throws when merchant is missing/inactive/no token;
+        // legacy getSquareAccessToken returned null for the same cases. Catch
+        // the throw and fall through to the same "no access token" branch.
+        let accessToken = null;
+        try {
+            accessToken = await getMerchantToken(merchantId);
+        } catch (err) {
+            logger.debug('No Square access token available', { merchantId, error: err.message });
+        }
         if (!accessToken) {
             return { events: [], byOrderId: {}, byTimestamp: [], loyaltyAccounts: {} };
         }
@@ -58,32 +66,37 @@ async function prefetchRecentLoyaltyEvents(merchantId, days = 7) {
             }
 
             const startTime = Date.now();
-            const response = await fetchWithTimeout('https://connect.squareup.com/v2/loyalty/events/search', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    'Square-Version': SQUARE_API_VERSION
-                },
-                body: JSON.stringify(requestBody)
-            }, 15000);
-            const duration = Date.now() - startTime;
+            let data;
+            try {
+                data = await makeSquareRequest('/v2/loyalty/events/search', {
+                    method: 'POST',
+                    body: JSON.stringify(requestBody),
+                    accessToken,
+                    timeout: 15000
+                });
 
-            loyaltyLogger.squareApi({
-                endpoint: '/loyalty/events/search',
-                method: 'POST',
-                status: response.status,
-                duration,
-                success: response.ok,
-                merchantId,
-            });
-
-            if (!response.ok) {
-                logger.error('Failed to fetch loyalty events', { status: response.status });
+                loyaltyLogger.squareApi({
+                    endpoint: '/loyalty/events/search',
+                    method: 'POST',
+                    status: 200,
+                    duration: Date.now() - startTime,
+                    success: true,
+                    merchantId,
+                });
+            } catch (err) {
+                const status = err instanceof SquareApiError ? err.status : undefined;
+                loyaltyLogger.squareApi({
+                    endpoint: '/loyalty/events/search',
+                    method: 'POST',
+                    status,
+                    duration: Date.now() - startTime,
+                    success: false,
+                    merchantId,
+                });
+                logger.error('Failed to fetch loyalty events', { status });
                 break;
             }
 
-            const data = await response.json();
             const events = data.events || [];
             allEvents.push(...events);
             cursor = data.cursor;
@@ -116,34 +129,36 @@ async function prefetchRecentLoyaltyEvents(merchantId, days = 7) {
         // Fetch all loyalty accounts to get customer IDs
         const loyaltyAccounts = {};
         for (const accountId of loyaltyAccountIds) {
+            const accountStartTime = Date.now();
             try {
-                const accountStartTime = Date.now();
-                const accountResponse = await fetchWithTimeout(`https://connect.squareup.com/v2/loyalty/accounts/${accountId}`, {
+                const accountData = await makeSquareRequest(`/v2/loyalty/accounts/${accountId}`, {
                     method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json',
-                        'Square-Version': SQUARE_API_VERSION
-                    }
-                }, 10000);
-                const accountDuration = Date.now() - accountStartTime;
+                    accessToken,
+                    timeout: 10000
+                });
 
                 loyaltyLogger.squareApi({
                     endpoint: `/loyalty/accounts/${accountId}`,
                     method: 'GET',
-                    status: accountResponse.status,
-                    duration: accountDuration,
-                    success: accountResponse.ok,
+                    status: 200,
+                    duration: Date.now() - accountStartTime,
+                    success: true,
                     merchantId,
                 });
 
-                if (accountResponse.ok) {
-                    const accountData = await accountResponse.json();
-                    if (accountData.loyalty_account?.customer_id) {
-                        loyaltyAccounts[accountId] = accountData.loyalty_account.customer_id;
-                    }
+                if (accountData.loyalty_account?.customer_id) {
+                    loyaltyAccounts[accountId] = accountData.loyalty_account.customer_id;
                 }
             } catch (err) {
+                const status = err instanceof SquareApiError ? err.status : undefined;
+                loyaltyLogger.squareApi({
+                    endpoint: `/loyalty/accounts/${accountId}`,
+                    method: 'GET',
+                    status,
+                    duration: Date.now() - accountStartTime,
+                    success: false,
+                    merchantId,
+                });
                 logger.warn('Failed to fetch loyalty account', { accountId, error: err.message });
             }
         }
