@@ -1,6 +1,6 @@
 # Test Suite Audit
 
-**Audit Date:** 2026-04-10
+**Audit Date:** 2026-04-12
 
 ---
 
@@ -12,11 +12,15 @@
 | Total Test Code Lines | 102,138 |
 | Test Framework | Jest 29.7.0 |
 | HTTP Testing | Supertest 7.2.2 |
-| Total Test Suites | 268 |
-| Total Tests | 5,464 |
+| Total Test Suites | 289 |
+| Total Tests | 5,876 |
 | Failures | 0 |
 | Snapshot Tests | 0 |
 | Parametrized Tests | 17 (`test.each()`) |
+| Overall Statements | 81.57% (15,285 / 18,737) |
+| Overall Branches | 73.33% (7,811 / 10,651) |
+| Overall Functions | 79.69% (1,633 / 2,049) |
+| Overall Lines | 81.98% (14,747 / 17,987) |
 
 ---
 
@@ -97,7 +101,34 @@ npm run test:ci         # jest --ci --coverage --reporters=default --reporters=j
 
 ## Coverage Configuration
 
-### Thresholds (jest.config.js:34-76)
+### Measured Coverage by Directory
+
+Measured via `npx jest --coverage --no-coverage-threshold --silent`.
+
+| Directory | Statements | Branches | Functions | Lines |
+|-----------|------------|----------|-----------|-------|
+| **All files** | **81.57%** | **73.33%** | **79.69%** | **81.98%** |
+| `middleware/` | 61.88% | 62.30% | 49.23% | 62.27% |
+| `middleware/validators/` | 63.77% | 49.51% | 45.80% | 64.26% |
+| `routes/` | 87.98% | 70.03% | 89.25% | 88.45% |
+| `routes/auth/` | 98.13% | 68.75% | 100% | 100% |
+| `routes/delivery/` | 93.80% | 70.12% | 96.00% | 98.93% |
+| `routes/gmc/` | 82.85% | 70.37% | 80.55% | 83.50% |
+| `routes/loyalty/` | 99.01% | 87.62% | 100% | 100% |
+| `routes/subscriptions/` | 64.51% | 43.42% | 40.00% | 65.70% |
+| `routes/vendor-catalog/` | 94.25% | 74.46% | 100% | 100% |
+| `routes/webhooks/` | 0.00% | 100% | 0.00% | 0.00% |
+| `services/` (root) | 93.33% | 77.77% | 80.00% | 95.00% |
+| `services/merchant/` | 43.47% | 65.30% | 55.55% | 43.47% |
+| `services/reports/` | 65.90% | 43.31% | 61.11% | 67.20% |
+| `services/seniors/` | 52.26% | 44.52% | 51.42% | 51.06% |
+| `services/square/` | 90.14% | 79.19% | 93.83% | 90.93% |
+| `services/subscriptions/` | 94.71% | 88.23% | 94.11% | 95.51% |
+| `services/vendor/` | 89.98% | 81.89% | 91.30% | 90.56% |
+| `services/webhook-handlers/` | 94.75% | 95.25% | 71.15% | 94.81% |
+| `utils/` | 37.98% | 44.13% | 60.00% | 37.67% |
+
+### Per-File Thresholds (jest.config.js)
 
 **Security-Critical Files (High Requirements):**
 | File | Branches | Functions | Lines | Statements |
@@ -112,6 +143,8 @@ npm run test:ci         # jest --ci --coverage --reporters=default --reporters=j
 |-----------|----------|-----------|-------|------------|
 | `services/` | 8% | 10% | 10% | 10% |
 | `routes/` | 1% | 0% | 2% | 2% |
+
+> Thresholds are set far below measured coverage; measured coverage far exceeds the enforced floors.
 
 **Collection Scope:**
 ```javascript
@@ -277,12 +310,21 @@ function createTestApp(opts = {}) {
 
 ## Key Test Gaps
 
-1. **No real database tests** — All DB queries mocked; no integration tests against a test database
-2. **No end-to-end tests** — No browser/UI testing (Cypress, Playwright, etc.)
-3. **Low directory-level thresholds** — Routes: 1% branches, Services: 8% branches
-4. **Single integration test** — Only subscription lifecycle has multi-step flow testing
-5. **No test fixtures** — Inline data creation leads to inconsistent test data across files
-6. **No Square response fixtures** — Square API responses are hand-crafted per test
+Confirmed from actual coverage run (not inferred):
+
+1. **`routes/webhooks/` — 0% line coverage** — `routes/webhooks/square.js` has no test file; the Square webhook HTTP entry point is entirely uncovered.
+2. **`routes/subscriptions/` — 64.51% lines** — Notably `public.js` (50%) and `webhooks.js` (41.66%) are weak; `admin.js` sits at 53.84% statements.
+3. **`services/merchant/` — 43.47% lines** — `settings-service.js` is only 18.18% covered (lines 62-201 untested).
+4. **`services/seniors/` — 52.26% lines** — `seniors-service.js` is 43.06% covered; most of lines 82-284 and 499-798 are untested.
+5. **`services/reports/` — 65.9% lines** — `loyalty-reports.js` is only 51.18% covered; large unreported ranges (436-491, 1133-1447).
+6. **`middleware/validators/` — 63.77% lines** — Several validator modules are entirely untested: `cycle-counts.js`, `expiry-discounts.js`, `gmc.js`, `purchase-orders.js` (all 0%), plus several at 0% statement coverage (`ai-autofill.js`, `cart-activity.js`, `min-max-suppression.js`, `seniors.js`, `sync.js`).
+7. **`utils/` — 37.98% lines** — Several utilities are entirely unexecuted during the suite: `database.js`, `schema-manager.js`, `square-subscriptions.js`, `link-existing-subscribers.js` (all 0%); `privacy-format.js` (2.63%), `r2-backup.js` (37.93%), `subscription-handler.js` (32.32%), `square-webhooks.js` (51.56%).
+8. **`middleware/security.js` — 18.60% statements** — Most of the security middleware body is uncovered despite global `middleware/` threshold.
+9. **No real database tests** — All DB queries mocked; no integration tests against a test database.
+10. **No end-to-end tests** — No browser/UI testing (Cypress, Playwright, etc.).
+11. **Single integration test** — Only subscription lifecycle has multi-step flow testing.
+12. **No test fixtures** — Inline data creation leads to inconsistent test data across files.
+13. **No Square response fixtures** — Square API responses are hand-crafted per test.
 
 ---
 
