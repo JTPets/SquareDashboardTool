@@ -152,29 +152,29 @@ has merged and one full release cycle has elapsed.
 What gets deleted and when, after all 19 files are migrated and one full
 release cycle has elapsed without regressions.
 
-**Functions to remove from `shared-utils.js`** (duplicated by `square-client.js`):
-- `makeSquareRequest` — replaced by `squareClient.request`
+**Functions/constants to remove from `shared-utils.js`** (duplicated by `square-client.js`):
+- `squareApiRequest` — replaced by `squareClient.request`
 - `getSquareAccessToken` — replaced by `squareClient.getToken`
-- `generateIdempotencyKey` — replaced by `squareClient.idempotencyKey`
-- `withSquareRetry` — replaced by `squareClient.request` internal retry
-- `classifySquareError` — folded into `SquareApiError` construction
+- `fetchWithTimeout` — folded into `squareClient.request` internals
+- `SQUARE_API_BASE` constant — now owned by `square-client.js`
+- `SQUARE_API_VERSION` constant — now owned by `square-client.js`
 
-**Functions to keep in `shared-utils.js`** for import compatibility:
-- `formatSquareMoney`, `parseSquareMoney` — pure helpers, not client concerns
-- `escapeHtml`, `escapeAttr` — unrelated
-- `chunkArray`, `sleep` — generic utilities
-- Re-export shims for the removed functions are NOT kept; callers must
-  import from `square-client.js` directly.
+**Symbols to keep in `shared-utils.js`** for import compatibility:
+- `SquareApiError` — kept as a re-export shim from `square-client.js`
+- `generateIdempotencyKey` — kept as a re-export from `square-client.js`
+- `getSquareApi` — lazy loader stays (module-cache concern, not client concern)
 
-**`square-api-client.js` fate**: deleted outright. The `SquareApiClient`
-class collapses into `square-client.js`; no shim file is left behind.
-Any remaining imports should be caught by the Task 18 grep sweep.
+**`square-api-client.js` fate**: kept as a thin shim that delegates to
+`square-client.js`. It is NOT deleted outright; any file still importing
+`SquareApiClient` continues to work via the shim until a follow-up sweep
+removes those imports. Task 18 deletes the duplicate `shared-utils`
+functions only; the `square-api-client.js` shim persists.
 
 **Gate**: NO deletions land until
 1. All 19 files in Section 3 are migrated and merged to main
 2. One full release cycle (≥ 7 days in production) has elapsed
 3. No rollback or hotfix has touched the Square client path in that window
-4. `grep -r 'require.*shared-utils.*makeSquareRequest'` returns zero hits
+4. `grep -r 'require.*shared-utils.*squareApiRequest'` returns zero hits
 
 ## 5. Sprint Breakdown
 
@@ -187,22 +187,22 @@ Atomic tasks, each independently mergeable. Format per task:
 - Accept: new options (`timeout`, `retries`, `idempotencyKey`) land with defaults matching prior behavior; existing callers untouched pass unchanged.
 
 **Task 2 — Simple group migration** (4 files, single PR)
-- Files: `catalog-sync-service.js`, `inventory-read-service.js`, `merchant-info-service.js`, `location-service.js`
+- Files: `redemption-audit-service.js`, `customer-admin-service.js`, `customer-details-service.js`, `customer-identification-service.js`
 - Tests: matching `*.test.js` for each
 - Accept: each file imports from `square-client.js` only; shared-utils Square imports removed from these 4.
 
 **Tasks 3–9 — Medium group** (one PR per file)
-- 3: `webhook-subscription-service.js` | its test | no shared-utils Square imports remain
-- 4: `refund-service.js` | its test | 404 path and retry behavior preserved
-- 5: `order-query-service.js` | its test | pagination semantics unchanged
-- 6: `customer-service.js` | its test | null-vs-throw token path matches prior
-- 7: `payment-service.js` | its test | idempotency key format byte-identical
-- 8: `inventory-write-service.js` | its test | retry policy preserved under 429
-- 9: `catalog-write-service.js` | its test | idempotency + error shape preserved
+- 3: `customer-search-service.js` | its test | no shared-utils Square imports remain
+- 4: `discount-validation-service.js` | its test | 404 path and retry behavior preserved
+- 5: `loyalty-event-prefetch-service.js` | its test | pagination semantics unchanged
+- 6: `square-discount-service.js` | its test | null-vs-throw token path matches prior
+- 7: `order-history-audit-service.js` | its test | idempotency key format byte-identical
+- 8: `customer-handler.js` | its test | retry policy preserved under 429
+- 9: `seniors-service.js` | its test | idempotency + error shape preserved
 
 **Tasks 10–17 — Complex group** (one PR per file)
 - 10: `index.js` | `index.test.js` | server boot unchanged
-- 11: `square-api-client.js` → collapse | `square-api-client.test.js` | SquareApiError fields match
+- 11: `square-api-client.js` → shim | `square-api-client.test.js` | SquareApiError fields match; shim delegates cleanly
 - 12: `square-customer-group-service.js` | its test | group ops unchanged
 - 13: `square-discount-catalog-service.js` | its test | idempotency key shape preserved
 - 14: `backfill-service.js` | its test | per-call timeout honored
@@ -211,9 +211,9 @@ Atomic tasks, each independently mergeable. Format per task:
 - 17: `loyalty-handler.js` | its test + full loyalty E2E | accumulate/redeem/refund intact
 
 **Task 18 — Delete `shared-utils.js` duplicate functions**
-- Files: `utils/shared-utils.js`, remove legacy `utils/square-api-client.js`
+- Files: `utils/shared-utils.js` (retain re-export shims per Section 4)
 - Tests: full suite
-- Accept: gate in Section 4 satisfied; `grep` sweep for removed symbols returns zero; all 5,464 tests green.
+- Accept: gate in Section 4 satisfied; `grep` sweep for removed symbols returns zero; `square-api-client.js` shim retained; all 5,464 tests green.
 
 ## 6. Risk Register
 
