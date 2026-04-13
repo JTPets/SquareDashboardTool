@@ -20,12 +20,50 @@ function makeItem(overrides = {}) {
         days_until_expiry: 90,
         daily_avg_quantity: 2,
         current_stock: 10,
+        pending_po_quantity: 0,
         final_suggested_qty: 80,  // totalStock = 90, daysToClear = 45 < 90 → safe
         ...overrides
     };
 }
 
 describe('calculateCheckboxDefaults', () => {
+
+    // ==================== Rule 0: zero_qty (first check) ====================
+
+    test('final_suggested_qty 0 → unchecked, reason zero_qty', () => {
+        const items = [makeItem({ final_suggested_qty: 0 })];
+        const result = calculateCheckboxDefaults(items);
+        expect(result[0].default_checked).toBe(false);
+        expect(result[0].default_reason).toBe('zero_qty');
+    });
+
+    test('final_suggested_qty 0 beats active discount: both zero_qty and discount → zero_qty wins', () => {
+        const items = [makeItem({ final_suggested_qty: 0, active_discount_tier: 3 })];
+        const result = calculateCheckboxDefaults(items);
+        expect(result[0].default_checked).toBe(false);
+        expect(result[0].default_reason).toBe('zero_qty');
+    });
+
+    test('final_suggested_qty 0 beats cheaper vendor: both zero_qty and not primary vendor → zero_qty wins', () => {
+        const items = [makeItem({ final_suggested_qty: 0, is_primary_vendor: false, current_stock: 5 })];
+        const result = calculateCheckboxDefaults(items);
+        expect(result[0].default_checked).toBe(false);
+        expect(result[0].default_reason).toBe('zero_qty');
+    });
+
+    test('final_suggested_qty undefined treated as 0 → unchecked, reason zero_qty', () => {
+        const items = [makeItem({ final_suggested_qty: undefined })];
+        const result = calculateCheckboxDefaults(items);
+        expect(result[0].default_checked).toBe(false);
+        expect(result[0].default_reason).toBe('zero_qty');
+    });
+
+    test('final_suggested_qty 1 → proceeds to other rules, not zero_qty', () => {
+        const items = [makeItem({ final_suggested_qty: 1 })];
+        const result = calculateCheckboxDefaults(items);
+        expect(result[0].default_reason).not.toBe('zero_qty');
+        expect(result[0].default_checked).toBe(true);
+    });
 
     // ==================== Rule 1: active_discount_tier ====================
     // Invariant: active_discount_tier is non-null ONLY when edt.is_auto_apply = TRUE.
@@ -59,10 +97,42 @@ describe('calculateCheckboxDefaults', () => {
     // ==================== Rule 2: is_primary_vendor ====================
 
     test('is_primary_vendor false → unchecked, reason cheaper_vendor_available', () => {
-        const items = [makeItem({ is_primary_vendor: false })];
+        // current_stock: 10 so zero_stock_no_order override does NOT apply
+        const items = [makeItem({ is_primary_vendor: false, current_stock: 10 })];
         const result = calculateCheckboxDefaults(items);
         expect(result[0].default_checked).toBe(false);
         expect(result[0].default_reason).toBe('cheaper_vendor_available');
+    });
+
+    // ==================== Rule 3: zero_stock_no_order (override cheaper-elsewhere) ====================
+
+    test('not primary vendor + zero stock + nothing on order → checked, reason zero_stock_no_order', () => {
+        const items = [makeItem({ is_primary_vendor: false, current_stock: 0, pending_po_quantity: 0 })];
+        const result = calculateCheckboxDefaults(items);
+        expect(result[0].default_checked).toBe(true);
+        expect(result[0].default_reason).toBe('zero_stock_no_order');
+    });
+
+    test('not primary vendor + zero stock + has PO on order → unchecked, cheaper_vendor_available (not overridden)', () => {
+        const items = [makeItem({ is_primary_vendor: false, current_stock: 0, pending_po_quantity: 5 })];
+        const result = calculateCheckboxDefaults(items);
+        expect(result[0].default_checked).toBe(false);
+        expect(result[0].default_reason).toBe('cheaper_vendor_available');
+    });
+
+    test('not primary vendor + has stock + no PO → unchecked, cheaper_vendor_available (stock present, no override)', () => {
+        const items = [makeItem({ is_primary_vendor: false, current_stock: 3, pending_po_quantity: 0 })];
+        const result = calculateCheckboxDefaults(items);
+        expect(result[0].default_checked).toBe(false);
+        expect(result[0].default_reason).toBe('cheaper_vendor_available');
+    });
+
+    test('zero_stock_no_order does not fire when active discount present', () => {
+        // Discount check (rule 2) fires before zero_stock_no_order (rule 3)
+        const items = [makeItem({ is_primary_vendor: false, current_stock: 0, pending_po_quantity: 0, active_discount_tier: 2 })];
+        const result = calculateCheckboxDefaults(items);
+        expect(result[0].default_checked).toBe(false);
+        expect(result[0].default_reason).toBe('expiry_discount_active');
     });
 
     // ==================== Rule 3: expiry_risk ====================

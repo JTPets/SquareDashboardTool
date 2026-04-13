@@ -5,10 +5,14 @@
  * Determines the default checked state and reason for each reorder suggestion.
  *
  * Rule priority (first match wins):
- * 1. active_discount_tier != null → unchecked (expiry discount already active)
- * 2. !is_primary_vendor           → unchecked (cheaper vendor available)
- * 3. hasExpiryRisk()              → unchecked (would overstock expiring item)
- * 4. default                      → checked
+ * 1. final_suggested_qty === 0    → unchecked (nothing to order)
+ * 2. active_discount_tier != null → unchecked (expiry discount already active)
+ * 3. !is_primary_vendor
+ *      AND current_stock === 0
+ *      AND pending_po_quantity === 0 → checked (out of stock, nothing incoming — can't wait)
+ * 4. !is_primary_vendor           → unchecked (cheaper vendor available)
+ * 5. hasExpiryRisk()              → unchecked (would overstock expiring item)
+ * 6. default                      → checked
  */
 
 'use strict';
@@ -40,9 +44,17 @@ function calculateCheckboxDefaults(items, merchantConfig = {}) {
         let checked;
         let reason;
 
-        if (item.active_discount_tier != null) {
+        if ((item.final_suggested_qty || 0) === 0) {
+            checked = false;
+            reason = 'zero_qty';
+        } else if (item.active_discount_tier != null) {
             checked = false;
             reason = 'expiry_discount_active';
+        } else if (!item.is_primary_vendor
+                && (item.current_stock || 0) === 0
+                && (item.pending_po_quantity || 0) === 0) {
+            checked = true;
+            reason = 'zero_stock_no_order';
         } else if (!item.is_primary_vendor) {
             checked = false;
             reason = 'cheaper_vendor_available';
