@@ -563,6 +563,7 @@ function updateBundleChildQty(input) {
 // Human-readable labels for each default_reason code (Tier 1 smart defaults)
 function defaultReasonLabel(reason) {
   const labels = {
+    'zero_qty': 'Auto-unchecked: suggested order quantity is 0',
     'expiry_discount_active': 'Auto-unchecked: item already on expiry discount',
     'cheaper_vendor_available': 'Auto-unchecked: cheaper vendor available',
     'expiry_risk': 'Auto-unchecked: ordering this quantity may not sell before expiry',
