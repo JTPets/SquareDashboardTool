@@ -197,7 +197,8 @@ describe('createPurchaseOrder', () => {
         db.query.mockResolvedValueOnce({ rows: [{ id: 5, minimum_order_amount: '50000' }] });
         getLocationById.mockResolvedValueOnce({ id: 'loc-1' });
         await expect(poService.createPurchaseOrder(10, basePayload)).rejects.toMatchObject({
-            statusCode: 400, code: 'BELOW_VENDOR_MINIMUM'
+            statusCode: 400, code: 'BELOW_VENDOR_MINIMUM',
+            vendorMinimumCents: 50000, orderTotalCents: 2000,
         });
     });
 

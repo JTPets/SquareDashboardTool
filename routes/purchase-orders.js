@@ -29,6 +29,23 @@ router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, a
             notes, createdBy: created_by, items, force,
         });
     } catch (err) {
+        if (err.code === 'BELOW_VENDOR_MINIMUM') {
+            if (req.isAutomated) {
+                return res.status(422).json({
+                    success: false,
+                    error: 'Automated PO rejected: below vendor minimum',
+                    code: 'BELOW_VENDOR_MINIMUM',
+                    vendor_minimum: err.vendorMinimumCents / 100,
+                    order_total: err.orderTotalCents / 100,
+                });
+            }
+            // Human: soft warning — no PO created; frontend confirms and resends with force:true
+            return sendSuccess(res, {
+                warning: 'below_minimum_order',
+                vendor_minimum: err.vendorMinimumCents / 100,
+                order_total: err.orderTotalCents / 100,
+            });
+        }
         return sendError(res, err.message, err.statusCode || 500, err.code);
     }
     const data = { purchase_order: result.po, expiry_discounts_cleared: result.clearedExpiryItems };

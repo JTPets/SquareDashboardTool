@@ -1072,18 +1072,13 @@ function updateFooter() {
   // Update vendor info bar running total
   updateVendorRunningTotal(totalCost);
 
-  // Disable PO button if no items or below vendor minimum
+  // Disable PO button only when no items are selected (below-minimum is a soft warning via dialog)
   const createBtn = document.getElementById('create-po-btn');
-  const belowMinimum = currentVendorMinimum > 0 && totalCost < currentVendorMinimum;
-  createBtn.disabled = totalItems === 0 || belowMinimum;
-  if (belowMinimum && totalItems > 0) {
-    createBtn.title = 'Order total is below vendor minimum ($' + currentVendorMinimum.toFixed(2) + ')';
-  } else {
-    createBtn.title = '';
-  }
+  createBtn.disabled = totalItems === 0;
+  createBtn.title = '';
 }
 
-async function createPurchaseOrder() {
+async function createPurchaseOrder(force = false) {
   // Standalone items (non-bundle)
   const standaloneItems = allSuggestions.filter(s =>
     selectedItems.has(s.variation_id) && !bundleChildVariationIds.has(s.variation_id)
@@ -1258,6 +1253,7 @@ async function createPurchaseOrder() {
     notes: `Auto-generated from reorder suggestions (${noteParts.join(' + ')}, ${items.length} total lines)`,
     created_by: 'Reorder System'
   };
+  if (force) poData.force = true;
 
   const btn = document.getElementById('create-po-btn');
   btn.disabled = true;
@@ -1276,6 +1272,25 @@ async function createPurchaseOrder() {
     }
 
     const result = await response.json();
+
+    // Soft warning: below vendor minimum (human-only — automation gets 422)
+    if (result.warning === 'below_minimum_order') {
+      const vendor = vendorRecords.find(v => String(v.id) === String(vendorId));
+      const vendorName = vendor?.name || 'this vendor';
+      const orderTotal = result.order_total.toFixed(2);
+      const vendorMinimum = result.vendor_minimum.toFixed(2);
+      const proceed = confirm(
+        '⚠️ Below Minimum Order\n\n' +
+        `This order totals $${orderTotal} against a $${vendorMinimum} minimum for ${vendorName}.\n\n` +
+        'Orders below minimum may incur delivery fees that exceed order profit. ' +
+        'Ensure this is an add-on to an existing order or has been approved.\n\n' +
+        'Proceed anyway?'
+      );
+      if (!proceed) return;
+      await createPurchaseOrder(true);
+      return;
+    }
+
     const po = result.data?.purchase_order || result.purchase_order;
     const clearedItems = result.data?.expiry_discounts_cleared || [];
 

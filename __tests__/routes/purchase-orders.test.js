@@ -100,6 +100,23 @@ function buildNoMerchantApp() {
     return a;
 }
 
+function buildAutomationApp() {
+    const a = express();
+    a.use(express.json());
+    a.use((req, res, next) => {
+        req.session = { user: { id: 1, role: 'admin' } };
+        req.merchantContext = { id: 10, square_merchant_id: 'sq-merchant-1' };
+        req.isAutomated = true;
+        next();
+    });
+    const routes = require('../../routes/purchase-orders');
+    a.use('/api/purchase-orders', routes);
+    a.use((err, req, res, next) => {
+        res.status(500).json({ error: err.message });
+    });
+    return a;
+}
+
 const samplePO = {
     id: 1,
     po_number: 'PO-20260315-001',
@@ -218,10 +235,10 @@ describe('Purchase Orders Routes', () => {
             expect(res.status).toBe(201);
         });
 
-        test('returns 400 when below vendor minimum without force (BACKLOG-91)', async () => {
+        test('returns 200 soft warning for human when below vendor minimum without force', async () => {
             // vendor check with minimum_order_amount = 50000 cents = $500.00
             db.query.mockResolvedValueOnce({ rows: [{ id: 5, minimum_order_amount: '50000' }] });
-            // location check
+            // location check is never reached (service throws before it)
             db.query.mockResolvedValueOnce({ rows: [{ id: 'loc-1' }] });
 
             // PO total = (10 * 1500) + (5 * 800) = 19000 cents = $190, below $500
@@ -229,9 +246,29 @@ describe('Purchase Orders Routes', () => {
                 .post('/api/purchase-orders')
                 .send(createPayload);
 
-            expect(res.status).toBe(400);
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.warning).toBe('below_minimum_order');
+            expect(res.body.vendor_minimum).toBe(500);
+            expect(res.body.order_total).toBe(190);
+        });
+
+        test('returns 422 hard block for automation when below vendor minimum', async () => {
+            const automationApp = buildAutomationApp();
+            db.query.mockResolvedValueOnce({ rows: [{ id: 5, minimum_order_amount: '50000' }] });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 'loc-1' }] });
+
+            const res = await request(automationApp)
+                .post('/api/purchase-orders')
+                .set('x-request-source', 'automation')
+                .send(createPayload);
+
+            expect(res.status).toBe(422);
+            expect(res.body.success).toBe(false);
             expect(res.body.code).toBe('BELOW_VENDOR_MINIMUM');
-            expect(res.body.error).toContain('below vendor minimum');
+            expect(res.body.error).toContain('Automated PO rejected');
+            expect(res.body.vendor_minimum).toBe(500);
+            expect(res.body.order_total).toBe(190);
         });
 
         test('succeeds with force=true when below vendor minimum (BACKLOG-91)', async () => {

@@ -140,10 +140,15 @@ async function createPurchaseOrder(merchantId, { vendorId, locationId, supplyDay
     const minCheck = validateVendorMinimum(vendorResult.rows[0], subtotalCents);
     let minimumWarning = null;
     if (!minCheck.ok) {
-        if (!force) throw clientError(
-            `Order total ($${(minCheck.subtotalCents / 100).toFixed(2)}) is below vendor minimum ($${(minCheck.minimumCents / 100).toFixed(2)}). Shortfall: $${(minCheck.shortfallCents / 100).toFixed(2)}. Pass force: true to proceed anyway.`,
-            400, 'BELOW_VENDOR_MINIMUM'
-        );
+        if (!force) {
+            const err = clientError(
+                `Order total ($${(minCheck.subtotalCents / 100).toFixed(2)}) is below vendor minimum ($${(minCheck.minimumCents / 100).toFixed(2)}). Shortfall: $${(minCheck.shortfallCents / 100).toFixed(2)}. Pass force: true to proceed anyway.`,
+                400, 'BELOW_VENDOR_MINIMUM'
+            );
+            err.vendorMinimumCents = minCheck.minimumCents;
+            err.orderTotalCents = minCheck.subtotalCents;
+            throw err;
+        }
         minimumWarning = {
             message: `Order is $${(minCheck.shortfallCents / 100).toFixed(2)} below $${(minCheck.minimumCents / 100).toFixed(2)} vendor minimum`,
             subtotal_cents: minCheck.subtotalCents, minimum_cents: minCheck.minimumCents, shortfall_cents: minCheck.shortfallCents

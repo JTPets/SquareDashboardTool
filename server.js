@@ -70,6 +70,7 @@ const { configureHelmet, configurePermissionsPolicy, configureRateLimit, configu
 const { requireAuth, requireAuthApi, requireAdmin } = require('./middleware/auth');
 // LOGIC CHANGE: request correlation IDs for log tracing (Audit 8.x)
 const requestId = require('./middleware/request-id');
+const requestSource = require('./middleware/request-source');
 const authRoutes = require('./routes/auth');
 
 // Multi-tenant middleware and routes
@@ -151,6 +152,9 @@ if (process.env.DISABLE_SECURITY_HEADERS !== 'true') {
 
 // Request correlation IDs — must be before rate limiting so IDs appear in rate limit logs
 app.use(requestId);
+
+// Request source detection — attaches req.isAutomated for human vs automation branching
+app.use(requestSource);
 
 // Rate limiting
 app.use(configureRateLimit());
