@@ -31,6 +31,25 @@ jest.mock('../../services/loyalty-admin/shared-utils', () => ({
     getSquareAccessToken: jest.fn().mockResolvedValue('test-token')
 }));
 
+jest.mock('../../services/square/square-client', () => {
+    class SquareApiError extends Error {
+        constructor(message, { status, endpoint, details = [], nonRetryable = false } = {}) {
+            super(message);
+            this.name = 'SquareApiError';
+            this.status = status;
+            this.endpoint = endpoint;
+            this.details = details;
+            this.nonRetryable = nonRetryable;
+            this.squareErrors = details;
+        }
+    }
+    return {
+        getMerchantToken: jest.fn().mockResolvedValue('test-token'),
+        makeSquareRequest: jest.fn(),
+        SquareApiError,
+    };
+});
+
 jest.mock('../../services/loyalty-admin/audit-service', () => ({
     logAuditEvent: jest.fn()
 }));
@@ -46,6 +65,7 @@ jest.mock('../../services/loyalty-admin/order-intake', () => ({
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { getSquareAccessToken } = require('../../services/loyalty-admin/shared-utils');
+const { getMerchantToken } = require('../../services/square/square-client');
 const { runLoyaltyCatchup, _catchupRecentlyRan } = require('../../services/loyalty-admin/backfill-service');
 
 describe('Fix 4: Deduplicate loyalty catchup triggers', () => {
@@ -86,8 +106,8 @@ describe('Fix 4: Deduplicate loyalty catchup triggers', () => {
         });
 
         expect(result.skippedByDedup).toBeUndefined();
-        // Should have called getSquareAccessToken (proceeding past dedup)
-        expect(getSquareAccessToken).toHaveBeenCalledWith(1);
+        // Should have called getMerchantToken (proceeding past dedup)
+        expect(getMerchantToken).toHaveBeenCalledWith(1);
     });
 
     it('should skip catchup on second call within 120s for same customer', async () => {
@@ -111,8 +131,8 @@ describe('Fix 4: Deduplicate loyalty catchup triggers', () => {
 
         expect(result.skippedByDedup).toBe(true);
         expect(result.ordersNewlyTracked).toBe(0);
-        // Should NOT have called getSquareAccessToken (skipped early)
-        expect(getSquareAccessToken).not.toHaveBeenCalled();
+        // Should NOT have called getMerchantToken (skipped early)
+        expect(getMerchantToken).not.toHaveBeenCalled();
         // Should log debug with reason
         expect(logger.debug).toHaveBeenCalledWith(
             'Loyalty catchup skipped - recently ran for this customer',
@@ -141,7 +161,7 @@ describe('Fix 4: Deduplicate loyalty catchup triggers', () => {
         });
 
         expect(result.skippedByDedup).toBeUndefined();
-        expect(getSquareAccessToken).toHaveBeenCalled();
+        expect(getMerchantToken).toHaveBeenCalled();
     });
 
     it('should not interfere between different customer IDs', async () => {
@@ -164,7 +184,7 @@ describe('Fix 4: Deduplicate loyalty catchup triggers', () => {
         });
 
         expect(result.skippedByDedup).toBeUndefined();
-        expect(getSquareAccessToken).toHaveBeenCalled();
+        expect(getMerchantToken).toHaveBeenCalled();
     });
 
     it('should not apply dedup for batch catchup (no customerIds)', async () => {
@@ -185,7 +205,7 @@ describe('Fix 4: Deduplicate loyalty catchup triggers', () => {
         });
 
         expect(result.skippedByDedup).toBeUndefined();
-        expect(getSquareAccessToken).toHaveBeenCalled();
+        expect(getMerchantToken).toHaveBeenCalled();
     });
 
     it('should not apply dedup for multi-customer catchup', async () => {
@@ -206,6 +226,6 @@ describe('Fix 4: Deduplicate loyalty catchup triggers', () => {
         });
 
         expect(result.skippedByDedup).toBeUndefined();
-        expect(getSquareAccessToken).toHaveBeenCalled();
+        expect(getMerchantToken).toHaveBeenCalled();
     });
 });
