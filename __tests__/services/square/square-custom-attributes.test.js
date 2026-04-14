@@ -88,7 +88,24 @@ function makeCatalogObject(id, type, overrides = {}) {
     } else if (type === 'ITEM_VARIATION') {
         obj.item_variation_data = overrides.item_variation_data || { name: 'Test Variation', item_id: 'PARENT-ITEM' };
     }
+    if (Object.prototype.hasOwnProperty.call(overrides, 'present_at_all_locations')) {
+        obj.present_at_all_locations = overrides.present_at_all_locations;
+    }
+    if (overrides.present_at_location_ids) {
+        obj.present_at_location_ids = overrides.present_at_location_ids;
+    }
     return obj;
+}
+
+function makeParentItemObj(id, { presentAtAll = true, presentAtLocationIds = [] } = {}) {
+    return {
+        id,
+        type: 'ITEM',
+        version: 1,
+        present_at_all_locations: presentAtAll,
+        present_at_location_ids: presentAtLocationIds,
+        item_data: { name: 'Parent' }
+    };
 }
 
 // ===========================================================================
@@ -601,6 +618,217 @@ describe('batchUpdateCustomAttributeValues', () => {
         const obj = upsertBody.batches[0].objects[0];
         expect(obj.item_data).toBeDefined();
         expect(obj.item_variation_data).toBeUndefined();
+    });
+});
+
+// ===========================================================================
+// batchUpdateCustomAttributeValues — preflight location-mismatch repair
+// ===========================================================================
+
+describe('batchUpdateCustomAttributeValues — preflight repair', () => {
+    test('preflight heals parent item before upsert when mismatch detected', async () => {
+        // Variation enabled at LOC1; parent ITEM missing LOC1 → mismatch → heal.
+        const varObj = makeCatalogObject('VAR-1', 'ITEM_VARIATION', {
+            version: 1,
+            item_variation_data: { name: 'Var', item_id: 'PARENT-ITEM' },
+            present_at_all_locations: false,
+            present_at_location_ids: ['LOC1']
+        });
+        const parentItem = makeParentItemObj('PARENT-ITEM', {
+            presentAtAll: false,
+            presentAtLocationIds: []  // mismatch: missing LOC1
+        });
+
+        makeSquareRequest
+            .mockResolvedValueOnce({ objects: [varObj] })        // 1. initial batch-retrieve
+            .mockResolvedValueOnce({ objects: [parentItem] })    // 2. preflight parent batch-retrieve
+            .mockResolvedValueOnce({ objects: [{ id: 'VAR-1' }] }); // 3. batch-upsert
+
+        const updates = [
+            { catalogObjectId: 'VAR-1', customAttributeValues: { x: { string_value: 'y' } } }
+        ];
+
+        const result = await batchUpdateCustomAttributeValues(updates, { merchantId });
+
+        // Preflight should have healed the parent before upsert.
+        expect(enableItemAtAllLocations).toHaveBeenCalledWith('PARENT-ITEM', merchantId);
+        expect(result.updated).toBe(1);
+        expect(result.repairedParents).toBe(1);
+        expect(result.successVariations).toEqual(['VAR-1']);
+        expect(result.failedVariations).toEqual([]);
+        // Upsert should succeed without the inline retry path being invoked
+        // (only one batch-upsert call, no retry).
+        const upsertCalls = makeSquareRequest.mock.calls.filter(
+            c => c[0] === '/v2/catalog/batch-upsert'
+        );
+        expect(upsertCalls).toHaveLength(1);
+    });
+
+    test('preflight skipped when variations have no location presence info', async () => {
+        // No present_at_location_ids / present_at_all_locations → preflight skipped
+        const varObj = makeCatalogObject('VAR-1', 'ITEM_VARIATION', { version: 1 });
+
+        makeSquareRequest
+            .mockResolvedValueOnce({ objects: [varObj] })
+            .mockResolvedValueOnce({ objects: [{ id: 'VAR-1' }] });
+
+        const updates = [
+            { catalogObjectId: 'VAR-1', customAttributeValues: { x: { string_value: 'y' } } }
+        ];
+
+        const result = await batchUpdateCustomAttributeValues(updates, { merchantId });
+
+        // Only 2 calls: batch-retrieve + batch-upsert (no preflight parent fetch)
+        expect(makeSquareRequest).toHaveBeenCalledTimes(2);
+        expect(enableItemAtAllLocations).not.toHaveBeenCalled();
+        expect(result.repairedParents).toBe(0);
+        expect(result.successVariations).toEqual(['VAR-1']);
+    });
+
+    test('preflight repair failure does not abort the upsert', async () => {
+        const varObj = makeCatalogObject('VAR-1', 'ITEM_VARIATION', {
+            version: 1,
+            item_variation_data: { name: 'Var', item_id: 'PARENT-ITEM' },
+            present_at_all_locations: false,
+            present_at_location_ids: ['LOC1']
+        });
+        const parentItem = makeParentItemObj('PARENT-ITEM', {
+            presentAtAll: false,
+            presentAtLocationIds: []
+        });
+
+        // enableItemAtAllLocations throws — repair failure should be non-fatal
+        enableItemAtAllLocations.mockRejectedValueOnce(new Error('Heal failed'));
+
+        makeSquareRequest
+            .mockResolvedValueOnce({ objects: [varObj] })        // batch-retrieve
+            .mockResolvedValueOnce({ objects: [parentItem] })    // preflight parent fetch
+            .mockResolvedValueOnce({ objects: [{ id: 'VAR-1' }] }); // batch-upsert still runs
+
+        const updates = [
+            { catalogObjectId: 'VAR-1', customAttributeValues: { x: { string_value: 'y' } } }
+        ];
+
+        const result = await batchUpdateCustomAttributeValues(updates, { merchantId });
+
+        // Heal attempted and failed; upsert still proceeded and succeeded
+        expect(enableItemAtAllLocations).toHaveBeenCalledWith('PARENT-ITEM', merchantId);
+        expect(result.updated).toBe(1);
+        // repairedParents is 0 because the heal itself failed
+        expect(result.repairedParents).toBe(0);
+        expect(result.successVariations).toEqual(['VAR-1']);
+    });
+
+    test('preflight parent fetch failure is non-fatal and upsert still runs', async () => {
+        const varObj = makeCatalogObject('VAR-1', 'ITEM_VARIATION', {
+            version: 1,
+            item_variation_data: { name: 'Var', item_id: 'PARENT-ITEM' },
+            present_at_all_locations: false,
+            present_at_location_ids: ['LOC1']
+        });
+
+        makeSquareRequest
+            .mockResolvedValueOnce({ objects: [varObj] })        // batch-retrieve
+            .mockRejectedValueOnce(new Error('Parent fetch failed')) // preflight fetch fails
+            .mockResolvedValueOnce({ objects: [{ id: 'VAR-1' }] }); // batch-upsert still runs
+
+        const updates = [
+            { catalogObjectId: 'VAR-1', customAttributeValues: { x: { string_value: 'y' } } }
+        ];
+
+        const result = await batchUpdateCustomAttributeValues(updates, { merchantId });
+
+        expect(result.updated).toBe(1);
+        expect(enableItemAtAllLocations).not.toHaveBeenCalled();
+    });
+
+    test('treats present_at_all_locations=true variation as requiring parent at all locations', async () => {
+        // Variation is at all locations; parent has a specific limited list → mismatch
+        const varObj = makeCatalogObject('VAR-1', 'ITEM_VARIATION', {
+            version: 1,
+            item_variation_data: { name: 'Var', item_id: 'PARENT-ITEM' },
+            present_at_all_locations: true
+        });
+        const parentItem = makeParentItemObj('PARENT-ITEM', {
+            presentAtAll: false,
+            presentAtLocationIds: ['LOC1']  // parent NOT at all locations → mismatch
+        });
+
+        makeSquareRequest
+            .mockResolvedValueOnce({ objects: [varObj] })
+            .mockResolvedValueOnce({ objects: [parentItem] })
+            .mockResolvedValueOnce({ objects: [{ id: 'VAR-1' }] });
+
+        const result = await batchUpdateCustomAttributeValues(
+            [{ catalogObjectId: 'VAR-1', customAttributeValues: { a: { string_value: 'b' } } }],
+            { merchantId }
+        );
+
+        expect(enableItemAtAllLocations).toHaveBeenCalledWith('PARENT-ITEM', merchantId);
+        expect(result.repairedParents).toBe(1);
+    });
+});
+
+// ===========================================================================
+// batchUpdateCustomAttributeValues — structured per-variation failures
+// ===========================================================================
+
+describe('batchUpdateCustomAttributeValues — structured failures', () => {
+    test('populates successVariations and failedVariations on partial failure', async () => {
+        const obj1 = makeCatalogObject('VAR-1', 'ITEM_VARIATION', { version: 1 });
+
+        // Only VAR-1 returned (VAR-MISSING not found in Square)
+        makeSquareRequest
+            .mockResolvedValueOnce({ objects: [obj1] })
+            .mockResolvedValueOnce({ objects: [{ id: 'VAR-1' }] });
+
+        const updates = [
+            { catalogObjectId: 'VAR-1', customAttributeValues: { a: { string_value: '1' } } },
+            { catalogObjectId: 'VAR-MISSING', customAttributeValues: { a: { string_value: '2' } } }
+        ];
+
+        const result = await batchUpdateCustomAttributeValues(updates, { merchantId });
+
+        expect(result.successVariations).toEqual(['VAR-1']);
+        expect(result.failedVariations).toEqual([
+            { variationId: 'VAR-MISSING', error: 'Object not found' }
+        ]);
+    });
+
+    test('populates failedVariations when upsert fails with non-location error', async () => {
+        const obj1 = makeCatalogObject('VAR-1', 'ITEM_VARIATION', { version: 1 });
+
+        makeSquareRequest
+            .mockResolvedValueOnce({ objects: [obj1] })
+            .mockRejectedValueOnce(new Error('Unknown Square error'));
+
+        const result = await batchUpdateCustomAttributeValues(
+            [{ catalogObjectId: 'VAR-1', customAttributeValues: { a: { string_value: '1' } } }],
+            { merchantId }
+        );
+
+        expect(result.failed).toBe(1);
+        expect(result.failedVariations).toEqual([
+            { variationId: 'VAR-1', error: 'Unknown Square error' }
+        ]);
+        expect(result.successVariations).toEqual([]);
+    });
+
+    test('failedVariations does not double-count a not-found variation when batch also fails', async () => {
+        // One not-found + upsert of the rest fails → failedVariations should only list each variation once.
+        const obj1 = makeCatalogObject('VAR-1', 'ITEM_VARIATION', { version: 1 });
+
+        makeSquareRequest
+            .mockResolvedValueOnce({ objects: [obj1] })
+            .mockRejectedValueOnce(new Error('Boom'));
+
+        const result = await batchUpdateCustomAttributeValues([
+            { catalogObjectId: 'VAR-1', customAttributeValues: { a: { string_value: '1' } } },
+            { catalogObjectId: 'VAR-MISSING', customAttributeValues: { a: { string_value: '2' } } }
+        ], { merchantId });
+
+        const ids = result.failedVariations.map(f => f.variationId).sort();
+        expect(ids).toEqual(['VAR-1', 'VAR-MISSING']);
     });
 });
 

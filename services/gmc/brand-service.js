@@ -248,6 +248,15 @@ async function bulkAssignBrands(merchantId, assignments) {
             if (squareResult.errors?.length > 0) {
                 results.errors.push(...squareResult.errors.map(e => ({ type: 'square_sync', ...e })));
             }
+            // Surface per-variation failures so the caller can warn the merchant
+            // when some items failed (e.g. unhealed parent-location mismatches).
+            if (Array.isArray(squareResult.failedVariations) && squareResult.failedVariations.length > 0) {
+                results.errors.push(...squareResult.failedVariations.map(f => ({
+                    type: 'square_sync_item',
+                    item_id: f.variationId,
+                    error: f.error
+                })));
+            }
         } catch (syncError) {
             logger.error('Square batch sync failed', { error: syncError.message, merchantId });
             results.errors.push({ type: 'square_batch_sync', error: syncError.message });
