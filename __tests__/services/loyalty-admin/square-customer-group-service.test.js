@@ -9,6 +9,18 @@
 // MOCK SETUP
 // ============================================================================
 
+class MockSquareApiError extends Error {
+    constructor(message, { status, endpoint, details = [], nonRetryable = false } = {}) {
+        super(message);
+        this.name = 'SquareApiError';
+        this.status = status;
+        this.endpoint = endpoint;
+        this.details = details;
+        this.nonRetryable = nonRetryable;
+        this.squareErrors = details;
+    }
+}
+
 const mockMakeSquareRequest = jest.fn();
 const mockGetMerchantToken = jest.fn().mockResolvedValue('test-token');
 
@@ -23,13 +35,10 @@ jest.mock('../../../utils/loyalty-logger', () => ({
     loyaltyLogger: { squareApi: jest.fn() }
 }));
 
-jest.mock('../../../services/loyalty-admin/shared-utils', () => ({
-    fetchWithTimeout: jest.fn(),
-    getSquareAccessToken: jest.fn().mockResolvedValue('test-token'),
-    getSquareApi: jest.fn().mockReturnValue({
-        getMerchantToken: mockGetMerchantToken,
-        makeSquareRequest: mockMakeSquareRequest
-    })
+jest.mock('../../../services/square/square-client', () => ({
+    makeSquareRequest: mockMakeSquareRequest,
+    getMerchantToken: mockGetMerchantToken,
+    SquareApiError: MockSquareApiError,
 }));
 
 const {
@@ -44,7 +53,10 @@ const logger = require('../../../utils/logger');
 // ============================================================================
 
 describe('removeCustomerFromGroup', () => {
-    beforeEach(() => jest.clearAllMocks());
+    beforeEach(() => {
+        jest.clearAllMocks();
+        mockGetMerchantToken.mockResolvedValue('test-token');
+    });
 
     it('should remove customer from group successfully', async () => {
         mockMakeSquareRequest.mockResolvedValueOnce({});
@@ -67,7 +79,11 @@ describe('removeCustomerFromGroup', () => {
     });
 
     it('should treat 404 as success (already removed)', async () => {
-        mockMakeSquareRequest.mockRejectedValueOnce(new Error('Square API error: 404 Not Found'));
+        mockMakeSquareRequest.mockRejectedValueOnce(new MockSquareApiError('Square API error: 404', {
+            status: 404,
+            endpoint: '/v2/customers/CUST_123/groups/GRP_GONE',
+            details: [{ code: 'NOT_FOUND' }],
+        }));
 
         const result = await removeCustomerFromGroup({
             merchantId: 1,
@@ -79,7 +95,11 @@ describe('removeCustomerFromGroup', () => {
     });
 
     it('should return failure on non-404 error', async () => {
-        mockMakeSquareRequest.mockRejectedValueOnce(new Error('Square API error: 500 Internal Server Error'));
+        mockMakeSquareRequest.mockRejectedValueOnce(new MockSquareApiError('Square API error: 500 Internal Server Error', {
+            status: 500,
+            endpoint: '/v2/customers/CUST_123/groups/GRP_456',
+            details: [{ code: 'INTERNAL_SERVER_ERROR' }],
+        }));
 
         const result = await removeCustomerFromGroup({
             merchantId: 1,
@@ -98,7 +118,10 @@ describe('removeCustomerFromGroup', () => {
 // ============================================================================
 
 describe('deleteCustomerGroup', () => {
-    beforeEach(() => jest.clearAllMocks());
+    beforeEach(() => {
+        jest.clearAllMocks();
+        mockGetMerchantToken.mockResolvedValue('test-token');
+    });
 
     it('should delete group successfully', async () => {
         mockMakeSquareRequest.mockResolvedValueOnce({});
@@ -120,7 +143,11 @@ describe('deleteCustomerGroup', () => {
     });
 
     it('should treat 404 as success (already deleted)', async () => {
-        mockMakeSquareRequest.mockRejectedValueOnce(new Error('Square API error: 404 Not Found'));
+        mockMakeSquareRequest.mockRejectedValueOnce(new MockSquareApiError('Square API error: 404', {
+            status: 404,
+            endpoint: '/v2/customers/groups/GRP_GONE',
+            details: [{ code: 'NOT_FOUND' }],
+        }));
 
         const result = await deleteCustomerGroup({
             merchantId: 1,
@@ -131,7 +158,11 @@ describe('deleteCustomerGroup', () => {
     });
 
     it('should return failure on non-404 error', async () => {
-        mockMakeSquareRequest.mockRejectedValueOnce(new Error('Square API error: 429 Too Many Requests'));
+        mockMakeSquareRequest.mockRejectedValueOnce(new MockSquareApiError('Square API error: 429 Too Many Requests', {
+            status: 429,
+            endpoint: '/v2/customers/groups/GRP_456',
+            details: [{ code: 'RATE_LIMITED' }],
+        }));
 
         const result = await deleteCustomerGroup({
             merchantId: 1,
