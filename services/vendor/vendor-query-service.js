@@ -17,6 +17,7 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
+const { calculateLeadTime } = require('./lead-time-service');
 
 /**
  * List vendors for a merchant, optionally filtered by status.
@@ -31,7 +32,12 @@ async function listVendors(merchantId, status) {
     }
     sql += ' ORDER BY name';
     const result = await db.query(sql, params);
-    return result.rows;
+    // Attach schedule-aware effective lead time for callers (UI, reorder screens).
+    // Stored lead_time_days is preserved as-is; this is a runtime-computed field.
+    return result.rows.map(row => ({
+        ...row,
+        effective_lead_time_days: calculateLeadTime(row)
+    }));
 }
 
 /**

@@ -138,7 +138,13 @@
 
   function renderSchedule(v) {
     if (v.schedule_type === 'fixed' && v.order_day && v.receive_day) {
-      return (DAY_ABBREV[v.order_day] || v.order_day) + ' &rarr; ' + (DAY_ABBREV[v.receive_day] || v.receive_day);
+      var lead = v.effective_lead_time_days != null
+        ? ' (~' + v.effective_lead_time_days + 'd)'
+        : '';
+      return (DAY_ABBREV[v.order_day] || v.order_day) + ' &rarr; ' + (DAY_ABBREV[v.receive_day] || v.receive_day) + lead;
+    }
+    if (v.effective_lead_time_days != null) {
+      return '~' + v.effective_lead_time_days + 'd lead';
     }
     if (v.lead_time_days != null) {
       return '~' + v.lead_time_days + 'd lead';
@@ -238,6 +244,7 @@
               detailRow('Schedule', v.schedule_type === 'fixed' ? 'Fixed Day' : 'Anytime') +
               (v.schedule_type === 'fixed'
                 ? detailRow('Order Day', v.order_day) + detailRow('Receive Day', v.receive_day)
+                  + detailRow('Lead Time', v.effective_lead_time_days != null ? v.effective_lead_time_days + ' days' : null)
                 : detailRow('Lead Time', v.lead_time_days != null ? v.lead_time_days + ' days' : null)) +
               detailRow('Minimum Order', v.minimum_order_amount ? formatCurrency(v.minimum_order_amount) : 'None') +
               detailRow('Supply Days', v.default_supply_days || 'Default') +
