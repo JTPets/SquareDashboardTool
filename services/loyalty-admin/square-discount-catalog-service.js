@@ -10,7 +10,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
-const { fetchWithTimeout, getSquareAccessToken, generateIdempotencyKey, SQUARE_API_BASE, SQUARE_API_VERSION } = require('./shared-utils');
+const { makeSquareRequest, getMerchantToken, generateIdempotencyKey, SquareApiError } = require('../square/square-client');
 const { deleteCatalogObjects } = require('../../utils/square-catalog-cleanup');
 
 // In-memory cache: merchantId -> currency code (persists for process lifetime)
@@ -44,36 +44,26 @@ async function getMerchantCurrency(merchantId, accessToken) {
             return 'CAD';
         }
 
-        const response = await fetchWithTimeout(
-            `${SQUARE_API_BASE}/merchants/${squareMerchantId}`,
-            {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    'Square-Version': SQUARE_API_VERSION
-                }
-            },
-            10000
-        );
+        const data = await makeSquareRequest(`/v2/merchants/${squareMerchantId}`, {
+            method: 'GET',
+            accessToken,
+            timeout: 10000,
+        });
 
-        if (!response.ok) {
-            logger.warn('Failed to fetch merchant currency from Square, defaulting to CAD', {
-                merchantId, status: response.status
-            });
-            merchantCurrencyCache.set(merchantId, 'CAD');
-            return 'CAD';
-        }
-
-        const data = await response.json();
         const currency = data.merchant?.currency || 'CAD';
         merchantCurrencyCache.set(merchantId, currency);
         logger.info('Cached merchant currency from Square', { merchantId, currency });
         return currency;
     } catch (error) {
-        logger.warn('Error fetching merchant currency, defaulting to CAD', {
-            merchantId, error: error.message
-        });
+        if (error instanceof SquareApiError) {
+            logger.warn('Failed to fetch merchant currency from Square, defaulting to CAD', {
+                merchantId, status: error.status
+            });
+        } else {
+            logger.warn('Error fetching merchant currency, defaulting to CAD', {
+                merchantId, error: error.message
+            });
+        }
         merchantCurrencyCache.set(merchantId, 'CAD');
         return 'CAD';
     }
@@ -98,11 +88,9 @@ async function getMerchantCurrency(merchantId, accessToken) {
  * @returns {Promise<Object>} Result with discount and pricing rule IDs
  */
 async function createRewardDiscount({ merchantId, internalRewardId, groupId, offerName, variationIds, maxDiscountAmountCents }) {
+    const upsertStart = Date.now();
     try {
-        const accessToken = await getSquareAccessToken(merchantId);
-        if (!accessToken) {
-            return { success: false, error: 'No access token available' };
-        }
+        const accessToken = await getMerchantToken(merchantId);
 
         const currency = await getMerchantCurrency(merchantId, accessToken);
 
@@ -154,44 +142,27 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
             }
         ];
 
-        const upsertStart = Date.now();
-        const response = await fetchWithTimeout('https://connect.squareup.com/v2/catalog/batch-upsert', {
+        const data = await makeSquareRequest('/v2/catalog/batch-upsert', {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-                'Square-Version': SQUARE_API_VERSION
-            },
+            accessToken,
             body: JSON.stringify({
                 idempotency_key: generateIdempotencyKey(`loyalty-discount-batch-${internalRewardId}`),
                 batches: [{
                     objects: catalogObjects
                 }]
-            })
-        }, 10000);
-        const upsertDuration = Date.now() - upsertStart;
+            }),
+            timeout: 10000,
+        });
 
         loyaltyLogger.squareApi({
             endpoint: '/catalog/batch-upsert',
             method: 'POST',
-            status: response.status,
-            duration: upsertDuration,
-            success: response.ok,
+            status: 200,
+            duration: Date.now() - upsertStart,
+            success: true,
             merchantId,
             context: 'createRewardDiscount',
         });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            logger.error('Failed to create discount catalog objects', {
-                merchantId,
-                internalRewardId,
-                error: errorData
-            });
-            return { success: false, error: `Square API error: ${JSON.stringify(errorData)}` };
-        }
-
-        const data = await response.json();
 
         // Extract the real Square IDs from the response
         const idMappings = data.id_mappings || [];
@@ -224,6 +195,23 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         };
 
     } catch (error) {
+        if (error instanceof SquareApiError) {
+            loyaltyLogger.squareApi({
+                endpoint: '/catalog/batch-upsert',
+                method: 'POST',
+                status: error.status,
+                duration: Date.now() - upsertStart,
+                success: false,
+                merchantId,
+                context: 'createRewardDiscount',
+            });
+            logger.error('Failed to create discount catalog objects', {
+                merchantId,
+                internalRewardId,
+                error: error.details
+            });
+            return { success: false, error: `Square API error: ${JSON.stringify(error.details)}` };
+        }
         logger.error('Error creating discount catalog objects', { error: error.message, stack: error.stack, merchantId });
         return { success: false, error: error.message };
     }
@@ -264,34 +252,29 @@ async function deleteRewardDiscountObjects({ merchantId, objectIds }) {
  */
 async function updateRewardDiscountAmount({ merchantId, squareDiscountId, newAmountCents, rewardId }) {
     try {
-        const accessToken = await getSquareAccessToken(merchantId);
-        if (!accessToken) {
-            return { success: false, error: 'No access token available' };
-        }
+        const accessToken = await getMerchantToken(merchantId);
 
         // Step 1: Fetch existing discount object to get its version and current data
-        const getResponse = await fetchWithTimeout(
-            `https://connect.squareup.com/v2/catalog/object/${squareDiscountId}`,
-            {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    'Square-Version': SQUARE_API_VERSION
+        let catalogData;
+        try {
+            catalogData = await makeSquareRequest(
+                `/v2/catalog/object/${squareDiscountId}`,
+                {
+                    method: 'GET',
+                    accessToken,
+                    timeout: 10000,
                 }
-            },
-            10000
-        );
-
-        if (!getResponse.ok) {
-            const errText = await getResponse.text();
-            logger.error('Failed to fetch discount object for price update', {
-                merchantId, squareDiscountId, rewardId, status: getResponse.status, error: errText
-            });
-            return { success: false, error: `Square API error: ${getResponse.status}` };
+            );
+        } catch (getError) {
+            if (getError instanceof SquareApiError) {
+                logger.error('Failed to fetch discount object for price update', {
+                    merchantId, squareDiscountId, rewardId, status: getError.status, error: getError.details
+                });
+                return { success: false, error: `Square API error: ${getError.status}` };
+            }
+            throw getError;
         }
 
-        const catalogData = await getResponse.json();
         const discountObj = catalogData.object;
 
         if (!discountObj || discountObj.is_deleted) {
@@ -314,35 +297,42 @@ async function updateRewardDiscountAmount({ merchantId, squareDiscountId, newAmo
             }
         };
 
-        const upsertResponse = await fetchWithTimeout('https://connect.squareup.com/v2/catalog/batch-upsert', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-                'Square-Version': SQUARE_API_VERSION
-            },
-            body: JSON.stringify({
-                idempotency_key: generateIdempotencyKey(`loyalty-discount-price-update-${rewardId}-${newAmountCents}`),
-                batches: [{ objects: [updatedObject] }]
-            })
-        }, 10000);
+        try {
+            await makeSquareRequest('/v2/catalog/batch-upsert', {
+                method: 'POST',
+                accessToken,
+                body: JSON.stringify({
+                    idempotency_key: generateIdempotencyKey(`loyalty-discount-price-update-${rewardId}-${newAmountCents}`),
+                    batches: [{ objects: [updatedObject] }]
+                }),
+                timeout: 10000,
+            });
+        } catch (upsertError) {
+            if (upsertError instanceof SquareApiError) {
+                loyaltyLogger.squareApi({
+                    endpoint: '/catalog/batch-upsert',
+                    method: 'POST',
+                    status: upsertError.status,
+                    success: false,
+                    merchantId,
+                    context: 'updateRewardDiscountAmount',
+                });
+                logger.error('Failed to update discount amount in Square', {
+                    merchantId, squareDiscountId, rewardId, newAmountCents, error: upsertError.details
+                });
+                return { success: false, error: `Square API error: ${JSON.stringify(upsertError.details)}` };
+            }
+            throw upsertError;
+        }
 
         loyaltyLogger.squareApi({
             endpoint: '/catalog/batch-upsert',
             method: 'POST',
-            status: upsertResponse.status,
-            success: upsertResponse.ok,
+            status: 200,
+            success: true,
             merchantId,
             context: 'updateRewardDiscountAmount',
         });
-
-        if (!upsertResponse.ok) {
-            const errorData = await upsertResponse.json();
-            logger.error('Failed to update discount amount in Square', {
-                merchantId, squareDiscountId, rewardId, newAmountCents, error: errorData
-            });
-            return { success: false, error: `Square API error: ${JSON.stringify(errorData)}` };
-        }
 
         // Step 3: Update local record
         await db.query(`

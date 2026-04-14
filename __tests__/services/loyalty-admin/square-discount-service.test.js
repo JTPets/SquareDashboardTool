@@ -78,6 +78,7 @@ jest.mock('../../../services/square/square-client', () => {
         }),
         SquareApiError,
         sleep: () => Promise.resolve(),
+        generateIdempotencyKey: jest.fn(prefix => `${prefix}-idem`),
         SQUARE_BASE_URL: 'https://connect.squareup.com',
         MAX_RETRIES: 3,
         RETRY_DELAY_MS: 1000

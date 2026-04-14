@@ -24,14 +24,26 @@ jest.mock('../../../utils/loyalty-logger', () => ({
     loyaltyLogger: { squareApi: jest.fn() }
 }));
 
-const mockFetchWithTimeout = jest.fn();
+class MockSquareApiError extends Error {
+    constructor(message, { status, endpoint, details = [], nonRetryable = false } = {}) {
+        super(message);
+        this.name = 'SquareApiError';
+        this.status = status;
+        this.endpoint = endpoint;
+        this.details = details;
+        this.nonRetryable = nonRetryable;
+        this.squareErrors = details;
+    }
+}
 
-jest.mock('../../../services/loyalty-admin/shared-utils', () => ({
-    fetchWithTimeout: mockFetchWithTimeout,
-    getSquareAccessToken: jest.fn().mockResolvedValue('test-token'),
+const mockMakeSquareRequest = jest.fn();
+const mockGetMerchantToken = jest.fn().mockResolvedValue('test-token');
+
+jest.mock('../../../services/square/square-client', () => ({
+    makeSquareRequest: mockMakeSquareRequest,
+    getMerchantToken: mockGetMerchantToken,
     generateIdempotencyKey: jest.fn(prefix => `${prefix}-idem`),
-    SQUARE_API_BASE: 'https://connect.squareup.com/v2',
-    SQUARE_API_VERSION: '2025-01-16'
+    SquareApiError: MockSquareApiError,
 }));
 
 const mockDeleteCatalogObjects = jest.fn();
@@ -128,44 +140,45 @@ describe('getMerchantCurrency', () => {
 
     it('should fetch currency from Square Merchants API', async () => {
         db.query.mockResolvedValueOnce({ rows: [{ square_merchant_id: 'SQ_MERCH_1' }] });
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true,
-            json: async () => ({ merchant: { currency: 'USD' } })
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ merchant: { currency: 'USD' } });
 
         const currency = await getMerchantCurrency(1, 'test-token');
         expect(currency).toBe('USD');
-        expect(mockFetchWithTimeout).toHaveBeenCalledWith(
-            'https://connect.squareup.com/v2/merchants/SQ_MERCH_1',
-            expect.objectContaining({ method: 'GET' }),
-            10000
+        expect(mockMakeSquareRequest).toHaveBeenCalledWith(
+            '/v2/merchants/SQ_MERCH_1',
+            expect.objectContaining({
+                method: 'GET',
+                accessToken: 'test-token',
+                timeout: 10000,
+            })
         );
     });
 
     it('should return cached currency on second call', async () => {
         db.query.mockResolvedValueOnce({ rows: [{ square_merchant_id: 'SQ_MERCH_1' }] });
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true,
-            json: async () => ({ merchant: { currency: 'GBP' } })
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ merchant: { currency: 'GBP' } });
 
         await getMerchantCurrency(1, 'test-token');
         const currency2 = await getMerchantCurrency(1, 'test-token');
 
         expect(currency2).toBe('GBP');
         // Only one API call — second was cached
-        expect(mockFetchWithTimeout).toHaveBeenCalledTimes(1);
+        expect(mockMakeSquareRequest).toHaveBeenCalledTimes(1);
     });
 
     it('should fall back to CAD when Square API fails', async () => {
         db.query.mockResolvedValueOnce({ rows: [{ square_merchant_id: 'SQ_MERCH_1' }] });
-        mockFetchWithTimeout.mockResolvedValueOnce({ ok: false, status: 500 });
+        mockMakeSquareRequest.mockRejectedValueOnce(new MockSquareApiError('Square API error: 500', {
+            status: 500,
+            endpoint: '/v2/merchants/SQ_MERCH_1',
+            details: [{ code: 'INTERNAL_SERVER_ERROR' }],
+        }));
 
         const currency = await getMerchantCurrency(1, 'test-token');
         expect(currency).toBe('CAD');
         expect(logger.warn).toHaveBeenCalledWith(
             'Failed to fetch merchant currency from Square, defaulting to CAD',
-            expect.objectContaining({ merchantId: 1 })
+            expect.objectContaining({ merchantId: 1, status: 500 })
         );
     });
 
@@ -178,7 +191,7 @@ describe('getMerchantCurrency', () => {
 
     it('should fall back to CAD on network error', async () => {
         db.query.mockResolvedValueOnce({ rows: [{ square_merchant_id: 'SQ_MERCH_1' }] });
-        mockFetchWithTimeout.mockRejectedValueOnce(new Error('timeout'));
+        mockMakeSquareRequest.mockRejectedValueOnce(new Error('timeout'));
 
         const currency = await getMerchantCurrency(1, 'test-token');
         expect(currency).toBe('CAD');
@@ -200,22 +213,15 @@ describe('createRewardDiscount', () => {
         db.query.mockResolvedValueOnce({ rows: [{ square_merchant_id: 'SQ_MERCH_1' }] });
 
         // Mock: Square Merchants API returns USD
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true,
-            json: async () => ({ merchant: { currency: 'USD' } })
-        });
+        mockMakeSquareRequest.mockResolvedValueOnce({ merchant: { currency: 'USD' } });
 
         // Mock: batch upsert succeeds
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true,
-            status: 200,
-            json: async () => ({
-                id_mappings: [
-                    { client_object_id: '#loyalty-discount-99', object_id: 'DISC_REAL' },
-                    { client_object_id: '#loyalty-productset-99', object_id: 'PSET_REAL' },
-                    { client_object_id: '#loyalty-pricingrule-99', object_id: 'PRULE_REAL' }
-                ]
-            })
+        mockMakeSquareRequest.mockResolvedValueOnce({
+            id_mappings: [
+                { client_object_id: '#loyalty-discount-99', object_id: 'DISC_REAL' },
+                { client_object_id: '#loyalty-productset-99', object_id: 'PSET_REAL' },
+                { client_object_id: '#loyalty-pricingrule-99', object_id: 'PRULE_REAL' }
+            ]
         });
 
         const result = await createRewardDiscount({
@@ -230,9 +236,14 @@ describe('createRewardDiscount', () => {
         expect(result.success).toBe(true);
 
         // Verify the batch upsert was called with USD, not CAD
-        const batchUpsertCall = mockFetchWithTimeout.mock.calls[1];
+        const batchUpsertCall = mockMakeSquareRequest.mock.calls[1];
+        expect(batchUpsertCall[0]).toBe('/v2/catalog/batch-upsert');
         const body = JSON.parse(batchUpsertCall[1].body);
         const discountObj = body.batches[0].objects.find(o => o.type === 'DISCOUNT');
         expect(discountObj.discount_data.maximum_amount_money.currency).toBe('USD');
+        // Verify idempotency key format (byte-identical to shared-utils version)
+        expect(body.idempotency_key).toBe('loyalty-discount-batch-99-idem');
+        // Verify 10s timeout is preserved
+        expect(batchUpsertCall[1].timeout).toBe(10000);
     });
 });
