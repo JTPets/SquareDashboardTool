@@ -18,7 +18,7 @@ const logger = require('../../utils/logger');
 const db = require('../../utils/database');
 const loyaltyService = require('../loyalty-admin');
 const { SeniorsService } = require('../seniors');
-const { SquareApiClient } = require('../loyalty-admin/square-api-client');
+const { getMerchantToken, makeSquareRequest } = require('../square/square-client');
 const { cacheCustomerDetails } = require('../loyalty-admin/customer-cache-service');
 
 class CustomerHandler {
@@ -133,9 +133,13 @@ class CustomerHandler {
      */
     async _fetchAndCacheCustomer(merchantId, customerId) {
         try {
-            const squareClient = new SquareApiClient(merchantId);
-            await squareClient.initialize();
-            const customer = await squareClient.getCustomer(customerId);
+            const accessToken = await getMerchantToken(merchantId);
+            const data = await makeSquareRequest(`/v2/customers/${customerId}`, {
+                method: 'GET',
+                accessToken,
+                timeout: 10000,
+            });
+            const customer = data.customer;
 
             if (customer) {
                 await cacheCustomerDetails(customer, merchantId);

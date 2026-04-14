@@ -14,9 +14,11 @@ jest.mock('../../../services/seniors', () => ({
     SeniorsService: jest.fn().mockImplementation(() => mockSeniorsInstance)
 }));
 
-const mockSquareApiInstance = { initialize: jest.fn(), getCustomer: jest.fn() };
-jest.mock('../../../services/loyalty-admin/square-api-client', () => ({
-    SquareApiClient: jest.fn().mockImplementation(() => mockSquareApiInstance)
+const mockGetMerchantToken = jest.fn();
+const mockMakeSquareRequest = jest.fn();
+jest.mock('../../../services/square/square-client', () => ({
+    getMerchantToken: (...args) => mockGetMerchantToken(...args),
+    makeSquareRequest: (...args) => mockMakeSquareRequest(...args),
 }));
 
 jest.mock('../../../services/loyalty-admin/customer-cache-service', () => ({
@@ -38,8 +40,9 @@ describe('CustomerHandler', () => {
         // Default: runLoyaltyCatchup returns no new orders
         loyaltyService.runLoyaltyCatchup.mockResolvedValue({ ordersNewlyTracked: 0 });
 
-        // Default: no customer returned from Square
-        mockSquareApiInstance.getCustomer.mockResolvedValue(null);
+        // Default: token resolves and Square returns no customer
+        mockGetMerchantToken.mockResolvedValue('TOKEN_123');
+        mockMakeSquareRequest.mockResolvedValue({ customer: null });
 
         // Default: no rows updated for note sync
         db.query.mockResolvedValue({ rowCount: 0, rows: [] });
@@ -74,7 +77,7 @@ describe('CustomerHandler', () => {
             // First call: UPDATE delivery_orders; second call: UPDATE loyalty_customers
             db.query.mockResolvedValueOnce({ rowCount: 2, rows: [] });
             db.query.mockResolvedValueOnce({ rowCount: 1, rows: [] });
-            mockSquareApiInstance.getCustomer.mockResolvedValue(null);
+            mockMakeSquareRequest.mockResolvedValue({ customer: null });
 
             const result = await handler.handleCustomerChange({
                 data: { customer: { id: 'CUST_1', note: 'Ring doorbell' } },
@@ -93,7 +96,7 @@ describe('CustomerHandler', () => {
         it('persists note to loyalty_customers on customer.updated webhook', async () => {
             db.query.mockResolvedValueOnce({ rowCount: 1, rows: [] }); // delivery_orders
             db.query.mockResolvedValueOnce({ rowCount: 1, rows: [] }); // loyalty_customers
-            mockSquareApiInstance.getCustomer.mockResolvedValue(null);
+            mockMakeSquareRequest.mockResolvedValue({ customer: null });
 
             await handler.handleCustomerChange({
                 data: { customer: { id: 'CUST_1', note: 'Leave at back door' } },
@@ -111,7 +114,7 @@ describe('CustomerHandler', () => {
         it('clears loyalty_customers note when customer note is removed', async () => {
             db.query.mockResolvedValueOnce({ rowCount: 1, rows: [] }); // delivery_orders
             db.query.mockResolvedValueOnce({ rowCount: 1, rows: [] }); // loyalty_customers
-            mockSquareApiInstance.getCustomer.mockResolvedValue(null);
+            mockMakeSquareRequest.mockResolvedValue({ customer: null });
 
             await handler.handleCustomerChange({
                 data: { customer: { id: 'CUST_1' } }, // no note field
@@ -129,7 +132,7 @@ describe('CustomerHandler', () => {
         it('does not set customerNotes when no rows updated', async () => {
             db.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // delivery_orders
             db.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // loyalty_customers
-            mockSquareApiInstance.getCustomer.mockResolvedValue(null);
+            mockMakeSquareRequest.mockResolvedValue({ customer: null });
 
             const result = await handler.handleCustomerChange({
                 data: { customer: { id: 'CUST_1', note: 'Ring doorbell' } },
@@ -143,7 +146,7 @@ describe('CustomerHandler', () => {
 
         it('runs loyalty catchup with correct params', async () => {
             loyaltyService.runLoyaltyCatchup.mockResolvedValue({ ordersNewlyTracked: 0 });
-            mockSquareApiInstance.getCustomer.mockResolvedValue(null);
+            mockMakeSquareRequest.mockResolvedValue({ customer: null });
 
             await handler.handleCustomerChange({
                 data: {},
@@ -162,7 +165,7 @@ describe('CustomerHandler', () => {
 
         it('includes loyaltyCatchup in result when ordersNewlyTracked > 0', async () => {
             loyaltyService.runLoyaltyCatchup.mockResolvedValue({ ordersNewlyTracked: 3 });
-            mockSquareApiInstance.getCustomer.mockResolvedValue(null);
+            mockMakeSquareRequest.mockResolvedValue({ customer: null });
 
             const result = await handler.handleCustomerChange({
                 data: {},
@@ -179,7 +182,7 @@ describe('CustomerHandler', () => {
 
         it('fetches and caches customer from Square', async () => {
             const customer = { id: 'CUST_1', givenName: 'Jane' };
-            mockSquareApiInstance.getCustomer.mockResolvedValue(customer);
+            mockMakeSquareRequest.mockResolvedValue({ customer });
 
             await handler.handleCustomerChange({
                 data: {},
@@ -188,13 +191,20 @@ describe('CustomerHandler', () => {
                 event: { type: 'customer.updated' }
             });
 
-            expect(mockSquareApiInstance.initialize).toHaveBeenCalled();
-            expect(mockSquareApiInstance.getCustomer).toHaveBeenCalledWith('CUST_1');
+            expect(mockGetMerchantToken).toHaveBeenCalledWith(1);
+            expect(mockMakeSquareRequest).toHaveBeenCalledWith(
+                '/v2/customers/CUST_1',
+                expect.objectContaining({
+                    method: 'GET',
+                    accessToken: 'TOKEN_123',
+                    timeout: 10000,
+                })
+            );
             expect(cacheCustomerDetails).toHaveBeenCalledWith(customer, 1);
         });
 
         it('returns null from _fetchAndCacheCustomer on error (non-blocking)', async () => {
-            mockSquareApiInstance.getCustomer.mockRejectedValue(new Error('API down'));
+            mockMakeSquareRequest.mockRejectedValue(new Error('API down'));
 
             const result = await handler.handleCustomerChange({
                 data: {},
@@ -212,7 +222,7 @@ describe('CustomerHandler', () => {
 
         it('checks seniors birthday when customer has birthday and config enabled', async () => {
             const customer = { id: 'CUST_1', birthday: '1950-05-15' };
-            mockSquareApiInstance.getCustomer.mockResolvedValue(customer);
+            mockMakeSquareRequest.mockResolvedValue({ customer });
 
             // No data.customer so _syncCustomerNotes is skipped.
             // First db.query call is the seniors config check.
@@ -245,7 +255,7 @@ describe('CustomerHandler', () => {
 
         it('skips seniors when no birthday on customer', async () => {
             const customer = { id: 'CUST_1' }; // no birthday
-            mockSquareApiInstance.getCustomer.mockResolvedValue(customer);
+            mockMakeSquareRequest.mockResolvedValue({ customer });
 
             const result = await handler.handleCustomerChange({
                 data: {},
@@ -260,7 +270,7 @@ describe('CustomerHandler', () => {
 
         it('skips seniors when config not enabled (no rows in seniors_discount_config)', async () => {
             const customer = { id: 'CUST_1', birthday: '1950-05-15' };
-            mockSquareApiInstance.getCustomer.mockResolvedValue(customer);
+            mockMakeSquareRequest.mockResolvedValue({ customer });
 
             // seniors config check returns empty (no enabled config)
             db.query.mockResolvedValueOnce({ rowCount: 0, rows: [] });
@@ -278,7 +288,7 @@ describe('CustomerHandler', () => {
 
         it('returns seniorsDiscount result when groupChanged is true', async () => {
             const customer = { id: 'CUST_1', birthday: '1960-01-01' };
-            mockSquareApiInstance.getCustomer.mockResolvedValue(customer);
+            mockMakeSquareRequest.mockResolvedValue({ customer });
 
             db.query.mockResolvedValue({ rowCount: 0, rows: [{ id: 1 }] });
 
@@ -304,7 +314,7 @@ describe('CustomerHandler', () => {
 
         it('returns null from _checkSeniorsBirthday on error (non-blocking)', async () => {
             const customer = { id: 'CUST_1', birthday: '1950-05-15' };
-            mockSquareApiInstance.getCustomer.mockResolvedValue(customer);
+            mockMakeSquareRequest.mockResolvedValue({ customer });
 
             // No data.customer so _syncCustomerNotes is skipped.
             // First db.query call is the seniors config check — make it throw.
@@ -328,7 +338,7 @@ describe('CustomerHandler', () => {
         it('uses entityId when available, falls back to data.customer.id', async () => {
             // Use data without .customer so _syncCustomerNotes is skipped
             // and no extra db.query calls occur
-            mockSquareApiInstance.getCustomer.mockResolvedValue(null);
+            mockMakeSquareRequest.mockResolvedValue({ customer: null });
 
             // With entityId — takes priority over data.customer.id
             await handler.handleCustomerChange({
@@ -344,7 +354,7 @@ describe('CustomerHandler', () => {
 
             jest.clearAllMocks();
             loyaltyService.runLoyaltyCatchup.mockResolvedValue({ ordersNewlyTracked: 0 });
-            mockSquareApiInstance.getCustomer.mockResolvedValue(null);
+            mockMakeSquareRequest.mockResolvedValue({ customer: null });
             db.query.mockResolvedValue({ rowCount: 0, rows: [] });
 
             // Without entityId — falls back to data.customer.id
