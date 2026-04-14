@@ -3,34 +3,60 @@
  *
  * Covers:
  * - enablePricingRule() / disablePricingRule() VERSION_MISMATCH retry
- * - Response validation after batchUpsertCatalog
+ * - Response validation after batch upsert
  * - verifyPricingRuleState() correctness
  */
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 
-// Mock SquareApiClient (migrated from LoyaltySquareClient in L-6)
-const mockSquareClient = {
-    initialize: jest.fn().mockResolvedValue({}),
-    getCatalogObject: jest.fn(),
-    batchUpsertCatalog: jest.fn(),
-};
+// Mock square-client (migrated from square-api-client in Task 9).
+// makeSquareRequest is routed to per-endpoint jest.fn()s so tests can
+// drive each logical Square operation the same way the previous
+// SquareApiClient-shaped tests did.
+const mockGetMerchantToken = jest.fn();
+const mockGetCatalogObject = jest.fn();
+const mockBatchUpsertCatalog = jest.fn();
 
-jest.mock('../../services/loyalty-admin/square-api-client', () => ({
-    SquareApiClient: jest.fn().mockImplementation(() => mockSquareClient),
-    SquareApiError: class SquareApiError extends Error {
-        constructor(message, status, endpoint, details = {}) {
-            super(message);
-            this.name = 'SquareApiError';
-            this.status = status;
-            this.endpoint = endpoint;
-            this.details = details;
-        }
-    },
+const mockMakeSquareRequest = jest.fn(async (endpoint, opts) => {
+    if (endpoint.startsWith('/v2/catalog/object/')) {
+        const objectId = endpoint.slice('/v2/catalog/object/'.length);
+        const object = await mockGetCatalogObject(objectId);
+        return { object };
+    }
+    if (endpoint === '/v2/catalog/batch-upsert') {
+        const body = JSON.parse(opts.body);
+        const objects = await mockBatchUpsertCatalog(
+            body.batches[0].objects,
+            body.idempotency_key,
+        );
+        return { objects };
+    }
+    throw new Error(`Unexpected Square endpoint in test: ${endpoint}`);
+});
+
+class MockSquareApiError extends Error {
+    constructor(message, { status, endpoint, details = [], nonRetryable = false } = {}) {
+        super(message);
+        this.name = 'SquareApiError';
+        this.status = status;
+        this.endpoint = endpoint;
+        this.details = details;
+        this.nonRetryable = nonRetryable;
+        this.squareErrors = details;
+    }
+}
+
+jest.mock('../../services/square/square-client', () => ({
+    getMerchantToken: (...args) => mockGetMerchantToken(...args),
+    makeSquareRequest: (...args) => mockMakeSquareRequest(...args),
+    SquareApiError: MockSquareApiError,
+    // Preserve the real implementation used by services/square/api, which
+    // re-exports this symbol (seniors-service reads it from there).
+    generateIdempotencyKey: jest.requireActual('../../utils/idempotency').generateIdempotencyKey,
 }));
 
-const { SquareApiError } = require('../../services/loyalty-admin/square-api-client');
+const { SquareApiError } = require('../../services/square/square-client');
 const { SeniorsService } = require('../../services/seniors/seniors-service');
 
 describe('SeniorsService', () => {
@@ -40,8 +66,10 @@ describe('SeniorsService', () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
+        mockGetMerchantToken.mockResolvedValue('TOKEN_123');
+
         service = new SeniorsService(merchantId);
-        service.squareClient = mockSquareClient;
+        service.accessToken = 'TOKEN_123';
         service.config = {
             merchant_id: merchantId,
             square_pricing_rule_id: pricingRuleId,
@@ -49,8 +77,8 @@ describe('SeniorsService', () => {
             square_discount_id: 'DISC_123',
         };
 
-        // Default: getCatalogObject returns a valid pricing rule
-        mockSquareClient.getCatalogObject.mockResolvedValue({
+        // Default: catalog/object returns a valid pricing rule
+        mockGetCatalogObject.mockResolvedValue({
             id: pricingRuleId,
             type: 'PRICING_RULE',
             version: 100,
@@ -61,8 +89,8 @@ describe('SeniorsService', () => {
             },
         });
 
-        // Default: batchUpsertCatalog returns the updated object
-        mockSquareClient.batchUpsertCatalog.mockImplementation(async (objects) => {
+        // Default: batch-upsert echoes the inputs back with bumped versions
+        mockBatchUpsertCatalog.mockImplementation(async (objects) => {
             return objects.map(obj => ({
                 ...obj,
                 version: obj.version + 1,
@@ -79,12 +107,12 @@ describe('SeniorsService', () => {
 
             expect(result.enabled).toBe(true);
             expect(result.pricingRuleId).toBe(pricingRuleId);
-            expect(mockSquareClient.getCatalogObject).toHaveBeenCalledWith(pricingRuleId);
-            expect(mockSquareClient.batchUpsertCatalog).toHaveBeenCalledTimes(1);
+            expect(mockGetCatalogObject).toHaveBeenCalledWith(pricingRuleId);
+            expect(mockBatchUpsertCatalog).toHaveBeenCalledTimes(1);
 
             // Verify the upsert was called with today's date
-            const upsertCall = mockSquareClient.batchUpsertCatalog.mock.calls[0];
-            const sentObject = upsertCall[0][0];
+            const [sentObjects] = mockBatchUpsertCatalog.mock.calls[0];
+            const sentObject = sentObjects[0];
             expect(sentObject.version).toBe(100);
             expect(sentObject.pricing_rule_data.valid_until_date).toBeDefined();
             expect(sentObject.pricing_rule_data.valid_until_date).not.toBe('2020-01-01');
@@ -103,26 +131,27 @@ describe('SeniorsService', () => {
         });
 
         it('should throw when pricing rule not found in Square', async () => {
-            mockSquareClient.getCatalogObject.mockResolvedValue(null);
+            mockGetCatalogObject.mockResolvedValue(null);
             await expect(service.enablePricingRule())
                 .rejects.toThrow('not found in Square');
         });
 
         it('should retry on VERSION_MISMATCH and succeed', async () => {
-            const versionError = new SquareApiError(
-                'Square API error: 400', 400, '/catalog/batch-upsert',
-                { errors: [{ code: 'VERSION_MISMATCH', detail: 'Object version does not match' }] }
-            );
+            const versionError = new SquareApiError('Square API error: 400', {
+                status: 400,
+                endpoint: '/v2/catalog/batch-upsert',
+                details: [{ code: 'VERSION_MISMATCH', detail: 'Object version does not match' }],
+            });
 
             // First attempt fails with VERSION_MISMATCH, second succeeds
-            mockSquareClient.batchUpsertCatalog
+            mockBatchUpsertCatalog
                 .mockRejectedValueOnce(versionError)
                 .mockImplementationOnce(async (objects) => {
                     return objects.map(obj => ({ ...obj, version: obj.version + 1 }));
                 });
 
-            // Second getCatalogObject returns fresh version
-            mockSquareClient.getCatalogObject
+            // Second catalog/object fetch returns fresh version
+            mockGetCatalogObject
                 .mockResolvedValueOnce({
                     id: pricingRuleId, type: 'PRICING_RULE', version: 100,
                     pricing_rule_data: { name: 'seniors-day-discount' },
@@ -135,8 +164,8 @@ describe('SeniorsService', () => {
             const result = await service.enablePricingRule();
 
             expect(result.enabled).toBe(true);
-            expect(mockSquareClient.getCatalogObject).toHaveBeenCalledTimes(2);
-            expect(mockSquareClient.batchUpsertCatalog).toHaveBeenCalledTimes(2);
+            expect(mockGetCatalogObject).toHaveBeenCalledTimes(2);
+            expect(mockBatchUpsertCatalog).toHaveBeenCalledTimes(2);
             expect(logger.warn).toHaveBeenCalledWith(
                 'VERSION_MISMATCH on seniors enable, retrying with fresh version',
                 expect.objectContaining({ merchantId, attempt: 1 })
@@ -144,25 +173,28 @@ describe('SeniorsService', () => {
         });
 
         it('should throw after max VERSION_MISMATCH retries', async () => {
-            const versionError = new SquareApiError(
-                'Square API error: 400', 400, '/catalog/batch-upsert',
-                { errors: [{ code: 'VERSION_MISMATCH' }] }
-            );
+            const versionError = new SquareApiError('Square API error: 400', {
+                status: 400,
+                endpoint: '/v2/catalog/batch-upsert',
+                details: [{ code: 'VERSION_MISMATCH' }],
+            });
 
-            mockSquareClient.batchUpsertCatalog.mockRejectedValue(versionError);
+            mockBatchUpsertCatalog.mockRejectedValue(versionError);
 
             await expect(service.enablePricingRule()).rejects.toThrow('Square API error: 400');
-            expect(mockSquareClient.batchUpsertCatalog).toHaveBeenCalledTimes(3);
+            expect(mockBatchUpsertCatalog).toHaveBeenCalledTimes(3);
         });
 
         it('should not retry on non-VERSION_MISMATCH errors', async () => {
-            const otherError = new SquareApiError(
-                'Square API error: 500', 500, '/catalog/batch-upsert', {}
-            );
-            mockSquareClient.batchUpsertCatalog.mockRejectedValue(otherError);
+            const otherError = new SquareApiError('Square API error: 500', {
+                status: 500,
+                endpoint: '/v2/catalog/batch-upsert',
+                details: [],
+            });
+            mockBatchUpsertCatalog.mockRejectedValue(otherError);
 
             await expect(service.enablePricingRule()).rejects.toThrow('Square API error: 500');
-            expect(mockSquareClient.batchUpsertCatalog).toHaveBeenCalledTimes(1);
+            expect(mockBatchUpsertCatalog).toHaveBeenCalledTimes(1);
         });
     });
 
@@ -173,8 +205,8 @@ describe('SeniorsService', () => {
             expect(result.enabled).toBe(false);
             expect(result.pricingRuleId).toBe(pricingRuleId);
 
-            const sentObject = mockSquareClient.batchUpsertCatalog.mock.calls[0][0][0];
-            expect(sentObject.pricing_rule_data.valid_until_date).toBe('2020-01-01');
+            const [sentObjects] = mockBatchUpsertCatalog.mock.calls[0];
+            expect(sentObjects[0].pricing_rule_data.valid_until_date).toBe('2020-01-01');
 
             expect(db.query).toHaveBeenCalledWith(
                 expect.stringContaining("last_verified_state = 'disabled'"),
@@ -183,18 +215,19 @@ describe('SeniorsService', () => {
         });
 
         it('should retry on VERSION_MISMATCH and succeed', async () => {
-            const versionError = new SquareApiError(
-                'Square API error: 400', 400, '/catalog/batch-upsert',
-                { errors: [{ code: 'VERSION_MISMATCH' }] }
-            );
+            const versionError = new SquareApiError('Square API error: 400', {
+                status: 400,
+                endpoint: '/v2/catalog/batch-upsert',
+                details: [{ code: 'VERSION_MISMATCH' }],
+            });
 
-            mockSquareClient.batchUpsertCatalog
+            mockBatchUpsertCatalog
                 .mockRejectedValueOnce(versionError)
                 .mockImplementationOnce(async (objects) => {
                     return objects.map(obj => ({ ...obj, version: obj.version + 1 }));
                 });
 
-            mockSquareClient.getCatalogObject
+            mockGetCatalogObject
                 .mockResolvedValueOnce({
                     id: pricingRuleId, type: 'PRICING_RULE', version: 100,
                     pricing_rule_data: { name: 'seniors-day-discount' },
@@ -207,7 +240,7 @@ describe('SeniorsService', () => {
             const result = await service.disablePricingRule();
 
             expect(result.enabled).toBe(false);
-            expect(mockSquareClient.getCatalogObject).toHaveBeenCalledTimes(2);
+            expect(mockGetCatalogObject).toHaveBeenCalledTimes(2);
             expect(logger.warn).toHaveBeenCalledWith(
                 'VERSION_MISMATCH on seniors disable, retrying with fresh version',
                 expect.objectContaining({ merchantId, attempt: 1 })
@@ -215,21 +248,22 @@ describe('SeniorsService', () => {
         });
 
         it('should throw after max VERSION_MISMATCH retries', async () => {
-            const versionError = new SquareApiError(
-                'VERSION_MISMATCH', 400, '/catalog/batch-upsert',
-                { errors: [{ code: 'VERSION_MISMATCH' }] }
-            );
+            const versionError = new SquareApiError('VERSION_MISMATCH', {
+                status: 400,
+                endpoint: '/v2/catalog/batch-upsert',
+                details: [{ code: 'VERSION_MISMATCH' }],
+            });
 
-            mockSquareClient.batchUpsertCatalog.mockRejectedValue(versionError);
+            mockBatchUpsertCatalog.mockRejectedValue(versionError);
 
             await expect(service.disablePricingRule()).rejects.toThrow('VERSION_MISMATCH');
-            expect(mockSquareClient.batchUpsertCatalog).toHaveBeenCalledTimes(3);
+            expect(mockBatchUpsertCatalog).toHaveBeenCalledTimes(3);
         });
     });
 
     describe('verifyPricingRuleState', () => {
         it('should return verified:true when state matches expected (disabled)', async () => {
-            mockSquareClient.getCatalogObject.mockResolvedValue({
+            mockGetCatalogObject.mockResolvedValue({
                 id: pricingRuleId, type: 'PRICING_RULE', version: 100,
                 pricing_rule_data: { valid_until_date: '2020-01-01' },
             });
@@ -241,7 +275,7 @@ describe('SeniorsService', () => {
         });
 
         it('should return verified:false when state mismatches (expected disabled, got enabled)', async () => {
-            mockSquareClient.getCatalogObject.mockResolvedValue({
+            mockGetCatalogObject.mockResolvedValue({
                 id: pricingRuleId, type: 'PRICING_RULE', version: 100,
                 pricing_rule_data: { valid_until_date: '2099-12-31' },
             });
@@ -261,7 +295,7 @@ describe('SeniorsService', () => {
         });
 
         it('should return not_found when object missing from Square', async () => {
-            mockSquareClient.getCatalogObject.mockResolvedValue(null);
+            mockGetCatalogObject.mockResolvedValue(null);
             const result = await service.verifyPricingRuleState(false);
             expect(result.verified).toBe(false);
             expect(result.reason).toBe('not_found_in_square');
