@@ -11,7 +11,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { SENIORS_DISCOUNT } = require('../../config/constants');
-const { SquareApiClient } = require('../loyalty-admin/square-api-client');
+const { getMerchantToken, makeSquareRequest, SquareApiError } = require('../square/square-client');
 const { calculateAge, isSenior, parseBirthday, formatBirthday } = require('./age-calculator');
 const { generateIdempotencyKey } = require('../square/api');
 
@@ -43,7 +43,7 @@ class SeniorsService {
      */
     constructor(merchantId) {
         this.merchantId = merchantId;
-        this.squareClient = null;
+        this.accessToken = null;
         this.config = null;
     }
 
@@ -52,13 +52,99 @@ class SeniorsService {
      * @returns {Promise<SeniorsService>}
      */
     async initialize() {
-        this.squareClient = new SquareApiClient(this.merchantId);
-        await this.squareClient.initialize();
+        this.accessToken = await getMerchantToken(this.merchantId);
 
         // Load existing config if any
         await this.loadConfig();
 
         return this;
+    }
+
+    // ========================================================================
+    // Square API helpers (direct makeSquareRequest wrappers)
+    // ========================================================================
+
+    /**
+     * GET /v2/catalog/object/{id} — returns the catalog object or null if 404.
+     * @private
+     */
+    async _getCatalogObject(objectId) {
+        try {
+            const data = await makeSquareRequest(`/v2/catalog/object/${objectId}`, {
+                method: 'GET',
+                accessToken: this.accessToken,
+                timeout: 10000,
+            });
+            return data.object;
+        } catch (error) {
+            if (error instanceof SquareApiError && error.status === 404) return null;
+            throw error;
+        }
+    }
+
+    /**
+     * POST /v2/catalog/batch-upsert — upserts objects in a single batch.
+     * @private
+     */
+    async _batchUpsertCatalog(objects, idempotencyKey) {
+        const data = await makeSquareRequest('/v2/catalog/batch-upsert', {
+            method: 'POST',
+            accessToken: this.accessToken,
+            timeout: 20000,
+            body: JSON.stringify({
+                idempotency_key: idempotencyKey,
+                batches: [{ objects }],
+            }),
+        });
+        return data.objects || [];
+    }
+
+    /**
+     * POST /v2/customers/groups — creates a customer group.
+     * @private
+     */
+    async _createCustomerGroup(name, idempotencyKey) {
+        const data = await makeSquareRequest('/v2/customers/groups', {
+            method: 'POST',
+            accessToken: this.accessToken,
+            timeout: 10000,
+            body: JSON.stringify({
+                group: { name },
+                idempotency_key: idempotencyKey,
+            }),
+        });
+        return data.group;
+    }
+
+    /**
+     * PUT /v2/customers/{customerId}/groups/{groupId} — add customer to group.
+     * @private
+     */
+    async _addCustomerToGroup(customerId, groupId) {
+        await makeSquareRequest(`/v2/customers/${customerId}/groups/${groupId}`, {
+            method: 'PUT',
+            accessToken: this.accessToken,
+            timeout: 10000,
+            body: JSON.stringify({}),
+        });
+    }
+
+    /**
+     * DELETE /v2/customers/{customerId}/groups/{groupId} — remove customer
+     * from group. Swallows 404 (idempotent "already not a member").
+     * @private
+     */
+    async _removeCustomerFromGroup(customerId, groupId) {
+        try {
+            await makeSquareRequest(`/v2/customers/${customerId}/groups/${groupId}`, {
+                method: 'DELETE',
+                accessToken: this.accessToken,
+                timeout: 10000,
+            });
+        } catch (error) {
+            if (error instanceof SquareApiError && error.status === 404) return;
+            throw error;
+        }
     }
 
     /**
@@ -155,7 +241,7 @@ class SeniorsService {
             groupName: SENIORS_DISCOUNT.GROUP_NAME,
         });
 
-        const group = await this.squareClient.createCustomerGroup(
+        const group = await this._createCustomerGroup(
             SENIORS_DISCOUNT.GROUP_NAME,
             idempotencyKey
         );
@@ -229,7 +315,7 @@ class SeniorsService {
             objectCount: objects.length,
         });
 
-        const createdObjects = await this.squareClient.batchUpsertCatalog(objects, idempotencyKey);
+        const createdObjects = await this._batchUpsertCatalog(objects, idempotencyKey);
 
         // Map temp IDs to real IDs
         const idMapping = {};
@@ -303,7 +389,7 @@ class SeniorsService {
         const today = getTodayDateToronto();
 
         for (let attempt = 1; attempt <= 3; attempt++) {
-            const currentObject = await this.squareClient.getCatalogObject(pricingRuleId);
+            const currentObject = await this._getCatalogObject(pricingRuleId);
             if (!currentObject) {
                 throw new Error(`Pricing rule ${pricingRuleId} not found in Square`);
             }
@@ -325,7 +411,7 @@ class SeniorsService {
             let result;
 
             try {
-                result = await this.squareClient.batchUpsertCatalog([updatedObject], idempotencyKey);
+                result = await this._batchUpsertCatalog([updatedObject], idempotencyKey);
             } catch (error) {
                 if (_isVersionMismatch(error) && attempt < 3) {
                     logger.warn('VERSION_MISMATCH on seniors enable, retrying with fresh version', {
@@ -382,7 +468,7 @@ class SeniorsService {
         const pastDate = '2020-01-01';
 
         for (let attempt = 1; attempt <= 3; attempt++) {
-            const currentObject = await this.squareClient.getCatalogObject(pricingRuleId);
+            const currentObject = await this._getCatalogObject(pricingRuleId);
             if (!currentObject) {
                 throw new Error(`Pricing rule ${pricingRuleId} not found in Square`);
             }
@@ -404,7 +490,7 @@ class SeniorsService {
             let result;
 
             try {
-                result = await this.squareClient.batchUpsertCatalog([updatedObject], idempotencyKey);
+                result = await this._batchUpsertCatalog([updatedObject], idempotencyKey);
             } catch (error) {
                 if (_isVersionMismatch(error) && attempt < 3) {
                     logger.warn('VERSION_MISMATCH on seniors disable, retrying with fresh version', {
@@ -457,7 +543,7 @@ class SeniorsService {
             return { verified: false, reason: 'not_configured' };
         }
 
-        const currentObject = await this.squareClient.getCatalogObject(pricingRuleId);
+        const currentObject = await this._getCatalogObject(pricingRuleId);
         if (!currentObject) {
             return { verified: false, reason: 'not_found_in_square' };
         }
@@ -685,7 +771,7 @@ class SeniorsService {
         });
 
         // Add to Square group
-        await this.squareClient.addCustomerToGroup(
+        await this._addCustomerToGroup(
             squareCustomerId,
             this.config.square_group_id
         );
@@ -716,7 +802,7 @@ class SeniorsService {
         });
 
         // Remove from Square group
-        await this.squareClient.removeCustomerFromGroup(
+        await this._removeCustomerFromGroup(
             squareCustomerId,
             this.config.square_group_id
         );
@@ -805,7 +891,7 @@ class SeniorsService {
  * @returns {boolean}
  */
 function _isVersionMismatch(error) {
-    if (error.details?.errors?.some(e => e.code === 'VERSION_MISMATCH')) return true;
+    if (Array.isArray(error.details) && error.details.some(e => e.code === 'VERSION_MISMATCH')) return true;
     if (error.message?.includes('VERSION_MISMATCH')) return true;
     return false;
 }
