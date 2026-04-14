@@ -6,12 +6,13 @@
  *
  * Extracted from routes/loyalty/processing.js POST /process-order (A-13)
  *
- * OBSERVATION LOG (from extraction):
- * - Uses raw fetch() instead of squareClient SDK (pre-dates SDK standardization)
+ * Task 16: Migrated onto services/square/square-client.js. Preserves the
+ * original 10_000 ms per-request timeout and the 400/502/404 error shapes
+ * that callers and tests depend on.
  */
 
 const logger = require('../../utils/logger');
-const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
+const { makeSquareRequest, getMerchantToken, SquareApiError } = require('../square/square-client');
 const { getCustomerDetails } = require('./customer-admin-service');
 const { processLoyaltyOrder } = require('./order-intake');
 
@@ -31,39 +32,44 @@ async function processOrderManually({ merchantId, squareOrderId }) {
 
     logger.info('Manually processing order for loyalty', { squareOrderId, merchantId });
 
-    // Get access token
-    const accessToken = await getSquareAccessToken(merchantId);
-    if (!accessToken) {
+    // Get access token.
+    // NOTE: getMerchantToken throws on missing/inactive merchants (whereas the
+    // legacy getSquareAccessToken returned null). Preserve the original 400
+    // "No Square access token configured" response shape so callers and tests
+    // don't have to care about the throw-vs-null distinction.
+    let accessToken;
+    try {
+        accessToken = await getMerchantToken(merchantId);
+    } catch (tokenErr) {
         const error = new Error('No Square access token configured for this merchant');
         error.statusCode = 400;
         throw error;
     }
 
-    // Fetch the order from Square
-    const orderResponse = await fetchWithTimeout(`https://connect.squareup.com/v2/orders/${squareOrderId}`, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-            'Square-Version': SQUARE_API_VERSION
-        }
-    }, 10000);
-
-    if (!orderResponse.ok) {
-        const errText = await orderResponse.text();
-        logger.error('Square API error in loyalty order lookup', {
-            status: orderResponse.status,
-            error: errText,
-            merchantId,
-            squareOrderId
+    // Fetch the order from Square. Preserve the 10_000 ms per-call timeout.
+    let orderData;
+    try {
+        orderData = await makeSquareRequest(`/v2/orders/${squareOrderId}`, {
+            accessToken,
+            method: 'GET',
+            timeout: 10000
         });
-        const error = new Error('Unable to retrieve order details. Please try again.');
-        error.statusCode = 502;
-        error.code = 'EXTERNAL_API_ERROR';
-        throw error;
+    } catch (err) {
+        if (err instanceof SquareApiError) {
+            logger.error('Square API error in loyalty order lookup', {
+                status: err.status,
+                error: err.details,
+                merchantId,
+                squareOrderId
+            });
+            const error = new Error('Unable to retrieve order details. Please try again.');
+            error.statusCode = 502;
+            error.code = 'EXTERNAL_API_ERROR';
+            throw error;
+        }
+        throw err;
     }
 
-    const orderData = await orderResponse.json();
     const order = orderData.order;
 
     if (!order) {

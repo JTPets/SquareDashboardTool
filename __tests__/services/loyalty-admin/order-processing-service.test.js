@@ -6,6 +6,10 @@
  *
  * LA-2 fix: manual processing now routes through processLoyaltyOrder() (order-intake)
  * instead of the legacy processOrderForLoyalty() (webhook-processing-service).
+ *
+ * Task 16: order-processing-service was migrated onto square-client.js. Mocks
+ * now target services/square/square-client (getMerchantToken + makeSquareRequest
+ * + SquareApiError) instead of services/loyalty-admin/shared-utils.
  */
 
 jest.mock('../../../utils/database', () => ({
@@ -19,10 +23,24 @@ jest.mock('../../../utils/logger', () => ({
     debug: jest.fn(),
 }));
 
-jest.mock('../../../services/loyalty-admin/shared-utils', () => ({
-    getSquareAccessToken: jest.fn(),
-    fetchWithTimeout: jest.fn((url, options) => global.fetch(url, options)),
-}));
+jest.mock('../../../services/square/square-client', () => {
+    class SquareApiError extends Error {
+        constructor(message, { status, endpoint, details = [], nonRetryable = false } = {}) {
+            super(message);
+            this.name = 'SquareApiError';
+            this.status = status;
+            this.endpoint = endpoint;
+            this.details = details;
+            this.nonRetryable = nonRetryable;
+            this.squareErrors = details;
+        }
+    }
+    return {
+        getMerchantToken: jest.fn(),
+        makeSquareRequest: jest.fn(),
+        SquareApiError,
+    };
+});
 
 jest.mock('../../../services/loyalty-admin/customer-admin-service', () => ({
     getCustomerDetails: jest.fn(),
@@ -33,7 +51,7 @@ jest.mock('../../../services/loyalty-admin/order-intake', () => ({
 }));
 
 const { processOrderManually } = require('../../../services/loyalty-admin/order-processing-service');
-const { getSquareAccessToken } = require('../../../services/loyalty-admin/shared-utils');
+const { getMerchantToken, makeSquareRequest, SquareApiError } = require('../../../services/square/square-client');
 const { getCustomerDetails } = require('../../../services/loyalty-admin/customer-admin-service');
 const { processLoyaltyOrder } = require('../../../services/loyalty-admin/order-intake');
 
@@ -58,11 +76,6 @@ function makeSquareOrder({ customerId = 'CUST_1' } = {}) {
 describe('order-processing-service', () => {
     beforeEach(() => {
         jest.clearAllMocks();
-        global.fetch = jest.fn();
-    });
-
-    afterEach(() => {
-        delete global.fetch;
     });
 
     test('throws on missing merchantId', async () => {
@@ -71,41 +84,37 @@ describe('order-processing-service', () => {
     });
 
     test('throws when no Square access token', async () => {
-        getSquareAccessToken.mockResolvedValue(null);
+        // getMerchantToken throws on missing token (replaces legacy null return)
+        getMerchantToken.mockRejectedValue(new Error('Merchant 1 has no access token configured'));
 
         await expect(processOrderManually({ merchantId: MERCHANT_ID, squareOrderId: ORDER_ID }))
             .rejects.toThrow('No Square access token');
     });
 
     test('throws on Square API error', async () => {
-        getSquareAccessToken.mockResolvedValue('fake-token');
-        global.fetch.mockResolvedValue({
-            ok: false,
+        getMerchantToken.mockResolvedValue('fake-token');
+        makeSquareRequest.mockRejectedValue(new SquareApiError('Square API error: 500', {
             status: 500,
-            text: async () => 'Internal Server Error'
-        });
+            endpoint: `/v2/orders/${ORDER_ID}`,
+            details: [{ code: 'INTERNAL_SERVER_ERROR' }],
+            nonRetryable: false
+        }));
 
         await expect(processOrderManually({ merchantId: MERCHANT_ID, squareOrderId: ORDER_ID }))
             .rejects.toThrow('Unable to retrieve order details');
     });
 
     test('throws when order not found in Square', async () => {
-        getSquareAccessToken.mockResolvedValue('fake-token');
-        global.fetch.mockResolvedValue({
-            ok: true,
-            json: async () => ({ order: null })
-        });
+        getMerchantToken.mockResolvedValue('fake-token');
+        makeSquareRequest.mockResolvedValue({ order: null });
 
         await expect(processOrderManually({ merchantId: MERCHANT_ID, squareOrderId: ORDER_ID }))
             .rejects.toThrow('Order not found in Square');
     });
 
     test('returns unprocessed result when order has no customer', async () => {
-        getSquareAccessToken.mockResolvedValue('fake-token');
-        global.fetch.mockResolvedValue({
-            ok: true,
-            json: async () => ({ order: makeSquareOrder({ customerId: null }) })
-        });
+        getMerchantToken.mockResolvedValue('fake-token');
+        makeSquareRequest.mockResolvedValue({ order: makeSquareOrder({ customerId: null }) });
 
         const result = await processOrderManually({ merchantId: MERCHANT_ID, squareOrderId: ORDER_ID });
 
@@ -117,12 +126,9 @@ describe('order-processing-service', () => {
     });
 
     test('calls processLoyaltyOrder with correct signature and source=manual', async () => {
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
         const order = makeSquareOrder();
-        global.fetch.mockResolvedValue({
-            ok: true,
-            json: async () => ({ order })
-        });
+        makeSquareRequest.mockResolvedValue({ order });
 
         getCustomerDetails.mockResolvedValue({ id: 'CUST_1', displayName: 'John' });
         processLoyaltyOrder.mockResolvedValue({
@@ -142,12 +148,25 @@ describe('order-processing-service', () => {
         });
     });
 
+    test('preserves 10_000 ms timeout when fetching the order', async () => {
+        getMerchantToken.mockResolvedValue('fake-token');
+        makeSquareRequest.mockResolvedValue({ order: makeSquareOrder({ customerId: null }) });
+
+        await processOrderManually({ merchantId: MERCHANT_ID, squareOrderId: ORDER_ID });
+
+        expect(makeSquareRequest).toHaveBeenCalledWith(
+            `/v2/orders/${ORDER_ID}`,
+            expect.objectContaining({
+                accessToken: 'fake-token',
+                method: 'GET',
+                timeout: 10000
+            })
+        );
+    });
+
     test('processes order with customer and returns diagnostics', async () => {
-        getSquareAccessToken.mockResolvedValue('fake-token');
-        global.fetch.mockResolvedValue({
-            ok: true,
-            json: async () => ({ order: makeSquareOrder() })
-        });
+        getMerchantToken.mockResolvedValue('fake-token');
+        makeSquareRequest.mockResolvedValue({ order: makeSquareOrder() });
 
         getCustomerDetails.mockResolvedValue({ id: 'CUST_1', displayName: 'John' });
         processLoyaltyOrder.mockResolvedValue({
@@ -166,11 +185,8 @@ describe('order-processing-service', () => {
     });
 
     test('returns processed=false when order was already processed', async () => {
-        getSquareAccessToken.mockResolvedValue('fake-token');
-        global.fetch.mockResolvedValue({
-            ok: true,
-            json: async () => ({ order: makeSquareOrder() })
-        });
+        getMerchantToken.mockResolvedValue('fake-token');
+        makeSquareRequest.mockResolvedValue({ order: makeSquareOrder() });
 
         getCustomerDetails.mockResolvedValue({ id: 'CUST_1', displayName: 'John' });
         processLoyaltyOrder.mockResolvedValue({
@@ -185,11 +201,8 @@ describe('order-processing-service', () => {
     });
 
     test('diagnostics include line item details', async () => {
-        getSquareAccessToken.mockResolvedValue('fake-token');
-        global.fetch.mockResolvedValue({
-            ok: true,
-            json: async () => ({ order: makeSquareOrder({ customerId: null }) })
-        });
+        getMerchantToken.mockResolvedValue('fake-token');
+        makeSquareRequest.mockResolvedValue({ order: makeSquareOrder({ customerId: null }) });
 
         const result = await processOrderManually({ merchantId: MERCHANT_ID, squareOrderId: ORDER_ID });
 
