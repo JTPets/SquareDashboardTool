@@ -16,7 +16,7 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
-const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
+const { makeSquareRequest, getMerchantToken, SquareApiError } = require('../square/square-client');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
 const { SQUARE: { MAX_PAGINATION_ITERATIONS } } = require('../../config/constants');
 const { processLoyaltyOrder } = require('./order-intake');
@@ -140,8 +140,13 @@ async function runLoyaltyCatchup({ merchantId, customerIds = null, periodDays = 
 
     logger.info('Starting loyalty catchup', { merchantId, periodDays, maxCustomers });
 
-    const accessToken = await getSquareAccessToken(merchantId);
-    if (!accessToken) {
+    // getMerchantToken throws when merchant is missing/inactive/no token;
+    // legacy getSquareAccessToken returned null for the same cases. Preserve
+    // the prior "No access token available" error for callers.
+    let accessToken;
+    try {
+        accessToken = await getMerchantToken(merchantId);
+    } catch (err) {
         throw new Error('No access token available');
     }
 
@@ -212,29 +217,30 @@ async function runLoyaltyCatchup({ merchantId, customerIds = null, periodDays = 
                 if (cursor) requestBody.cursor = cursor;
 
                 const backfillSearchStart = Date.now();
-                const response = await fetchWithTimeout('https://connect.squareup.com/v2/orders/search', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json',
-                        'Square-Version': SQUARE_API_VERSION
-                    },
-                    body: JSON.stringify(requestBody)
-                }, 15000);
-                const backfillSearchDuration = Date.now() - backfillSearchStart;
+                let data;
+                try {
+                    data = await makeSquareRequest('/v2/orders/search', {
+                        method: 'POST',
+                        accessToken,
+                        timeout: 15000,
+                        body: JSON.stringify(requestBody)
+                    });
 
-                loyaltyLogger.squareApi({
-                    endpoint: '/orders/search', method: 'POST',
-                    status: response.status, duration: backfillSearchDuration,
-                    success: response.ok, merchantId, context: 'backfillCustomerOrders',
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(`Square API error: ${JSON.stringify(errorData)}`);
+                    loyaltyLogger.squareApi({
+                        endpoint: '/orders/search', method: 'POST',
+                        status: 200, duration: Date.now() - backfillSearchStart,
+                        success: true, merchantId, context: 'backfillCustomerOrders',
+                    });
+                } catch (error) {
+                    const status = error instanceof SquareApiError ? error.status : 0;
+                    loyaltyLogger.squareApi({
+                        endpoint: '/orders/search', method: 'POST',
+                        status, duration: Date.now() - backfillSearchStart,
+                        success: false, merchantId, context: 'backfillCustomerOrders',
+                    });
+                    throw error;
                 }
 
-                const data = await response.json();
                 orders.push(...(data.orders || []));
                 cursor = data.cursor;
             } while (cursor);
