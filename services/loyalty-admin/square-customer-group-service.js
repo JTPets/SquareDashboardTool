@@ -9,7 +9,7 @@
 
 const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
-const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
+const { makeSquareRequest, getMerchantToken, SquareApiError } = require('../square/square-client');
 
 /**
  * Create a Customer Group in Square for a specific reward
@@ -23,53 +23,34 @@ const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('
  * @returns {Promise<Object>} Result with group ID if successful
  */
 async function createRewardCustomerGroup({ merchantId, internalRewardId, offerName, customerName }) {
+    const groupName = `Loyalty Reward ${internalRewardId} - ${offerName} - ${customerName}`.substring(0, 255);
+    const createGroupStart = Date.now();
+
     try {
-        const accessToken = await getSquareAccessToken(merchantId);
-        if (!accessToken) {
-            return { success: false, error: 'No access token available' };
-        }
+        const accessToken = await getMerchantToken(merchantId);
 
-        const groupName = `Loyalty Reward ${internalRewardId} - ${offerName} - ${customerName}`.substring(0, 255);
-
-        const createGroupStart = Date.now();
-        const response = await fetchWithTimeout('https://connect.squareup.com/v2/customers/groups', {
+        const data = await makeSquareRequest('/v2/customers/groups', {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-                'Square-Version': SQUARE_API_VERSION
-            },
+            accessToken,
             body: JSON.stringify({
                 idempotency_key: `loyalty-reward-group-${internalRewardId}`,
                 group: {
                     name: groupName
                 }
-            })
-        }, 10000);
-        const createGroupDuration = Date.now() - createGroupStart;
+            }),
+            timeout: 10000,
+        });
 
         loyaltyLogger.squareApi({
             endpoint: '/customers/groups',
             method: 'POST',
-            status: response.status,
-            duration: createGroupDuration,
-            success: response.ok,
+            status: 200,
+            duration: Date.now() - createGroupStart,
+            success: true,
             merchantId,
             context: 'createRewardCustomerGroup',
         });
 
-        if (!response.ok) {
-            const errorData = await response.json();
-            logger.error('Failed to create customer group', {
-                merchantId,
-                internalRewardId,
-                error: errorData,
-                status: response.status
-            });
-            return { success: false, error: `Square API error: ${JSON.stringify(errorData)}` };
-        }
-
-        const data = await response.json();
         const groupId = data.group?.id;
 
         if (!groupId) {
@@ -86,6 +67,27 @@ async function createRewardCustomerGroup({ merchantId, internalRewardId, offerNa
         return { success: true, groupId };
 
     } catch (error) {
+        const status = error instanceof SquareApiError ? error.status : 0;
+        loyaltyLogger.squareApi({
+            endpoint: '/customers/groups',
+            method: 'POST',
+            status,
+            duration: Date.now() - createGroupStart,
+            success: false,
+            merchantId,
+            context: 'createRewardCustomerGroup',
+        });
+
+        if (error instanceof SquareApiError) {
+            logger.error('Failed to create customer group', {
+                merchantId,
+                internalRewardId,
+                error: error.details,
+                status: error.status
+            });
+            return { success: false, error: `Square API error: ${JSON.stringify(error.details)}` };
+        }
+
         logger.error('Error creating customer group', { error: error.message, stack: error.stack, merchantId });
         return { success: false, error: error.message };
     }
@@ -101,47 +103,27 @@ async function createRewardCustomerGroup({ merchantId, internalRewardId, offerNa
  * @returns {Promise<Object>} Result
  */
 async function addCustomerToGroup({ merchantId, squareCustomerId, groupId }) {
-    try {
-        const accessToken = await getSquareAccessToken(merchantId);
-        if (!accessToken) {
-            return { success: false, error: 'No access token available' };
-        }
+    const endpoint = `/v2/customers/${squareCustomerId}/groups/${groupId}`;
+    const addToGroupStart = Date.now();
 
-        const addToGroupStart = Date.now();
-        const response = await fetchWithTimeout(
-            `https://connect.squareup.com/v2/customers/${squareCustomerId}/groups/${groupId}`,
-            {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    'Square-Version': SQUARE_API_VERSION
-                }
-            },
-            10000
-        );
-        const addToGroupDuration = Date.now() - addToGroupStart;
+    try {
+        const accessToken = await getMerchantToken(merchantId);
+
+        await makeSquareRequest(endpoint, {
+            method: 'PUT',
+            accessToken,
+            timeout: 10000,
+        });
 
         loyaltyLogger.squareApi({
             endpoint: `/customers/${squareCustomerId}/groups/${groupId}`,
             method: 'PUT',
-            status: response.status,
-            duration: addToGroupDuration,
-            success: response.ok,
+            status: 200,
+            duration: Date.now() - addToGroupStart,
+            success: true,
             merchantId,
             context: 'addCustomerToGroup',
         });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            logger.error('Failed to add customer to group', {
-                merchantId,
-                squareCustomerId,
-                groupId,
-                error: errorData
-            });
-            return { success: false, error: `Square API error: ${JSON.stringify(errorData)}` };
-        }
 
         logger.info('Added customer to group', {
             merchantId,
@@ -152,6 +134,27 @@ async function addCustomerToGroup({ merchantId, squareCustomerId, groupId }) {
         return { success: true };
 
     } catch (error) {
+        const status = error instanceof SquareApiError ? error.status : 0;
+        loyaltyLogger.squareApi({
+            endpoint: `/customers/${squareCustomerId}/groups/${groupId}`,
+            method: 'PUT',
+            status,
+            duration: Date.now() - addToGroupStart,
+            success: false,
+            merchantId,
+            context: 'addCustomerToGroup',
+        });
+
+        if (error instanceof SquareApiError) {
+            logger.error('Failed to add customer to group', {
+                merchantId,
+                squareCustomerId,
+                groupId,
+                error: error.details
+            });
+            return { success: false, error: `Square API error: ${JSON.stringify(error.details)}` };
+        }
+
         logger.error('Error adding customer to group', { error: error.message, stack: error.stack, merchantId });
         return { success: false, error: error.message };
     }
@@ -174,16 +177,15 @@ async function addCustomerToGroup({ merchantId, squareCustomerId, groupId }) {
  */
 async function removeCustomerFromGroup({ merchantId, squareCustomerId, groupId }) {
     try {
-        const api = require('./shared-utils').getSquareApi();
-        const accessToken = await api.getMerchantToken(merchantId);
-        await api.makeSquareRequest(
+        const accessToken = await getMerchantToken(merchantId);
+        await makeSquareRequest(
             `/v2/customers/${squareCustomerId}/groups/${groupId}`,
             { method: 'DELETE', accessToken }
         );
         logger.info('Removed customer from group', { merchantId, squareCustomerId, groupId });
         return { success: true };
     } catch (error) {
-        if (error.message && error.message.includes('404')) {
+        if (error instanceof SquareApiError && error.status === 404) {
             return { success: true }; // Already removed
         }
         logger.error('Failed to remove customer from group', {
@@ -209,16 +211,15 @@ async function removeCustomerFromGroup({ merchantId, squareCustomerId, groupId }
  */
 async function deleteCustomerGroup({ merchantId, groupId }) {
     try {
-        const api = require('./shared-utils').getSquareApi();
-        const accessToken = await api.getMerchantToken(merchantId);
-        await api.makeSquareRequest(
+        const accessToken = await getMerchantToken(merchantId);
+        await makeSquareRequest(
             `/v2/customers/groups/${groupId}`,
             { method: 'DELETE', accessToken }
         );
         logger.info('Deleted customer group', { merchantId, groupId });
         return { success: true };
     } catch (error) {
-        if (error.message && error.message.includes('404')) {
+        if (error instanceof SquareApiError && error.status === 404) {
             return { success: true }; // Already deleted
         }
         logger.error('Failed to delete customer group', {
