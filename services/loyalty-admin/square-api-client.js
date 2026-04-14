@@ -1,19 +1,29 @@
 /**
  * Square API Client for Loyalty Admin Layer
  *
- * Unified Square HTTP client with 429 rate-limit retry.
- * Replaces services/loyalty/square-client.js (LoyaltySquareClient) for all
- * active callers as part of L-6 (DEDUP-AUDIT) unification.
+ * Thin shim over services/square/square-client.js. Preserves the
+ * SquareApiClient class so existing callers (webhook-handlers/loyalty-handler.js,
+ * seniors-service.js, customer-details-service.js, etc.) continue to work
+ * unchanged while the core HTTP path delegates to the canonical
+ * makeSquareRequest implementation.
  *
- * Uses squareApiRequest() from shared-utils.js for the core retry logic,
- * and getSquareAccessToken() for token management.
+ * Part of Task 11 of the Square client refactor (see
+ * docs/SQUARE_CLIENT_REFACTOR_PLAN.md Section 3 / Task 11).
+ *
+ * Endpoint note: square-client.js requires the `/v2/...` prefix on every
+ * endpoint. All method implementations below include it explicitly.
+ *
+ * SquareApiError re-export: the class is re-exported from square-client.js
+ * so `const { SquareApiError } = require('./square-api-client')` keeps
+ * working; the class identity matches the one thrown by makeSquareRequest,
+ * allowing `err instanceof SquareApiError` checks to hold.
  */
 
-const { squareApiRequest, getSquareAccessToken, SquareApiError } = require('./shared-utils');
+const { makeSquareRequest, getMerchantToken, SquareApiError } = require('../square/square-client');
 const logger = require('../../utils/logger');
 
 /**
- * SquareApiClient — convenience wrapper around squareApiRequest.
+ * SquareApiClient — convenience wrapper around makeSquareRequest.
  * Initialize once per merchantId, then call convenience methods.
  */
 class SquareApiClient {
@@ -28,36 +38,57 @@ class SquareApiClient {
     /**
      * Initialize the client by fetching the access token.
      * Must be called before any API method.
+     *
+     * Note: getMerchantToken throws when the merchant/token is missing.
+     * We convert that throw into a SquareApiError(401) to preserve the
+     * previous contract for this class (which always surfaced a
+     * SquareApiError on init failure).
+     *
      * @returns {Promise<SquareApiClient>}
      */
     async initialize() {
-        const token = await getSquareAccessToken(this.merchantId);
-        if (!token) {
-            throw new SquareApiError(
-                'No access token available for merchant',
-                401, 'init', { merchantId: this.merchantId }
-            );
+        try {
+            this.accessToken = await getMerchantToken(this.merchantId);
+        } catch (err) {
+            throw new SquareApiError('No access token available for merchant', {
+                status: 401,
+                endpoint: 'init',
+                details: [{ merchantId: this.merchantId, originalError: err.message }],
+                nonRetryable: true,
+            });
         }
-        this.accessToken = token;
         return this;
     }
 
     /**
-     * Core request — delegates to squareApiRequest with stored token.
+     * Core request — delegates to makeSquareRequest with stored token.
      * @param {string} method - HTTP method
-     * @param {string} endpoint - API path (e.g. '/customers/{id}')
+     * @param {string} endpoint - API path including `/v2/...` prefix
      * @param {Object|null} body - Request body
-     * @param {Object} [opts] - timeout, context, maxRetries
+     * @param {Object} [opts] - timeout
      * @returns {Promise<Object>} Parsed JSON response
      */
     async request(method, endpoint, body = null, opts = {}) {
         if (!this.accessToken) {
-            throw new SquareApiError('Client not initialized', 401, endpoint);
+            throw new SquareApiError('Client not initialized', {
+                status: 401,
+                endpoint,
+                nonRetryable: true,
+            });
         }
-        return squareApiRequest(this.accessToken, method, endpoint, body, {
-            ...opts,
-            merchantId: this.merchantId,
-        });
+
+        const fetchOpts = {
+            accessToken: this.accessToken,
+            method,
+        };
+        if (body !== null && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+            fetchOpts.body = JSON.stringify(body);
+        }
+        if (typeof opts.timeout === 'number') {
+            fetchOpts.timeout = opts.timeout;
+        }
+
+        return makeSquareRequest(endpoint, fetchOpts);
     }
 
     // ========================================================================
@@ -65,124 +96,124 @@ class SquareApiClient {
     // ========================================================================
 
     /**
-     * GET /customers/{id}
+     * GET /v2/customers/{id}
      * @param {string} customerId
      * @returns {Promise<Object>} Customer object
      */
     async getCustomer(customerId) {
-        const data = await this.request('GET', `/customers/${customerId}`, null, {
-            context: 'getCustomer', timeout: 10000,
+        const data = await this.request('GET', `/v2/customers/${customerId}`, null, {
+            timeout: 10000,
         });
         return data.customer;
     }
 
     /**
-     * GET /loyalty/accounts/{id}
+     * GET /v2/loyalty/accounts/{id}
      * @param {string} accountId
      * @returns {Promise<Object>} Loyalty account object
      */
     async getLoyaltyAccount(accountId) {
-        const data = await this.request('GET', `/loyalty/accounts/${accountId}`, null, {
-            context: 'getLoyaltyAccount', timeout: 10000,
+        const data = await this.request('GET', `/v2/loyalty/accounts/${accountId}`, null, {
+            timeout: 10000,
         });
         return data.loyalty_account;
     }
 
     /**
-     * GET /orders/{id}
+     * GET /v2/orders/{id}
      * @param {string} orderId
      * @returns {Promise<Object|null>} Order object or null if 404
      */
     async getOrder(orderId) {
         try {
-            const data = await this.request('GET', `/orders/${orderId}`, null, {
-                context: 'getOrder', timeout: 10000,
+            const data = await this.request('GET', `/v2/orders/${orderId}`, null, {
+                timeout: 10000,
             });
             return data.order;
         } catch (error) {
-            if (error.status === 404) return null;
+            if (error instanceof SquareApiError && error.status === 404) return null;
             throw error;
         }
     }
 
     /**
-     * POST /customers/groups
+     * POST /v2/customers/groups
      * @param {string} name - Group name
      * @param {string} idempotencyKey
      * @returns {Promise<Object>} Created group
      */
     async createCustomerGroup(name, idempotencyKey) {
-        const data = await this.request('POST', '/customers/groups', {
+        const data = await this.request('POST', '/v2/customers/groups', {
             group: { name },
             idempotency_key: idempotencyKey,
-        }, { context: 'createCustomerGroup', timeout: 10000 });
+        }, { timeout: 10000 });
         return data.group;
     }
 
     /**
-     * POST /catalog/batch-upsert
+     * POST /v2/catalog/batch-upsert
      * @param {Array} objects - Catalog objects to upsert
      * @param {string} idempotencyKey
      * @returns {Promise<Array>} Created/updated objects
      */
     async batchUpsertCatalog(objects, idempotencyKey) {
-        const data = await this.request('POST', '/catalog/batch-upsert', {
+        const data = await this.request('POST', '/v2/catalog/batch-upsert', {
             idempotency_key: idempotencyKey,
             batches: [{ objects }],
-        }, { context: 'batchUpsertCatalog', timeout: 20000 });
+        }, { timeout: 20000 });
         return data.objects || [];
     }
 
     /**
-     * GET /catalog/object/{id}
+     * GET /v2/catalog/object/{id}
      * @param {string} objectId
      * @returns {Promise<Object|null>} Catalog object or null if 404
      */
     async getCatalogObject(objectId) {
         try {
-            const data = await this.request('GET', `/catalog/object/${objectId}`, null, {
-                context: 'getCatalogObject', timeout: 10000,
+            const data = await this.request('GET', `/v2/catalog/object/${objectId}`, null, {
+                timeout: 10000,
             });
             return data.object;
         } catch (error) {
-            if (error.status === 404) return null;
+            if (error instanceof SquareApiError && error.status === 404) return null;
             throw error;
         }
     }
 
     /**
-     * PUT /customers/{customerId}/groups/{groupId}
+     * PUT /v2/customers/{customerId}/groups/{groupId}
      * @param {string} customerId
      * @param {string} groupId
      * @returns {Promise<boolean>}
      */
     async addCustomerToGroup(customerId, groupId) {
-        await this.request('PUT', `/customers/${customerId}/groups/${groupId}`, {}, {
-            context: 'addCustomerToGroup', timeout: 10000,
+        await this.request('PUT', `/v2/customers/${customerId}/groups/${groupId}`, {}, {
+            timeout: 10000,
         });
         return true;
     }
 
     /**
-     * DELETE /customers/{customerId}/groups/{groupId}
+     * DELETE /v2/customers/{customerId}/groups/{groupId}
      * @param {string} customerId
      * @param {string} groupId
      * @returns {Promise<boolean>}
      */
     async removeCustomerFromGroup(customerId, groupId) {
         try {
-            await this.request('DELETE', `/customers/${customerId}/groups/${groupId}`, null, {
-                context: 'removeCustomerFromGroup', timeout: 10000,
+            await this.request('DELETE', `/v2/customers/${customerId}/groups/${groupId}`, null, {
+                timeout: 10000,
             });
             return true;
         } catch (error) {
-            if (error.status === 404) return true;
+            if (error instanceof SquareApiError && error.status === 404) return true;
             throw error;
         }
     }
 
     /**
-     * POST /loyalty/events/search (paginated)
+     * POST /v2/loyalty/events/search (paginated)
      * Fetches all pages of results using Square's cursor-based pagination.
      * Safety guard: max 20 pages to prevent runaway loops.
      *
@@ -197,8 +228,8 @@ class SquareApiClient {
 
         do {
             const requestBody = cursor ? { ...query, cursor } : { ...query };
-            const data = await this.request('POST', '/loyalty/events/search', requestBody, {
-                context: 'searchLoyaltyEvents', timeout: 10000,
+            const data = await this.request('POST', '/v2/loyalty/events/search', requestBody, {
+                timeout: 10000,
             });
             allEvents.push(...(data.events || []));
             cursor = data.cursor || null;
@@ -219,7 +250,7 @@ class SquareApiClient {
     }
 
     /**
-     * POST /customers/search (paginated)
+     * POST /v2/customers/search (paginated)
      * Fetches all pages of results using Square's cursor-based pagination.
      * Safety guard: max 20 pages to prevent runaway loops.
      *
@@ -234,8 +265,8 @@ class SquareApiClient {
 
         do {
             const requestBody = cursor ? { ...query, cursor } : { ...query };
-            const data = await this.request('POST', '/customers/search', requestBody, {
-                context: 'searchCustomers', timeout: 10000,
+            const data = await this.request('POST', '/v2/customers/search', requestBody, {
+                timeout: 10000,
             });
             allCustomers.push(...(data.customers || []));
             cursor = data.cursor || null;

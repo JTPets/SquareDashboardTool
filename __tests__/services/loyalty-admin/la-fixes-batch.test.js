@@ -43,6 +43,25 @@ jest.mock('../../../services/loyalty-admin/shared-utils', () => ({
     },
 }));
 
+// square-api-client.js is now a thin shim over services/square/square-client.js
+// (see docs/SQUARE_CLIENT_REFACTOR_PLAN.md Task 11). Mock the canonical
+// module here so the LA-26 pagination tests exercise the shim end-to-end.
+jest.mock('../../../services/square/square-client', () => ({
+    makeSquareRequest: jest.fn(),
+    getMerchantToken: jest.fn(),
+    SquareApiError: class SquareApiError extends Error {
+        constructor(message, { status, endpoint, details = [], nonRetryable = false } = {}) {
+            super(message);
+            this.name = 'SquareApiError';
+            this.status = status;
+            this.endpoint = endpoint;
+            this.details = details;
+            this.nonRetryable = nonRetryable;
+            this.squareErrors = details;
+        }
+    },
+}));
+
 jest.mock('../../../services/loyalty-admin/order-intake', () => ({
     processLoyaltyOrder: jest.fn(),
 }));
@@ -114,18 +133,18 @@ describe('LA-22: isOrderAlreadyProcessedForLoyalty checks both tables', () => {
 // =========================================================================
 
 describe('LA-26: SquareApiClient search methods paginate', () => {
-    const { squareApiRequest, getSquareAccessToken } = require('../../../services/loyalty-admin/shared-utils');
+    const { makeSquareRequest, getMerchantToken } = require('../../../services/square/square-client');
 
     beforeEach(() => {
         jest.clearAllMocks();
-        getSquareAccessToken.mockResolvedValue('test-token');
+        getMerchantToken.mockResolvedValue('test-token');
     });
 
     test('searchLoyaltyEvents fetches all pages', async () => {
         const { SquareApiClient } = require('../../../services/loyalty-admin/square-api-client');
 
         // Page 1: returns cursor
-        squareApiRequest
+        makeSquareRequest
             .mockResolvedValueOnce({ events: [{ id: 'e1' }, { id: 'e2' }], cursor: 'page2' })
             .mockResolvedValueOnce({ events: [{ id: 'e3' }] }); // Page 2: no cursor
 
@@ -135,17 +154,17 @@ describe('LA-26: SquareApiClient search methods paginate', () => {
 
         expect(events).toHaveLength(3);
         expect(events.map(e => e.id)).toEqual(['e1', 'e2', 'e3']);
-        expect(squareApiRequest).toHaveBeenCalledTimes(2);
+        expect(makeSquareRequest).toHaveBeenCalledTimes(2);
 
-        // Second call should include cursor
-        const secondCallBody = squareApiRequest.mock.calls[1][3];
-        expect(secondCallBody.cursor).toBe('page2');
+        // Second call should include cursor in body
+        const secondCallOpts = makeSquareRequest.mock.calls[1][1];
+        expect(JSON.parse(secondCallOpts.body).cursor).toBe('page2');
     });
 
     test('searchCustomers fetches all pages', async () => {
         const { SquareApiClient } = require('../../../services/loyalty-admin/square-api-client');
 
-        squareApiRequest
+        makeSquareRequest
             .mockResolvedValueOnce({ customers: [{ id: 'c1' }], cursor: 'next' })
             .mockResolvedValueOnce({ customers: [{ id: 'c2' }] });
 
@@ -154,7 +173,7 @@ describe('LA-26: SquareApiClient search methods paginate', () => {
         const customers = await client.searchCustomers({ query: {} });
 
         expect(customers).toHaveLength(2);
-        expect(squareApiRequest).toHaveBeenCalledTimes(2);
+        expect(makeSquareRequest).toHaveBeenCalledTimes(2);
     });
 
     test('searchLoyaltyEvents stops at max 20 pages', async () => {
@@ -162,14 +181,14 @@ describe('LA-26: SquareApiClient search methods paginate', () => {
         const logger = require('../../../utils/logger');
 
         // Always return a cursor (infinite pages)
-        squareApiRequest.mockResolvedValue({ events: [{ id: 'e' }], cursor: 'more' });
+        makeSquareRequest.mockResolvedValue({ events: [{ id: 'e' }], cursor: 'more' });
 
         const client = new SquareApiClient(1);
         await client.initialize();
         const events = await client.searchLoyaltyEvents({ query: {} });
 
         expect(events).toHaveLength(20);
-        expect(squareApiRequest).toHaveBeenCalledTimes(20);
+        expect(makeSquareRequest).toHaveBeenCalledTimes(20);
         expect(logger.error).toHaveBeenCalledWith(
             'searchLoyaltyEvents hit max pagination limit',
             expect.objectContaining({ maxPages: 20 })
@@ -180,7 +199,7 @@ describe('LA-26: SquareApiClient search methods paginate', () => {
         const { SquareApiClient } = require('../../../services/loyalty-admin/square-api-client');
         const logger = require('../../../utils/logger');
 
-        squareApiRequest.mockResolvedValue({ customers: [{ id: 'c' }], cursor: 'more' });
+        makeSquareRequest.mockResolvedValue({ customers: [{ id: 'c' }], cursor: 'more' });
 
         const client = new SquareApiClient(1);
         await client.initialize();
@@ -196,7 +215,7 @@ describe('LA-26: SquareApiClient search methods paginate', () => {
     test('searchLoyaltyEvents returns empty array when no events', async () => {
         const { SquareApiClient } = require('../../../services/loyalty-admin/square-api-client');
 
-        squareApiRequest.mockResolvedValueOnce({});
+        makeSquareRequest.mockResolvedValueOnce({});
 
         const client = new SquareApiClient(1);
         await client.initialize();
