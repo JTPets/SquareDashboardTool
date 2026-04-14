@@ -15,7 +15,7 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
-const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
+const { makeSquareRequest, getMerchantToken } = require('../square/square-client');
 const { prefetchRecentLoyaltyEvents, findCustomerFromPrefetchedEvents } = require('./loyalty-event-prefetch-service');
 const { processLoyaltyOrder } = require('./order-intake');
 
@@ -54,9 +54,13 @@ async function runBackfill({ merchantId, days = 7 }) {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    // Get access token
-    const accessToken = await getSquareAccessToken(merchantId);
-    if (!accessToken) {
+    // Get access token. getMerchantToken throws when merchant is missing/inactive
+    // or has no token; legacy getSquareAccessToken returned null for the same
+    // cases. Preserve the prior "No Square access token configured" error.
+    let accessToken;
+    try {
+        accessToken = await getMerchantToken(merchantId);
+    } catch (err) {
         const error = new Error('No Square access token configured for this merchant');
         error.statusCode = 400;
         throw error;
@@ -115,22 +119,14 @@ async function runBackfill({ merchantId, days = 7 }) {
             requestBody.cursor = cursor;
         }
 
-        const response = await fetchWithTimeout('https://connect.squareup.com/v2/orders/search', {
+        // Preserve the original 15s per-call timeout via the square-client
+        // `timeout` option (square-client defaults to 30s otherwise).
+        const data = await makeSquareRequest('/v2/orders/search', {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-                'Square-Version': SQUARE_API_VERSION
-            },
+            accessToken,
+            timeout: 15000,
             body: JSON.stringify(requestBody)
-        }, 15000);
-
-        if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`Square API error: ${response.status} - ${errText}`);
-        }
-
-        const data = await response.json();
+        });
         const orders = data.orders || [];
 
         // Process each order for loyalty

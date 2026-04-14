@@ -19,10 +19,42 @@ jest.mock('../../../utils/logger', () => ({
     debug: jest.fn(),
 }));
 
-jest.mock('../../../services/loyalty-admin/shared-utils', () => ({
-    getSquareAccessToken: jest.fn(),
-    fetchWithTimeout: jest.fn((url, options) => global.fetch(url, options)),
-}));
+// backfill-orchestration-service was migrated onto square-client in Task 15.
+// Bridge makeSquareRequest onto global.fetch and surface getMerchantToken so
+// existing test cases keep the same mock shape (token-success, token-missing,
+// and paginated response scripts).
+jest.mock('../../../services/square/square-client', () => {
+    class SquareApiError extends Error {
+        constructor(message, { status, endpoint, details = [], nonRetryable = false } = {}) {
+            super(message);
+            this.name = 'SquareApiError';
+            this.status = status;
+            this.endpoint = endpoint;
+            this.details = details;
+            this.nonRetryable = nonRetryable;
+            this.squareErrors = details;
+        }
+    }
+    return {
+        getMerchantToken: jest.fn(),
+        makeSquareRequest: jest.fn(async (endpoint, opts = {}) => {
+            const response = await global.fetch(`https://connect.squareup.com${endpoint}`, opts);
+            const data = response.json ? await response.json() : {};
+            if (!response.ok) {
+                throw new SquareApiError(
+                    `Square API error: ${response.status} - ${JSON.stringify(data.errors || data)}`,
+                    { status: response.status, endpoint, details: data.errors || [] }
+                );
+            }
+            return data;
+        }),
+        SquareApiError,
+        sleep: () => Promise.resolve(),
+        SQUARE_BASE_URL: 'https://connect.squareup.com',
+        MAX_RETRIES: 3,
+        RETRY_DELAY_MS: 1000
+    };
+});
 
 jest.mock('../../../services/loyalty-admin/loyalty-event-prefetch-service', () => ({
     prefetchRecentLoyaltyEvents: jest.fn(),
@@ -35,7 +67,7 @@ jest.mock('../../../services/loyalty-admin/order-intake', () => ({
 
 const { runBackfill } = require('../../../services/loyalty-admin/backfill-orchestration-service');
 const db = require('../../../utils/database');
-const { getSquareAccessToken } = require('../../../services/loyalty-admin/shared-utils');
+const { getMerchantToken } = require('../../../services/square/square-client');
 const { prefetchRecentLoyaltyEvents, findCustomerFromPrefetchedEvents } = require('../../../services/loyalty-admin/loyalty-event-prefetch-service');
 const { processLoyaltyOrder } = require('../../../services/loyalty-admin/order-intake');
 
@@ -101,7 +133,7 @@ describe('backfill-orchestration-service', () => {
 
     test('throws when no Square access token', async () => {
         db.query.mockResolvedValueOnce({ rows: [{ id: LOCATION_ID }] }); // locations
-        getSquareAccessToken.mockResolvedValue(null);
+        getMerchantToken.mockRejectedValue(new Error('Merchant 1 has no access token configured'));
 
         await expect(runBackfill({ merchantId: MERCHANT_ID }))
             .rejects.toThrow('No Square access token');
@@ -109,7 +141,7 @@ describe('backfill-orchestration-service', () => {
 
     test('processes qualifying orders with customer_id', async () => {
         setupDbMocks();
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
         const order = makeOrder('ORD_1', { customerId: 'CUST_1' });
         global.fetch.mockResolvedValue({
@@ -132,7 +164,7 @@ describe('backfill-orchestration-service', () => {
 
     test('calls processLoyaltyOrder with correct signature and source=backfill', async () => {
         setupDbMocks();
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
         const order = makeOrder('ORD_1', { customerId: 'CUST_1' });
         global.fetch.mockResolvedValue({
@@ -155,7 +187,7 @@ describe('backfill-orchestration-service', () => {
 
     test('passes raw Square order object without camelCase transform', async () => {
         setupDbMocks();
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
         const order = makeOrder('ORD_1', { customerId: 'CUST_1' });
         global.fetch.mockResolvedValue({
@@ -176,7 +208,7 @@ describe('backfill-orchestration-service', () => {
 
     test('skips orders without qualifying items', async () => {
         setupDbMocks();
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
         const order = makeOrder('ORD_1', { customerId: 'CUST_1', variationId: 'NON_QUALIFYING' });
         global.fetch.mockResolvedValue({
@@ -193,7 +225,7 @@ describe('backfill-orchestration-service', () => {
 
     test('finds customer from prefetched loyalty events', async () => {
         setupDbMocks();
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
         const order = makeOrder('ORD_1'); // no customer_id
         global.fetch.mockResolvedValue({
@@ -218,7 +250,7 @@ describe('backfill-orchestration-service', () => {
 
     test('finds customer from tender customer_id', async () => {
         setupDbMocks();
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
         const order = makeOrder('ORD_1');
         order.tenders = [{ customer_id: 'CUST_FROM_TENDER' }];
@@ -243,7 +275,7 @@ describe('backfill-orchestration-service', () => {
 
     test('skips orders with no customer found and collects diagnostics', async () => {
         setupDbMocks();
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
         const order = makeOrder('ORD_1'); // no customer_id, no tender, no prefetch
         global.fetch.mockResolvedValue({
@@ -261,7 +293,7 @@ describe('backfill-orchestration-service', () => {
 
     test('handles Square API pagination', async () => {
         setupDbMocks();
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
         const order1 = makeOrder('ORD_1', { customerId: 'CUST_1' });
         const order2 = makeOrder('ORD_2', { customerId: 'CUST_2' });
@@ -286,7 +318,7 @@ describe('backfill-orchestration-service', () => {
 
     test('continues processing when individual order fails', async () => {
         setupDbMocks();
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
         const order1 = makeOrder('ORD_FAIL', { customerId: 'CUST_1' });
         const order2 = makeOrder('ORD_OK', { customerId: 'CUST_2' });
@@ -308,7 +340,7 @@ describe('backfill-orchestration-service', () => {
 
     test('skips already-processed orders without counting them as recorded', async () => {
         setupDbMocks();
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
         const order = makeOrder('ORD_1', { customerId: 'CUST_1' });
         global.fetch.mockResolvedValue({
@@ -331,7 +363,7 @@ describe('backfill-orchestration-service', () => {
 
     test('includes diagnostics in result', async () => {
         setupDbMocks({ qualifyingVariations: [{ variation_id: VARIATION_ID }] });
-        getSquareAccessToken.mockResolvedValue('fake-token');
+        getMerchantToken.mockResolvedValue('fake-token');
 
         global.fetch.mockResolvedValue({
             ok: true,
