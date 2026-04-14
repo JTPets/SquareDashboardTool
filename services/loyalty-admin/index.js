@@ -17,7 +17,7 @@
  *
  * Module Structure:
  * - constants.js: RewardStatus, AuditActions, RedemptionTypes
- * - shared-utils.js: fetchWithTimeout, getSquareAccessToken
+ * - ../square/square-client.js: getMerchantToken, makeSquareRequest, SquareApiError
  * - audit-service.js: logAuditEvent, getAuditLogs
  * - settings-service.js: getSetting, updateSetting, etc.
  * - offer-admin-service.js: createOffer, getOffers, etc.
@@ -53,8 +53,41 @@
 // Constants
 const { RewardStatus, AuditActions, RedemptionTypes } = require('./constants');
 
-// Shared utilities
-const { fetchWithTimeout, getSquareAccessToken, getSquareApi } = require('./shared-utils');
+// Square client (migrated off shared-utils per Task 10)
+const { getMerchantToken } = require('../square/square-client');
+
+/**
+ * Plain fetch-with-timeout wrapper. Kept here to preserve the barrel's
+ * export surface; see Section 4 of docs/SQUARE_CLIENT_REFACTOR_PLAN.md.
+ */
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(timeoutId);
+        return response;
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            throw new Error(`Request timeout after ${timeoutMs}ms`);
+        }
+        throw error;
+    }
+}
+
+/**
+ * Get Square access token for a merchant, returning null on missing/inactive
+ * (preserves legacy `getSquareAccessToken` null-on-miss semantics; delegates
+ * to `getMerchantToken` from square-client.js for the happy path).
+ */
+async function getSquareAccessToken(merchantId) {
+    try {
+        return await getMerchantToken(merchantId);
+    } catch (_err) {
+        return null;
+    }
+}
 
 // Audit service
 const { logAuditEvent, getAuditLogs } = require('./audit-service');
