@@ -19,6 +19,7 @@ const db = require('../../utils/database');
 const { getMerchantSettings } = require('../merchant');
 const logger = require('../../utils/logger');
 const { calculateReorderQuantity } = require('../catalog/reorder-math');
+const { calculateLeadTime, leadTimeSqlExpr } = require('./lead-time-service');
 
 // Status priority order (for sorting)
 const STATUS_PRIORITY = {
@@ -53,13 +54,21 @@ function computeStatus(vendor) {
  * Format a vendor row from the query result into the API response shape.
  */
 function formatVendorRow(row, defaultSupplyDays) {
+    const leadTimeDays = row.lead_time_days != null ? parseInt(row.lead_time_days) : null;
+    const effectiveLeadTimeDays = calculateLeadTime({
+        schedule_type: row.schedule_type,
+        order_day: row.order_day,
+        receive_day: row.receive_day,
+        lead_time_days: leadTimeDays
+    });
     return {
         id: row.id,
         name: row.name,
         schedule_type: row.schedule_type || 'anytime',
         order_day: row.order_day,
         receive_day: row.receive_day,
-        lead_time_days: row.lead_time_days != null ? parseInt(row.lead_time_days) : null,
+        lead_time_days: leadTimeDays,
+        effective_lead_time_days: effectiveLeadTimeDays,
         minimum_order_amount: row.minimum_order_amount != null ? parseInt(row.minimum_order_amount) : 0,
         payment_method: row.payment_method,
         payment_terms: row.payment_terms,
@@ -87,6 +96,7 @@ function formatVendorRow(row, defaultSupplyDays) {
  * then aggregates suggested qty × unit cost per vendor.
  */
 async function computeReorderValues(merchantId, defaultSupplyDays, safetyDays) {
+    const leadTimeExpr = leadTimeSqlExpr('ve');
     const result = await db.query(`
         SELECT
             vv.vendor_id,
@@ -98,7 +108,7 @@ async function computeReorderValues(merchantId, defaultSupplyDays, safetyDays) {
             COALESCE(vls.stock_alert_max, var.stock_alert_max) AS stock_alert_max,
             vv.unit_cost_money AS unit_cost,
             COALESCE(ve.default_supply_days, $2) AS vendor_supply_days,
-            COALESCE(ve.lead_time_days, 0) AS vendor_lead_time_days,
+            ${leadTimeExpr} AS vendor_lead_time_days,
             COALESCE((
                 SELECT SUM(poi.quantity_ordered - COALESCE(poi.received_quantity, 0))
                 FROM purchase_order_items poi
@@ -126,7 +136,7 @@ async function computeReorderValues(merchantId, defaultSupplyDays, safetyDays) {
             AND vls.merchant_id = $1 AND ic.location_id = vls.location_id
         CROSS JOIN LATERAL (
             SELECT (COALESCE(ve.default_supply_days, $2)
-                + COALESCE(ve.lead_time_days, 0) + $3) AS val
+                + (${leadTimeExpr}) + $3) AS val
         ) vt
         WHERE vv.merchant_id = $1
           AND COALESCE(var.is_deleted, FALSE) = FALSE
@@ -213,6 +223,8 @@ async function getVendorDashboard(merchantId) {
         parseInt(process.env.REORDER_SAFETY_DAYS || '7');
     const reorderThreshold = defaultSupplyDays + safetyDays;
 
+    const leadTimeExpr = leadTimeSqlExpr('ve');
+
     // --- Real vendors query (counts only — reorder value computed in JS) ---
     const result = await db.query(`
         SELECT
@@ -242,7 +254,7 @@ async function getVendorDashboard(merchantId) {
         FROM vendors ve
         CROSS JOIN LATERAL (
             SELECT (COALESCE(ve.default_supply_days, $2)
-                + COALESCE(ve.lead_time_days, 0) + $3) AS val
+                + (${leadTimeExpr}) + $3) AS val
         ) vt
         LEFT JOIN LATERAL (
             SELECT

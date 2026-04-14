@@ -10,6 +10,20 @@
 const ExcelJS = require('exceljs');
 const db = require('../../utils/database');
 const { escapeCSVField, formatDateForSquare, formatMoney, formatGTIN, UTF8_BOM } = require('../../utils/csv-helpers');
+const { calculateLeadTime } = require('../vendor/lead-time-service');
+
+/**
+ * Effective lead time for a PO's vendor. Falls back to 7 if unresolvable.
+ */
+function effectivePoLeadTime(po) {
+    const calc = calculateLeadTime({
+        schedule_type: po.vendor_schedule_type,
+        order_day: po.vendor_order_day,
+        receive_day: po.vendor_receive_day,
+        lead_time_days: po.lead_time_days
+    });
+    return calc != null && calc > 0 ? calc : 7;
+}
 
 /**
  * Fetch PO header and line items for export. Returns null if not found.
@@ -20,6 +34,9 @@ const { escapeCSVField, formatDateForSquare, formatMoney, formatGTIN, UTF8_BOM }
 async function getPurchaseOrderForExport(merchantId, poNumber) {
     const poResult = await db.query(`
         SELECT po.*, v.name AS vendor_name, v.lead_time_days,
+               v.schedule_type AS vendor_schedule_type,
+               v.order_day AS vendor_order_day,
+               v.receive_day AS vendor_receive_day,
                l.name AS location_name, l.address AS location_address
         FROM purchase_orders po
         JOIN vendors v ON po.vendor_id = v.id AND v.merchant_id = $2
@@ -76,7 +93,7 @@ function buildCsvContent({ po, items }) {
     let expectedDeliveryDate = po.expected_delivery_date;
     if (!expectedDeliveryDate) {
         const d = new Date();
-        d.setDate(d.getDate() + (po.lead_time_days || 7));
+        d.setDate(d.getDate() + effectivePoLeadTime(po));
         expectedDeliveryDate = d.toISOString();
     }
 
@@ -102,7 +119,7 @@ function buildCsvContent({ po, items }) {
 function buildXlsxWorkbook({ po, items }) {
     const expectedDate = po.expected_delivery_date
         ? new Date(po.expected_delivery_date)
-        : (() => { const d = new Date(); d.setDate(d.getDate() + (po.lead_time_days || 7)); return d; })();
+        : (() => { const d = new Date(); d.setDate(d.getDate() + effectivePoLeadTime(po)); return d; })();
 
     const workbook = new ExcelJS.Workbook();
     const ws = workbook.addWorksheet('Sheet0');

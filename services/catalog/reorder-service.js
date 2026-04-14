@@ -14,6 +14,7 @@ const logger = require('../../utils/logger');
 const { batchResolveImageUrls } = require('../../utils/image-utils');
 const { calculateOrderOptions } = require('../bundles/bundle-calculator');
 const { calculateReorderQuantity, detectMinMaxConflict } = require('./reorder-math');
+const { calculateLeadTime, leadTimeSqlExpr } = require('../vendor/lead-time-service');
 
 /**
  * Get reorder suggestions for a merchant.
@@ -195,6 +196,10 @@ function buildMainQuery({ supplyDaysNum, safetyDays, merchantId, vendor_id, loca
                 COALESCE(vls.stock_alert_max, v.stock_alert_max) as stock_alert_max,
                 COALESCE(vls.preferred_stock_level, v.preferred_stock_level) as preferred_stock_level,
                 ve.lead_time_days,
+                ve.schedule_type AS vendor_schedule_type,
+                ve.order_day AS vendor_order_day,
+                ve.receive_day AS vendor_receive_day,
+                ${leadTimeSqlExpr('ve')} AS effective_lead_time_days,
                 ve.default_supply_days,
                 -- Calculate days until stockout based on AVAILABLE quantity (not total on-hand)
                 CASE
@@ -278,9 +283,10 @@ function buildMainQuery({ supplyDaysNum, safetyDays, merchantId, vendor_id, loca
 
                   -- APPLY SUPPLY_DAYS + SAFETY_DAYS + LEAD_TIME: Items with available stock that will run out within threshold period
                   -- Only applies to items with active sales velocity (daily_avg_quantity > 0)
-                  -- $1 is (supply_days + safety_days); per-vendor lead_time_days added dynamically
+                  -- $1 is (supply_days + safety_days); effective lead time added dynamically
+                  -- (schedule-aware: fixed-day vendors derive lead time from order_day/receive_day)
                   (sv.daily_avg_quantity > 0
-                      AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) / sv.daily_avg_quantity < $1 + COALESCE(ve.lead_time_days, 0))
+                      AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) / sv.daily_avg_quantity < $1 + (${leadTimeSqlExpr('ve')}))
               )
         `;
 
@@ -319,7 +325,17 @@ function processSuggestionRows(rows, { supplyDaysNum, safetyDays, priorityConfig
             const stockAlertMax = row.stock_alert_max ? parseInt(row.stock_alert_max) : null;
             const locationId = row.location_id || null;
             const locationName = row.location_name || null;
-            const leadTime = parseInt(row.lead_time_days) || 0;
+            // Effective lead time: schedule-aware for fixed-day vendors, stored value otherwise.
+            // SQL computes the same value; prefer that but fall back to JS calc for safety.
+            const calculatedLeadTime = calculateLeadTime({
+                schedule_type: row.vendor_schedule_type,
+                order_day: row.vendor_order_day,
+                receive_day: row.vendor_receive_day,
+                lead_time_days: row.lead_time_days != null ? parseInt(row.lead_time_days) : null
+            });
+            const leadTime = calculatedLeadTime != null
+                ? parseInt(calculatedLeadTime)
+                : (parseInt(row.lead_time_days) || 0);
             const daysUntilStockout = parseFloat(row.days_until_stockout) || 999;
 
             // Detect min/max conflict. When present, we ignore the max cap entirely

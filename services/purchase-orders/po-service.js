@@ -9,6 +9,7 @@ const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { clearExpiryDiscountForReorder, applyDiscounts } = require('../expiry/discount-service');
 const { getLocationById } = require('../catalog/location-service');
+const { leadTimeSqlExpr } = require('../vendor/lead-time-service');
 
 // ─── Pure helpers ──────────────────────────────────────────────────────────────
 
@@ -101,7 +102,11 @@ async function listPurchaseOrders(merchantId, { status, vendorId } = {}) {
 
 async function getPurchaseOrder(merchantId, poId) {
     const poResult = await db.query(`
-        SELECT po.*, v.name as vendor_name, v.lead_time_days, l.name as location_name
+        SELECT po.*, v.name as vendor_name, v.lead_time_days,
+               v.schedule_type AS vendor_schedule_type,
+               v.order_day AS vendor_order_day,
+               v.receive_day AS vendor_receive_day,
+               l.name as location_name
         FROM purchase_orders po
         JOIN vendors v ON po.vendor_id = v.id AND v.merchant_id = $2
         JOIN locations l ON po.location_id = l.id AND l.merchant_id = $2
@@ -244,7 +249,14 @@ async function submitPurchaseOrder(merchantId, poId) {
         SET status = 'SUBMITTED',
             order_date = COALESCE(order_date, CURRENT_DATE),
             expected_delivery_date = CURRENT_DATE + (
-                SELECT COALESCE(lead_time_days, 7) FROM vendors WHERE id = po.vendor_id AND merchant_id = $2
+                SELECT CASE
+                    WHEN vendors.schedule_type = 'fixed'
+                         AND vendors.order_day IS NOT NULL
+                         AND vendors.receive_day IS NOT NULL
+                    THEN (${leadTimeSqlExpr('vendors')})
+                    ELSE COALESCE(vendors.lead_time_days, 7)
+                END
+                FROM vendors WHERE id = po.vendor_id AND merchant_id = $2
             ),
             updated_at = CURRENT_TIMESTAMP
         WHERE id = $1 AND status = 'DRAFT' AND merchant_id = $2

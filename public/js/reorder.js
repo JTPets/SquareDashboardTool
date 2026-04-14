@@ -1968,7 +1968,10 @@ function updateVendorInfoBar(vendorId) {
   // Check if vendor has any info to show
   const hasOrderDay = vendor.order_day;
   const hasReceiveDay = vendor.receive_day;
-  const hasLeadTime = vendor.lead_time_days != null && vendor.lead_time_days > 0;
+  const displayLeadTime = vendor.effective_lead_time_days != null
+    ? vendor.effective_lead_time_days
+    : vendor.lead_time_days;
+  const hasLeadTime = displayLeadTime != null && displayLeadTime > 0;
   const hasMinimum = vendor.minimum_order_amount != null && vendor.minimum_order_amount > 0;
 
   if (!hasOrderDay && !hasReceiveDay && !hasLeadTime && !hasMinimum) {
@@ -2000,7 +2003,7 @@ function updateVendorInfoBar(vendorId) {
   const leadTimeEl = document.getElementById('vendor-info-lead-time');
   if (hasLeadTime) {
     leadTimeEl.style.display = '';
-    leadTimeEl.querySelector('.vendor-info-value').textContent = vendor.lead_time_days + ' days';
+    leadTimeEl.querySelector('.vendor-info-value').textContent = displayLeadTime + ' days';
   } else {
     leadTimeEl.style.display = 'none';
   }
