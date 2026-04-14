@@ -35,6 +35,49 @@ jest.mock('../../../services/loyalty-admin/shared-utils', () => ({
     getSquareAccessToken: mockGetSquareAccessToken
 }));
 
+// order-history-audit-service was migrated onto square-client in Task 7.
+// Bridge makeSquareRequest onto the same fetchWithTimeout queue these tests
+// were written against (ok/status/json response shape), and delegate
+// getMerchantToken to getSquareAccessToken so legacy null-token tests still
+// drive the no-access-token branch.
+jest.mock('../../../services/square/square-client', () => {
+    class SquareApiError extends Error {
+        constructor(message, { status, endpoint, details = [], nonRetryable = false } = {}) {
+            super(message);
+            this.name = 'SquareApiError';
+            this.status = status;
+            this.endpoint = endpoint;
+            this.details = details;
+            this.nonRetryable = nonRetryable;
+            this.squareErrors = details;
+        }
+    }
+    return {
+        getMerchantToken: jest.fn(async (merchantId) => {
+            const token = await mockGetSquareAccessToken(merchantId);
+            if (!token) throw new Error(`Merchant ${merchantId} has no access token configured`);
+            return token;
+        }),
+        makeSquareRequest: jest.fn(async (endpoint, opts = {}) => {
+            const response = await mockFetchWithTimeout(`https://connect.squareup.com${endpoint}`, opts);
+            const data = response.json ? await response.json() : {};
+            if (!response.ok) {
+                throw new SquareApiError(`Square API error: ${response.status} - ${JSON.stringify(data.errors || data)}`, {
+                    status: response.status,
+                    endpoint,
+                    details: data.errors || []
+                });
+            }
+            return data;
+        }),
+        SquareApiError,
+        sleep: () => Promise.resolve(),
+        SQUARE_BASE_URL: 'https://connect.squareup.com',
+        MAX_RETRIES: 3,
+        RETRY_DELAY_MS: 1000
+    };
+});
+
 const mockLogAuditEvent = jest.fn().mockResolvedValue();
 jest.mock('../../../services/loyalty-admin/audit-service', () => ({
     logAuditEvent: mockLogAuditEvent

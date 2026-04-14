@@ -12,7 +12,7 @@ const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
 const { AuditActions } = require('./constants');
-const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
+const { makeSquareRequest, getMerchantToken, SquareApiError } = require('../square/square-client');
 const { logAuditEvent } = require('./audit-service');
 const { processLoyaltyOrder } = require('./order-intake');
 const { SQUARE: { MAX_PAGINATION_ITERATIONS } } = require('../../config/constants');
@@ -72,8 +72,13 @@ async function getCustomerOrderHistoryForAudit({
         dateRange: { start: startDate.toISOString(), end: endDate.toISOString() }
     });
 
-    const accessToken = await getSquareAccessToken(merchantId);
-    if (!accessToken) {
+    // getMerchantToken throws when merchant is missing/inactive/no token;
+    // legacy getSquareAccessToken returned null for the same cases. Preserve
+    // the prior "No access token available" error for callers.
+    let accessToken;
+    try {
+        accessToken = await getMerchantToken(merchantId);
+    } catch (err) {
         throw new Error('No access token available');
     }
 
@@ -175,29 +180,30 @@ async function getCustomerOrderHistoryForAudit({
         if (cursor) requestBody.cursor = cursor;
 
         const ordersSearchStart = Date.now();
-        const response = await fetchWithTimeout('https://connect.squareup.com/v2/orders/search', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-                'Square-Version': SQUARE_API_VERSION
-            },
-            body: JSON.stringify(requestBody)
-        }, 15000);
-        const ordersSearchDuration = Date.now() - ordersSearchStart;
+        let data;
+        try {
+            data = await makeSquareRequest('/v2/orders/search', {
+                method: 'POST',
+                accessToken,
+                timeout: 15000,
+                body: JSON.stringify(requestBody)
+            });
 
-        loyaltyLogger.squareApi({
-            endpoint: '/orders/search', method: 'POST',
-            status: response.status, duration: ordersSearchDuration,
-            success: response.ok, merchantId, context: 'findMissedQualifyingOrders',
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(`Square API error: ${JSON.stringify(errorData)}`);
+            loyaltyLogger.squareApi({
+                endpoint: '/orders/search', method: 'POST',
+                status: 200, duration: Date.now() - ordersSearchStart,
+                success: true, merchantId, context: 'findMissedQualifyingOrders',
+            });
+        } catch (error) {
+            const status = error instanceof SquareApiError ? error.status : 0;
+            loyaltyLogger.squareApi({
+                endpoint: '/orders/search', method: 'POST',
+                status, duration: Date.now() - ordersSearchStart,
+                success: false, merchantId, context: 'findMissedQualifyingOrders',
+            });
+            throw error;
         }
 
-        const data = await response.json();
         orders.push(...(data.orders || []));
         cursor = data.cursor;
     } while (cursor);
@@ -339,8 +345,13 @@ async function addOrdersToLoyaltyTracking({ squareCustomerId, merchantId, orderI
         squareCustomerId, merchantId, orderCount: orderIds.length
     });
 
-    const accessToken = await getSquareAccessToken(merchantId);
-    if (!accessToken) {
+    // getMerchantToken throws when merchant is missing/inactive/no token;
+    // legacy getSquareAccessToken returned null for the same cases. Preserve
+    // the prior "No access token available" error for callers.
+    let accessToken;
+    try {
+        accessToken = await getMerchantToken(merchantId);
+    } catch (err) {
         throw new Error('No access token available');
     }
 
@@ -349,28 +360,35 @@ async function addOrdersToLoyaltyTracking({ squareCustomerId, merchantId, orderI
     for (const orderId of orderIds) {
         try {
             const orderFetchStart = Date.now();
-            const response = await fetchWithTimeout(`https://connect.squareup.com/v2/orders/${orderId}`, {
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    'Square-Version': SQUARE_API_VERSION
+            let data;
+            try {
+                data = await makeSquareRequest(`/v2/orders/${orderId}`, {
+                    method: 'GET',
+                    accessToken,
+                    timeout: 10000
+                });
+
+                loyaltyLogger.squareApi({
+                    endpoint: `/orders/${orderId}`, method: 'GET',
+                    status: 200, duration: Date.now() - orderFetchStart,
+                    success: true, merchantId, context: 'addManualOrders',
+                });
+            } catch (fetchError) {
+                const status = fetchError instanceof SquareApiError ? fetchError.status : 0;
+                loyaltyLogger.squareApi({
+                    endpoint: `/orders/${orderId}`, method: 'GET',
+                    status, duration: Date.now() - orderFetchStart,
+                    success: false, merchantId, context: 'addManualOrders',
+                });
+
+                if (fetchError instanceof SquareApiError) {
+                    const errorData = { errors: fetchError.details || [] };
+                    results.errors.push({ orderId, error: `Square API: ${JSON.stringify(errorData)}` });
+                    continue;
                 }
-            }, 10000);
-            const orderFetchDuration = Date.now() - orderFetchStart;
-
-            loyaltyLogger.squareApi({
-                endpoint: `/orders/${orderId}`, method: 'GET',
-                status: response.status, duration: orderFetchDuration,
-                success: response.ok, merchantId, context: 'addManualOrders',
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                results.errors.push({ orderId, error: `Square API: ${JSON.stringify(errorData)}` });
-                continue;
+                throw fetchError;
             }
 
-            const data = await response.json();
             const order = data.order;
             if (!order) {
                 results.errors.push({ orderId, error: 'Order not found' });
