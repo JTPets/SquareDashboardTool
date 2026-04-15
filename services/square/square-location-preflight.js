@@ -25,7 +25,10 @@ const { SYNC: { CATALOG_BATCH_SIZE, INTER_BATCH_DELAY_MS } } = require('../../co
  * @returns {boolean}
  */
 function isItemEnabledAtLocation(itemObj, locationId) {
-    if (itemObj.present_at_all_locations === true) return true;
+    if (itemObj.present_at_all_locations === true) {
+        const absentIds = itemObj.absent_at_location_ids || [];
+        if (!absentIds.includes(locationId)) return true;
+    }
     const presentAt = itemObj.present_at_location_ids || [];
     return presentAt.includes(locationId);
 }

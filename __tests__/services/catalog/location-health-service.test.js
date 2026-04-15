@@ -132,6 +132,61 @@ describe('checkAndRecordHealth', () => {
             expect(insertCall).toBeUndefined();
         });
 
+        it('detects mismatch when item present_at_all=true has absent_at_location_ids and variation present_at_all=true', async () => {
+            // Production case: item present_at_all=true AND absent_at_location_ids=["LOC_X"].
+            // Variation present_at_all=true means it IS at LOC_X while the parent is NOT.
+            const variation = makeSquareVariation('VAR_1', { present_at_all_locations: true });
+            const item = makeSquareItem('ITEM_1', [variation], {
+                present_at_all_locations: true,
+                absent_at_location_ids: ['LOC_X'],
+            });
+
+            makeSquareRequest.mockResolvedValueOnce(squarePage([item]));
+            db.query
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [] });
+
+            const result = await checkAndRecordHealth(MERCHANT_ID);
+            expect(result.newMismatches).toBe(1);
+        });
+
+        it('detects mismatch when item present_at_all=true has absent_at_location_ids and variation lists that location explicitly', async () => {
+            const variation = makeSquareVariation('VAR_1', {
+                present_at_all_locations: false,
+                present_at_location_ids: ['LOC_X'],
+            });
+            const item = makeSquareItem('ITEM_1', [variation], {
+                present_at_all_locations: true,
+                absent_at_location_ids: ['LOC_X'],
+            });
+
+            makeSquareRequest.mockResolvedValueOnce(squarePage([item]));
+            db.query
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [] });
+
+            const result = await checkAndRecordHealth(MERCHANT_ID);
+            expect(result.newMismatches).toBe(1);
+        });
+
+        it('does not flag when item and variation both have the same absent_at_location_ids', async () => {
+            // Item absent at LOC_X, variation also absent at LOC_X → no conflict
+            const variation = makeSquareVariation('VAR_1', {
+                present_at_all_locations: true,
+                absent_at_location_ids: ['LOC_X'],
+            });
+            const item = makeSquareItem('ITEM_1', [variation], {
+                present_at_all_locations: true,
+                absent_at_location_ids: ['LOC_X'],
+            });
+
+            makeSquareRequest.mockResolvedValueOnce(squarePage([item]));
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            const result = await checkAndRecordHealth(MERCHANT_ID);
+            expect(result.newMismatches).toBe(0);
+        });
+
         it('does not flag when both have present_at_all_locations=false with no extra location IDs', async () => {
             const variation = makeSquareVariation('VAR_1', { present_at_all_locations: false });
             const item = makeSquareItem('ITEM_1', [variation], { present_at_all_locations: false });

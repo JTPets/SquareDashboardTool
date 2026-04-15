@@ -122,6 +122,21 @@ describe('getCatalogAudit', () => {
             expect(sql).toContain('item_present_at_all = FALSE');
             expect(sql).toContain('variation_present_at_location_ids');
         });
+
+        it('contains Case 4: item present_at_all=TRUE with absent_at_location_ids override', async () => {
+            // Square treats absent_at_location_ids as authoritative over present_at_all_locations=true.
+            // The SQL must detect when item is absent at a location but variation is present there.
+            await getCatalogAudit(MERCHANT_ID);
+            const sql = db.query.mock.calls[0][0];
+            expect(sql).toContain('item_absent_at_location_ids');
+            expect(sql).toContain('jsonb_array_length(item_absent_at_location_ids)');
+        });
+
+        it('selects item_absent_at_location_ids in the CTE', async () => {
+            await getCatalogAudit(MERCHANT_ID);
+            const sql = db.query.mock.calls[0][0];
+            expect(sql).toContain('i.absent_at_location_ids as item_absent_at_location_ids');
+        });
     });
 
     // =========================================================================

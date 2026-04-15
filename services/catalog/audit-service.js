@@ -61,6 +61,7 @@ async function getCatalogAudit(merchantId, filters = {}) {
                 i.images as item_images,
                 i.present_at_all_locations as item_present_at_all,
                 i.present_at_location_ids as item_present_at_location_ids,
+                i.absent_at_location_ids as item_absent_at_location_ids,
                 v.present_at_all_locations as variation_present_at_all,
                 v.present_at_location_ids as variation_present_at_location_ids,
                 -- Check for vendor assignment
@@ -170,6 +171,9 @@ async function getCatalogAudit(merchantId, filters = {}) {
             -- Case 1: variation claims all-locations but item is restricted (variation too permissive)
             -- Case 2: item claims all-locations but variation is still restricted (variation too restrictive)
             -- Case 3: both restricted, but variation has location IDs absent from the parent item's list
+            -- Case 4: item present_at_all=TRUE but absent_at_location_ids overrides some locations,
+            --         and the variation is present at one or more of those absent locations.
+            --         Square treats absent_at_location_ids as authoritative over the flag.
             (
                 (variation_present_at_all = TRUE AND item_present_at_all = FALSE)
                 OR (item_present_at_all = TRUE AND variation_present_at_all = FALSE)
@@ -179,6 +183,21 @@ async function getCatalogAudit(merchantId, filters = {}) {
                     AND variation_present_at_location_ids IS NOT NULL
                     AND jsonb_array_length(variation_present_at_location_ids) > 0
                     AND NOT (COALESCE(item_present_at_location_ids, '[]'::jsonb) @> variation_present_at_location_ids)
+                )
+                OR (
+                    item_present_at_all = TRUE
+                    AND item_absent_at_location_ids IS NOT NULL
+                    AND jsonb_array_length(item_absent_at_location_ids) > 0
+                    AND (
+                        variation_present_at_all = TRUE
+                        OR (
+                            variation_present_at_all = FALSE
+                            AND variation_present_at_location_ids IS NOT NULL
+                            AND jsonb_array_length(variation_present_at_location_ids) > 0
+                            AND ARRAY(SELECT jsonb_array_elements_text(item_absent_at_location_ids))
+                                && ARRAY(SELECT jsonb_array_elements_text(variation_present_at_location_ids))
+                        )
+                    )
                 )
             ) as location_mismatch,
             -- Not at all locations: variation is not set to present_at_all_locations.

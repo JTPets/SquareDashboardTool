@@ -179,6 +179,24 @@ function checkLocationMismatches(items) {
                 }
             }
 
+            // absent_at_location_ids override check: Square treats absent_at_location_ids as
+            // authoritative over present_at_all_locations=true. If the item is absent at a
+            // location but the variation is present there, Square returns 400 INVALID_VALUE.
+            const itemAbsentIds = item.absent_at_location_ids || [];
+            if (itemPresentAll && itemAbsentIds.length > 0) {
+                const varAbsentSet = new Set(variation.absent_at_location_ids || []);
+                const varPresentSet = new Set(variation.present_at_location_ids || []);
+                const conflicting = itemAbsentIds.filter(locId => {
+                    if (varPresentAll) return !varAbsentSet.has(locId);
+                    return varPresentSet.has(locId);
+                });
+                if (conflicting.length > 0) {
+                    mismatches.push(
+                        `absent_at_location_ids override: item not at [${conflicting.join(', ')}] but variation is present`
+                    );
+                }
+            }
+
             if (mismatches.length > 0) {
                 issues.push({
                     check_type: 'location_mismatch',

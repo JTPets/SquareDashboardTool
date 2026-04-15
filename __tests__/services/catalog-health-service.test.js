@@ -279,6 +279,101 @@ describe('CHECK 1: location_mismatch', () => {
         expect(locationIssues).toHaveLength(0);
     });
 
+    // absent_at_location_ids override checks
+
+    test('detects mismatch when item present_at_all=true has absent_at_location_ids and variation present_at_all=true', async () => {
+        // Production case: item U6HPEUEJWY3T7NQMDGJQ4DZL — present_at_all_locations=true
+        // AND absent_at_location_ids=["EDVJ38R7K424Q"]. Variation also present_at_all=true
+        // means it IS at EDVJ38R7K424Q while the parent is NOT → Square 400 INVALID_VALUE.
+        const item = buildItem('ITEM_1', {
+            present_at_all_locations: true,
+            absent_at_location_ids: ['LOC_X'],
+            item_data: {
+                variations: [{ id: 'VAR_1', present_at_all_locations: true }],
+                categories: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValue({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        expect(result.newIssues).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ check_type: 'location_mismatch', object_id: 'VAR_1' })
+            ])
+        );
+    });
+
+    test('detects mismatch when item present_at_all=true has absent_at_location_ids and variation lists that location explicitly', async () => {
+        const item = buildItem('ITEM_1', {
+            present_at_all_locations: true,
+            absent_at_location_ids: ['LOC_X'],
+            item_data: {
+                variations: [{
+                    id: 'VAR_1',
+                    present_at_all_locations: false,
+                    present_at_location_ids: ['LOC_X', 'LOC_Y']
+                }],
+                categories: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValue({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        expect(result.newIssues).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ check_type: 'location_mismatch', object_id: 'VAR_1' })
+            ])
+        );
+    });
+
+    test('no mismatch when item and variation both have the same absent_at_location_ids override', async () => {
+        // Item absent at LOC_X, variation also absent at LOC_X → both agree → no conflict
+        const item = buildItem('ITEM_1', {
+            present_at_all_locations: true,
+            absent_at_location_ids: ['LOC_X'],
+            item_data: {
+                variations: [{
+                    id: 'VAR_1',
+                    present_at_all_locations: true,
+                    absent_at_location_ids: ['LOC_X']  // variation also absent at LOC_X
+                }],
+                categories: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        const locationIssues = result.newIssues.filter(i => i.check_type === 'location_mismatch');
+        expect(locationIssues).toHaveLength(0);
+    });
+
+    test('no mismatch when item present_at_all=true with empty absent_at_location_ids and variation present_at_all=true', async () => {
+        // Existing healthy case — no regression
+        const item = buildItem('ITEM_1', {
+            present_at_all_locations: true,
+            absent_at_location_ids: [],
+            item_data: {
+                variations: [{ id: 'VAR_1', present_at_all_locations: true }],
+                categories: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        const locationIssues = result.newIssues.filter(i => i.check_type === 'location_mismatch');
+        expect(locationIssues).toHaveLength(0);
+    });
+
     test('no mismatch when both flags false and variation has no location IDs', async () => {
         const item = buildItem('ITEM_1', {
             present_at_all_locations: false,
