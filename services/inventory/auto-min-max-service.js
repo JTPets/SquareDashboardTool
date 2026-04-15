@@ -22,9 +22,11 @@
  *   1. Stale velocity: abort if sales_velocity not updated in 7+ days
  *   2. Circuit breaker: abort if reductions > 20% of all items with min > 0
  *
- * Note: sales_velocity has no last_sold_at column.
- * Recent-sales check uses loyalty_purchase_events.purchased_at (most recent non-refund sale).
- * Items with no loyalty data are considered "not recently sold" for the safety check.
+ * Note: Rule 2 uses sales_velocity.total_quantity_sold (period_days=91) as the
+ * "recently sold" signal. This captures ALL sales from the Square Orders API —
+ * not just loyalty customers. Previously we read loyalty_purchase_events, which
+ * only observed loyalty-enrolled buyers and incorrectly flagged non-loyalty fast
+ * movers as "possible supplier issue".
  */
 
 const db = require('../../utils/database');
@@ -55,13 +57,7 @@ const DATA_QUERY = `
         COALESCE(vls.min_stock_pinned, FALSE) AS min_stock_pinned,
         edt.tier_code AS expiry_tier,
         i.created_at AS item_created_at,
-        (
-            SELECT MAX(lpe.purchased_at)
-            FROM loyalty_purchase_events lpe
-            WHERE lpe.variation_id = sv.variation_id
-              AND lpe.merchant_id = $1
-              AND lpe.is_refund = FALSE
-        ) AS last_sold_at,
+        sv.total_quantity_sold AS total_quantity_sold_91d,
         vls.last_received_at,
         (
             SELECT MAX(msa.created_at)
@@ -108,11 +104,10 @@ async function generateRecommendations(merchantId) {
     if (!merchantId) throw new Error('merchantId is required');
 
     const result = await db.query(DATA_QUERY, [merchantId]);
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const ninetyOneDaysAgo = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000);
 
     return result.rows
-        .map(row => _evaluateRules(row, thirtyDaysAgo, ninetyOneDaysAgo))
+        .map(row => _evaluateRules(row, ninetyOneDaysAgo))
         .filter(Boolean);
 }
 
@@ -510,7 +505,7 @@ async function getHistory(merchantId, { startDate, endDate, rule, limit = 50, of
  * Evaluate eligibility and business rules for a single data row.
  * Returns a recommendation object, a skip object, or null if no change needed.
  */
-function _evaluateRules(row, thirtyDaysAgo, ninetyOneDaysAgo) {
+function _evaluateRules(row, ninetyOneDaysAgo) {
     // Eligibility: skip items with < 91 days of history (checked first — data quality gate)
     const itemAge = row.item_created_at ? new Date(row.item_created_at) : null;
     if (!itemAge || itemAge > ninetyOneDaysAgo) {
@@ -556,12 +551,20 @@ function _evaluateRules(row, thirtyDaysAgo, ninetyOneDaysAgo) {
     // Rule 2: sold-out fast mover → min + 1
     // Threshold: 0.02/day = ~1 unit/week (daily_avg_quantity from sales_velocity)
     // Note: reorder page displays weekly_avg_quantity — 0.14/week ≈ 0.02/day
+    //
+    // "Recently sold" uses sales_velocity.total_quantity_sold (period_days=91),
+    // which reflects ALL sales from the Square Orders API. We used to read
+    // loyalty_purchase_events, but that only captures loyalty-enrolled buyers —
+    // non-loyalty purchases were invisible, so valid sold-out fast movers were
+    // being flagged as "possible supplier issue" and skipped. The 91-day window
+    // is conservative enough that a separate 30-day gate is unnecessary: an item
+    // with vel >= 0.02/day that sold 0 units in 91 days would have vel = 0 and
+    // would already be filtered out by the velocity gate above.
     if (qty === 0 && vel >= 0.02) {
         const cap = Math.ceil(vel * 30);
         if (min >= cap) return null;
 
-        const recentlySold = row.last_sold_at &&
-            new Date(row.last_sold_at) >= thirtyDaysAgo;
+        const recentlySold = row.total_quantity_sold_91d > 0;
 
         if (!recentlySold) {
             return _buildRec(row, null, 'SOLDOUT_FAST_MOVER',

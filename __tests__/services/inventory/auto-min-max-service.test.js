@@ -47,7 +47,7 @@ function makeRow(overrides = {}) {
         min_stock_pinned: false,
         expiry_tier: null,
         item_created_at: oldItemDate(),  // old enough by default
-        last_sold_at: null,
+        total_quantity_sold_91d: null,
         last_received_at: null,
         last_auto_increase_at: null,
         ...overrides,
@@ -57,16 +57,6 @@ function makeRow(overrides = {}) {
 // Helper: ISO timestamp N days ago
 function daysAgo(n) {
     return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
-}
-
-// Helper: date within last 30 days
-function recentDate() {
-    return new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
-}
-
-// Helper: date older than 30 days
-function oldDate() {
-    return new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString();
 }
 
 // Helper: item created > 91 days ago (eligible)
@@ -228,7 +218,7 @@ describe('generateRecommendations', () => {
     test('Rule 2: quantity 0, velocity 0.2, min 0, recently sold → recommend 1', async () => {
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.2', current_min: '0',
-                days_of_stock: '0', last_sold_at: recentDate() })
+                days_of_stock: '0', total_quantity_sold_91d: 5 })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(1);
@@ -236,10 +226,10 @@ describe('generateRecommendations', () => {
         expect(recs[0].rule).toBe('SOLDOUT_FAST_MOVER');
     });
 
-    test('Rule 2: quantity 0, velocity 0.2, no sales in 30 days → included as warning (null min)', async () => {
+    test('Rule 2: quantity 0, velocity 0.2, total_quantity_sold_91d = 0 → included as warning (null min)', async () => {
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.2', current_min: '0',
-                days_of_stock: '0', last_sold_at: oldDate() })
+                days_of_stock: '0', total_quantity_sold_91d: 0 })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(1);
@@ -250,7 +240,7 @@ describe('generateRecommendations', () => {
     test('Rule 2: quantity 0, velocity 0.019 → no recommendation (under 0.02)', async () => {
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.019', current_min: '0',
-                days_of_stock: '0', last_sold_at: recentDate() })
+                days_of_stock: '0', total_quantity_sold_91d: 5 })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(0);
@@ -259,7 +249,7 @@ describe('generateRecommendations', () => {
     test('Rule 2: quantity 0, velocity 0.02 → recommend 1 (at threshold)', async () => {
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.02', current_min: '0',
-                days_of_stock: '0', last_sold_at: recentDate() })
+                days_of_stock: '0', total_quantity_sold_91d: 5 })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(1);
@@ -270,7 +260,7 @@ describe('generateRecommendations', () => {
     test('Rule 2: quantity 0, velocity 0.022 (Cod Fillet case) → recommend 1', async () => {
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.022', current_min: '0',
-                days_of_stock: '0', last_sold_at: recentDate() })
+                days_of_stock: '0', total_quantity_sold_91d: 5 })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(1);
@@ -278,10 +268,10 @@ describe('generateRecommendations', () => {
         expect(recs[0].rule).toBe('SOLDOUT_FAST_MOVER');
     });
 
-    test('Rule 2: quantity 0, no last_sold_at → treated as no recent sales (warning)', async () => {
+    test('Rule 2: quantity 0, total_quantity_sold_91d is null → treated as no recent sales (warning)', async () => {
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.2', current_min: '0',
-                days_of_stock: '0', last_sold_at: null })
+                days_of_stock: '0', total_quantity_sold_91d: null })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(1);
@@ -292,7 +282,7 @@ describe('generateRecommendations', () => {
         // velocity=0.5, cap=ceil(0.5*30)=15, min=15 → min >= cap → no rec
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.5', current_min: '15',
-                days_of_stock: '0', last_sold_at: recentDate() })
+                days_of_stock: '0', total_quantity_sold_91d: 5 })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(0);
@@ -301,7 +291,7 @@ describe('generateRecommendations', () => {
     test('Rule 2: recommended value never exceeds cap (ceil * 30)', async () => {
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.5', current_min: '0',
-                days_of_stock: '0', last_sold_at: recentDate() })
+                days_of_stock: '0', total_quantity_sold_91d: 5 })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         const cap = Math.ceil(0.5 * 30); // 15
@@ -313,7 +303,7 @@ describe('generateRecommendations', () => {
     test('Rule 2 restock gate: no previous auto-increase (first bump ever) → allowed', async () => {
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.2', current_min: '0',
-                days_of_stock: '0', last_sold_at: recentDate(),
+                days_of_stock: '0', total_quantity_sold_91d: 5,
                 last_auto_increase_at: null, last_received_at: null })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
@@ -325,7 +315,7 @@ describe('generateRecommendations', () => {
     test('Rule 2 restock gate: last_received_at after last auto-increase → allowed', async () => {
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.2', current_min: '0',
-                days_of_stock: '0', last_sold_at: recentDate(),
+                days_of_stock: '0', total_quantity_sold_91d: 5,
                 last_auto_increase_at: daysAgo(10),  // increased 10 days ago
                 last_received_at: daysAgo(3) })       // restocked 3 days ago (after increase)
         ]});
@@ -338,7 +328,7 @@ describe('generateRecommendations', () => {
     test('Rule 2 restock gate: last_received_at before last auto-increase → skipped', async () => {
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.2', current_min: '0',
-                days_of_stock: '0', last_sold_at: recentDate(),
+                days_of_stock: '0', total_quantity_sold_91d: 5,
                 last_auto_increase_at: daysAgo(3),   // increased 3 days ago
                 last_received_at: daysAgo(10) })      // last restock was 10 days ago (before increase)
         ]});
@@ -351,7 +341,7 @@ describe('generateRecommendations', () => {
     test('Rule 2 restock gate: last_received_at IS NULL with prior increase → skipped', async () => {
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.2', current_min: '0',
-                days_of_stock: '0', last_sold_at: recentDate(),
+                days_of_stock: '0', total_quantity_sold_91d: 5,
                 last_auto_increase_at: daysAgo(5),
                 last_received_at: null })
         ]});
@@ -417,7 +407,7 @@ describe('generateRecommendations', () => {
     test('Rule 3 overrides Rule 2: sold out + expiry → recommend 0 (not increase)', async () => {
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.3', current_min: '1',
-                days_of_stock: '0', last_sold_at: recentDate(), expiry_tier: 'AUTO25' })
+                days_of_stock: '0', total_quantity_sold_91d: 5, expiry_tier: 'AUTO25' })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(1);
@@ -491,7 +481,7 @@ describe('generateRecommendations', () => {
         // min=0, vel=0.5, recommended=1; current_max=5 → 1 < 5 → allowed
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.5', current_min: '0',
-                current_max: '5', days_of_stock: '0', last_sold_at: recentDate() })
+                current_max: '5', days_of_stock: '0', total_quantity_sold_91d: 5 })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(1);
@@ -504,7 +494,7 @@ describe('generateRecommendations', () => {
         // min=0, vel=0.5, recommended=1; current_max=1 → 1 >= 1 → skip
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.5', current_min: '0',
-                current_max: '1', days_of_stock: '0', last_sold_at: recentDate() })
+                current_max: '1', days_of_stock: '0', total_quantity_sold_91d: 5 })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(1);
@@ -517,7 +507,7 @@ describe('generateRecommendations', () => {
         // min=3, vel=0.5, recommended=4 (capped at ceil(0.5*30)=15); current_max=2 → 4 > 2 → skip
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.5', current_min: '3',
-                current_max: '2', days_of_stock: '0', last_sold_at: recentDate() })
+                current_max: '2', days_of_stock: '0', total_quantity_sold_91d: 5 })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(1);
@@ -529,7 +519,7 @@ describe('generateRecommendations', () => {
     test('Conflict guard: current_max IS NULL → increase allowed with no_max_set warning', async () => {
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.5', current_min: '0',
-                current_max: null, days_of_stock: '0', last_sold_at: recentDate() })
+                current_max: null, days_of_stock: '0', total_quantity_sold_91d: 5 })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(1);
@@ -541,7 +531,7 @@ describe('generateRecommendations', () => {
     test('Conflict guard: current_max = 0 → increase allowed with no_max_set warning', async () => {
         db.query.mockResolvedValueOnce({ rows: [
             makeRow({ quantity: '0', velocity_91d: '0.5', current_min: '0',
-                current_max: '0', days_of_stock: '0', last_sold_at: recentDate() })
+                current_max: '0', days_of_stock: '0', total_quantity_sold_91d: 5 })
         ]});
         const recs = await service.generateRecommendations(MERCHANT_ID);
         expect(recs).toHaveLength(1);
@@ -622,7 +612,7 @@ describe('applyWeeklyAdjustments', () => {
             .mockResolvedValueOnce({ rows: [{ last_sync: freshSyncDate() }] }) // stale check
             .mockResolvedValueOnce({ rows: [
                 makeRow({ variation_id: 'var1', days_of_stock: '95', current_min: '2', velocity_91d: '0.5', quantity: '9' }),
-                makeRow({ variation_id: 'var2', quantity: '0', velocity_91d: '0.5', current_min: '0', days_of_stock: '0', last_sold_at: recentDate() }),
+                makeRow({ variation_id: 'var2', quantity: '0', velocity_91d: '0.5', current_min: '0', days_of_stock: '0', total_quantity_sold_91d: 5 }),
             ]}) // DATA_QUERY
             .mockResolvedValueOnce({ rows: [{ total: '100' }] }); // circuit breaker: 1/100 = 1% < 20%
 
@@ -724,7 +714,7 @@ describe('applyWeeklyAdjustments', () => {
                     days_of_stock: '95', current_min: '2', velocity_91d: '0.5', quantity: '9' }),
                 makeRow({ variation_id: 'var2', location_id: 'loc1',
                     quantity: '0', velocity_91d: '0.5', current_min: '0',
-                    days_of_stock: '0', last_sold_at: recentDate() }),
+                    days_of_stock: '0', total_quantity_sold_91d: 5 }),
             ]}) // DATA_QUERY
             .mockResolvedValueOnce({ rows: [{ total: '100' }] }); // circuit breaker: 1/100 = 1%
 
@@ -756,7 +746,7 @@ describe('applyWeeklyAdjustments', () => {
                 makeRow({ variation_id: 'var-conflict', location_id: 'loc1',
                     item_name: 'Cat Food 5kg', variation_name: 'Chicken',
                     quantity: '0', velocity_91d: '0.5', current_min: '3',
-                    current_max: '2', days_of_stock: '0', last_sold_at: recentDate() }),
+                    current_max: '2', days_of_stock: '0', total_quantity_sold_91d: 5 }),
             ]}); // DATA_QUERY — only a conflict rec, no applicable
 
         const result = await service.applyWeeklyAdjustments(MERCHANT_ID);
@@ -793,10 +783,10 @@ describe('applyWeeklyAdjustments', () => {
             .mockResolvedValueOnce({ rows: [
                 makeRow({ variation_id: 'var-ok', location_id: 'loc1',
                     quantity: '0', velocity_91d: '0.5', current_min: '0',
-                    current_max: null, days_of_stock: '0', last_sold_at: recentDate() }),
+                    current_max: null, days_of_stock: '0', total_quantity_sold_91d: 5 }),
                 makeRow({ variation_id: 'var-conflict', location_id: 'loc1',
                     quantity: '0', velocity_91d: '0.5', current_min: '3',
-                    current_max: '2', days_of_stock: '0', last_sold_at: recentDate() }),
+                    current_max: '2', days_of_stock: '0', total_quantity_sold_91d: 5 }),
             ]})
             .mockResolvedValueOnce({ rows: [{ total: '100' }] });
 
