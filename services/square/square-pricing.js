@@ -19,6 +19,7 @@ const logger = require('../../utils/logger');
 const { getMerchantToken, makeSquareRequest, sleep, generateIdempotencyKey } = require('./square-client');
 const { ensureVendorsExist } = require('./square-vendors');
 const { enableItemAtAllLocations } = require('./square-diagnostics');
+const { withLocationRepair } = require('./with-location-repair');
 const { SYNC: { CATALOG_BATCH_SIZE, INTER_BATCH_DELAY_MS } } = require('../../config/constants');
 
 /**
@@ -119,15 +120,22 @@ async function batchUpdateVariationPrices(priceUpdates, merchantId) {
 
             if (updateObjects.length === 0) continue;
 
-            // Batch upsert
+            // Batch upsert — withLocationRepair catches INVALID_VALUE/item_id,
+            // repairs parent-item location mismatches, and retries once.
             const idempotencyKey = generateIdempotencyKey('price-batch');
+            const updateVariationIds = updateObjects.map(o => o.id);
 
-            const upsertData = await makeSquareRequest('/v2/catalog/batch-upsert', {
+            const upsertData = await withLocationRepair({
+                merchantId,
                 accessToken,
-                method: 'POST',
-                body: JSON.stringify({
-                    idempotency_key: idempotencyKey,
-                    batches: [{ objects: updateObjects }]
+                variationIds: updateVariationIds,
+                fn: () => makeSquareRequest('/v2/catalog/batch-upsert', {
+                    accessToken,
+                    method: 'POST',
+                    body: JSON.stringify({
+                        idempotency_key: idempotencyKey,
+                        batches: [{ objects: updateObjects }]
+                    })
                 })
             });
 

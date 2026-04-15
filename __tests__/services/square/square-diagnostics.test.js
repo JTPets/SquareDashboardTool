@@ -16,6 +16,9 @@ jest.mock('../../../services/square/square-client', () => ({
 jest.mock('../../../config/constants', () => ({
     SQUARE: { MAX_PAGINATION_ITERATIONS: 50 }
 }));
+jest.mock('../../../services/square/with-location-repair', () => ({
+    withLocationRepair: jest.fn().mockImplementation(({ fn }) => fn())
+}));
 
 const { fixLocationMismatches, fixInventoryAlerts, enableItemAtAllLocations } = require('../../../services/square/square-diagnostics');
 const db = require('../../../utils/database');

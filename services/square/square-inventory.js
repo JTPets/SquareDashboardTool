@@ -19,8 +19,8 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { getMerchantToken, makeSquareRequest, sleep, generateIdempotencyKey } = require('./square-client');
-const { enableItemAtAllLocations } = require('./square-diagnostics');
 const { repairParentLocationMismatches } = require('./square-location-preflight');
+const { withLocationRepair } = require('./with-location-repair');
 const { syncReceiveAdjustments } = require('./inventory-receive-sync');
 
 // LOGIC CHANGE: use centralized cache/retry config from constants (C-1)
@@ -307,14 +307,10 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
     // Get merchant-specific access token
     const accessToken = await getMerchantToken(merchantId);
 
-    // Hoist outside try so catch block can reference for auto-heal
-    let currentVariationData = null;
-    let hasAutoHealed = false;
-
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            // Retrieve the current catalog object to get its version and existing overrides
-            // This is done inside the retry loop to get the latest version on each attempt
+            // Retrieve the current catalog object to get its version and existing overrides.
+            // Done inside the retry loop so each VERSION_MISMATCH attempt uses a fresh version.
             const retrieveData = await makeSquareRequest(`/v2/catalog/object/${catalogObjectId}?include_related_objects=false`, { accessToken });
 
             if (!retrieveData.object) {
@@ -327,7 +323,7 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
                 throw new Error(`Object is not a variation: ${currentObject.type}`);
             }
 
-            currentVariationData = currentObject.item_variation_data || {};
+            const currentVariationData = currentObject.item_variation_data || {};
             const existingOverrides = currentVariationData.location_overrides || [];
 
             // Determine alert type based on threshold
@@ -373,10 +369,17 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
                 }
             };
 
-            const data = await makeSquareRequest('/v2/catalog/object', {
-                method: 'POST',
-                body: JSON.stringify(updateBody),
-                accessToken
+            // withLocationRepair catches INVALID_VALUE/item_id, repairs parent-item
+            // location mismatches via repairParentLocationMismatches, and retries once.
+            const data = await withLocationRepair({
+                merchantId,
+                accessToken,
+                variationIds: [catalogObjectId],
+                fn: () => makeSquareRequest('/v2/catalog/object', {
+                    method: 'POST',
+                    body: JSON.stringify(updateBody),
+                    accessToken
+                })
             });
 
             logger.info('Square inventory alert threshold updated (location-specific)', {
@@ -394,7 +397,7 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
                 id_mappings: data.id_mappings
             };
         } catch (error) {
-            // Check if this is a VERSION_MISMATCH error that we can retry
+            // VERSION_MISMATCH: re-fetch object version and retry the full attempt
             const isVersionMismatch = error.message && error.message.includes('VERSION_MISMATCH');
 
             if (isVersionMismatch && attempt < MAX_RETRIES) {
@@ -407,41 +410,6 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
                 // Small delay before retry to allow concurrent updates to complete
                 await new Promise(resolve => setTimeout(resolve, 100 * attempt));
                 continue;
-            }
-
-            // Check if parent item is not enabled at the location
-            // Detect via structured Square error fields (preferred) or message string (fallback)
-            const squareErrors = error.squareErrors || [];
-            const hasStructuredLocationMismatch = squareErrors.some(e =>
-                e.code === 'INVALID_VALUE' && e.field === 'item_id'
-            );
-            const hasMessageLocationMismatch = error.message &&
-                error.message.includes('is enabled at unit') &&
-                error.message.includes('of type ITEM is not');
-            const isLocationMismatch = hasStructuredLocationMismatch || hasMessageLocationMismatch;
-
-            if (isLocationMismatch) {
-                let itemId = currentVariationData?.item_id || null;
-                if (!itemId) {
-                    const row = await db.query(
-                        'SELECT item_id FROM variations WHERE id = $1 AND merchant_id = $2',
-                        [catalogObjectId, merchantId]
-                    );
-                    itemId = row.rows[0]?.item_id || null;
-                }
-
-                if (!hasAutoHealed && itemId) {
-                    await enableItemAtAllLocations(itemId, merchantId);
-                    hasAutoHealed = true;
-                    logger.info('Auto-healed parent item location mismatch for inventory alert', {
-                        catalogObjectId, itemId, merchantId
-                    });
-                    continue;
-                }
-
-                // Auto-heal already attempted or no item_id found — annotate and throw
-                error.code = 'ITEM_NOT_AT_LOCATION';
-                error.parentItemId = itemId;
             }
 
             logger.error('Failed to update Square inventory alert threshold', {
