@@ -8,7 +8,7 @@
  *   Rule 1 (OVERSTOCKED):       days_of_stock > 90 AND min > 0
  *                                AND (qty - min) <= vel * REORDER_PROXIMITY_DAYS → recommend min - 1
  *                                (env: REORDER_PROXIMITY_DAYS, default 14)
- *   Rule 2 (SOLDOUT_FAST_MOVER): qty=0, velocity>=0.15, min < ceil(vel*30) → min + 1
+ *   Rule 2 (SOLDOUT_FAST_MOVER): qty=0, velocity>=0.02, min < ceil(vel*30) → min + 1
  *                                Restock gate: skips if last_received_at ≤ last auto-increase date
  *                                (prevents infinite ratchet on supply-constrained items)
  *   Rule 3 (EXPIRING):          tier IN (AUTO25, AUTO50, EXPIRED) → recommend 0
@@ -553,8 +553,10 @@ function _evaluateRules(row, thirtyDaysAgo, ninetyOneDaysAgo) {
             `Overstocked (${Math.round(dos)} days) and min would trigger reorder within ${proximityDays} days`);
     }
 
-    // Rule 2: sold out fast mover → min + 1 (capped at ceil(vel * 30))
-    if (qty === 0 && vel >= 0.15) {
+    // Rule 2: sold-out fast mover → min + 1
+    // Threshold: 0.02/day = ~1 unit/week (daily_avg_quantity from sales_velocity)
+    // Note: reorder page displays weekly_avg_quantity — 0.14/week ≈ 0.02/day
+    if (qty === 0 && vel >= 0.02) {
         const cap = Math.ceil(vel * 30);
         if (min >= cap) return null;
 
