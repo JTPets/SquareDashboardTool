@@ -353,7 +353,8 @@ async function fixInventoryAlerts(merchantId) {
 
             try {
                 // withLocationRepair catches INVALID_VALUE/item_id, repairs
-                // parent-item location mismatches, and retries once.
+                // parent-item location mismatches, and retries once. The
+                // `result` is unused here — only the side effect matters.
                 await withLocationRepair({
                     merchantId,
                     accessToken,

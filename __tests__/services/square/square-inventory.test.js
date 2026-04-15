@@ -23,7 +23,7 @@ jest.mock('../../../services/square/square-client', () => ({
 }));
 jest.mock('../../../config/constants', () => ({
     SQUARE: { MAX_PAGINATION_ITERATIONS: 50 },
-    SYNC: { BATCH_DELAY_MS: 0, INTER_BATCH_DELAY_MS: 0 },
+    SYNC: { BATCH_DELAY_MS: 0, INTER_BATCH_DELAY_MS: 0, CATALOG_BATCH_SIZE: 100 },
     CACHE: { INVOICES_SCOPE_TTL_MS: 3600000 },
     RETRY: { MAX_ATTEMPTS: 3, BASE_DELAY_MS: 1000, MAX_DELAY_MS: 30000 }
 }));
@@ -34,7 +34,13 @@ jest.mock('../../../services/square/inventory-receive-sync', () => ({
     syncReceiveAdjustments: jest.fn().mockResolvedValue(0)
 }));
 jest.mock('../../../services/square/with-location-repair', () => ({
-    withLocationRepair: jest.fn().mockImplementation(({ fn }) => fn())
+    withLocationRepair: jest.fn().mockImplementation(async ({ fn }) => ({
+        result: await fn(),
+        repairedCount: 0
+    }))
+}));
+jest.mock('../../../services/square/square-location-preflight', () => ({
+    repairParentLocationMismatches: jest.fn().mockResolvedValue({ repairedParents: 0 })
 }));
 
 const {
@@ -42,6 +48,7 @@ const {
     getSquareInventoryCount,
     setSquareInventoryCount,
     setSquareInventoryAlertThreshold,
+    pushMinStockThresholdsToSquare,
     syncCommittedInventory,
     cleanupInventory
 } = require('../../../services/square/square-inventory');
@@ -56,6 +63,7 @@ const {
 } = require('../../../services/square/square-client');
 const { enableItemAtAllLocations } = require('../../../services/square/square-diagnostics');
 const { withLocationRepair } = require('../../../services/square/with-location-repair');
+const { repairParentLocationMismatches } = require('../../../services/square/square-location-preflight');
 
 const merchantId = 1;
 
@@ -893,6 +901,96 @@ describe('syncCommittedInventory', () => {
 
         // Invoice was fetched but not processed (no order_id)
         expect(result.invoices_processed).toBe(0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// pushMinStockThresholdsToSquare — Step 3 batch-upsert wrapped in withLocationRepair
+// ---------------------------------------------------------------------------
+describe('pushMinStockThresholdsToSquare', () => {
+    const CHANGES = [
+        { variationId: 'VAR1', locationId: 'LOC1', newMin: 5 },
+        { variationId: 'VAR2', locationId: 'LOC1', newMin: 3 }
+    ];
+
+    function mockBatchRetrieve(ids) {
+        // First makeSquareRequest call is the batch-retrieve in Step 1.
+        makeSquareRequest.mockResolvedValueOnce({
+            objects: ids.map(id => ({
+                id,
+                type: 'ITEM_VARIATION',
+                version: 100,
+                item_variation_data: { location_overrides: [] }
+            }))
+        });
+    }
+
+    beforeEach(() => {
+        getMerchantToken.mockResolvedValue('token');
+        generateIdempotencyKey.mockReturnValue('idem');
+        repairParentLocationMismatches.mockResolvedValue({ repairedParents: 0 });
+    });
+
+    test('no mismatch: pushed=N, repairedParents=0, withLocationRepair called with batch variationIds', async () => {
+        mockBatchRetrieve(['VAR1', 'VAR2']);
+        // Default withLocationRepair mock returns repairedCount: 0 and invokes fn.
+        makeSquareRequest.mockResolvedValueOnce({ objects: [] }); // batch-upsert inside fn
+
+        const result = await pushMinStockThresholdsToSquare(merchantId, CHANGES);
+
+        expect(result).toEqual({ pushed: 2, failed: 0, repairedParents: 0 });
+        expect(withLocationRepair).toHaveBeenCalledTimes(1);
+        expect(withLocationRepair).toHaveBeenCalledWith(expect.objectContaining({
+            merchantId,
+            accessToken: 'token',
+            variationIds: ['VAR1', 'VAR2'],
+            fn: expect.any(Function)
+        }));
+    });
+
+    test('mismatch: repair fires, retry succeeds → pushed=N, repairedParents=1', async () => {
+        mockBatchRetrieve(['VAR1', 'VAR2']);
+        // Simulate withLocationRepair having performed a repair.
+        withLocationRepair.mockImplementationOnce(async ({ fn }) => {
+            await fn();
+            return { result: { objects: [] }, repairedCount: 1 };
+        });
+        makeSquareRequest.mockResolvedValueOnce({ objects: [] }); // batch-upsert
+
+        const result = await pushMinStockThresholdsToSquare(merchantId, CHANGES);
+
+        expect(result).toEqual({ pushed: 2, failed: 0, repairedParents: 1 });
+    });
+
+    test('mismatch: repair fires, retry still fails → pushed=0, failed=N, warning logged', async () => {
+        mockBatchRetrieve(['VAR1', 'VAR2']);
+        const manualReviewErr = new Error(
+            'Location mismatch repair failed after 1 attempt for parent ITEM1 at location LOC1 — manual review required'
+        );
+        manualReviewErr.repairAttempted = true;
+        withLocationRepair.mockRejectedValueOnce(manualReviewErr);
+
+        const result = await pushMinStockThresholdsToSquare(merchantId, CHANGES);
+
+        expect(result).toEqual({ pushed: 0, failed: 2, repairedParents: 0 });
+        expect(logger.warn).toHaveBeenCalledWith(
+            'pushMinStockThresholdsToSquare: batch-upsert failed',
+            expect.objectContaining({ merchantId, count: 2, error: manualReviewErr.message })
+        );
+    });
+
+    test('proactive preflight repairs add to repairedParents, plus reactive repairedCount', async () => {
+        mockBatchRetrieve(['VAR1', 'VAR2']);
+        repairParentLocationMismatches.mockResolvedValueOnce({ repairedParents: 3 });
+        withLocationRepair.mockImplementationOnce(async ({ fn }) => {
+            await fn();
+            return { result: { objects: [] }, repairedCount: 1 };
+        });
+        makeSquareRequest.mockResolvedValueOnce({ objects: [] });
+
+        const result = await pushMinStockThresholdsToSquare(merchantId, CHANGES);
+
+        expect(result).toEqual({ pushed: 2, failed: 0, repairedParents: 4 });
     });
 });
 

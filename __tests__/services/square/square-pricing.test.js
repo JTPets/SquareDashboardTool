@@ -22,7 +22,10 @@ jest.mock('../../../services/square/square-diagnostics', () => ({
     enableItemAtAllLocations: jest.fn().mockResolvedValue({ success: true, itemId: 'ITEM1', itemName: 'Test Item' })
 }));
 jest.mock('../../../services/square/with-location-repair', () => ({
-    withLocationRepair: jest.fn().mockImplementation(({ fn }) => fn())
+    withLocationRepair: jest.fn().mockImplementation(async ({ fn }) => ({
+        result: await fn(),
+        repairedCount: 0
+    }))
 }));
 
 const { getMerchantToken, makeSquareRequest, sleep, generateIdempotencyKey } = require('../../../services/square/square-client');
