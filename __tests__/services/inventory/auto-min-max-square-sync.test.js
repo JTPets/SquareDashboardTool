@@ -12,11 +12,16 @@ jest.mock('../../../utils/logger', () => ({
     debug: jest.fn(),
 }));
 
+jest.mock('../../../utils/database', () => ({
+    query: jest.fn(),
+}));
+
 jest.mock('../../../services/square/square-inventory', () => ({
     pushMinStockThresholdsToSquare: jest.fn(),
 }));
 
 const logger = require('../../../utils/logger');
+const db = require('../../../utils/database');
 const squareInventory = require('../../../services/square/square-inventory');
 const { syncMinsToSquare } = require('../../../services/inventory/auto-min-max-square-sync');
 
@@ -34,6 +39,12 @@ function makeAdjustment(overrides = {}) {
 
 beforeEach(() => {
     jest.clearAllMocks();
+    // Default: every variation passed in is live (not deleted).
+    // Individual tests can override this to simulate is_deleted filtering.
+    db.query.mockImplementation(async (_sql, params) => {
+        const ids = params && params[1] ? params[1] : [];
+        return { rows: ids.map(id => ({ id })) };
+    });
 });
 
 // ==================== syncMinsToSquare ====================
@@ -162,5 +173,50 @@ describe('syncMinsToSquare', () => {
         const result = await syncMinsToSquare(MERCHANT_ID, [makeAdjustment()]);
 
         expect(result.repairedParents).toBe(0);
+    });
+
+    test('filters out deleted variations: SQL filter excludes them, push receives only live IDs', async () => {
+        // DB returns only v1 + v3 as live; v2 is deleted.
+        db.query.mockResolvedValueOnce({ rows: [{ id: 'v1' }, { id: 'v3' }] });
+        squareInventory.pushMinStockThresholdsToSquare.mockResolvedValueOnce({
+            pushed: 2, failed: 0, repairedParents: 0
+        });
+
+        const result = await syncMinsToSquare(MERCHANT_ID, [
+            makeAdjustment({ variationId: 'v1' }),
+            makeAdjustment({ variationId: 'v2' }), // deleted
+            makeAdjustment({ variationId: 'v3' })
+        ]);
+
+        // Verify the SQL filter query shape
+        expect(db.query).toHaveBeenCalledWith(
+            expect.stringMatching(/is_deleted = FALSE/),
+            [MERCHANT_ID, ['v1', 'v2', 'v3']]
+        );
+        // Push only sees live variations
+        expect(squareInventory.pushMinStockThresholdsToSquare).toHaveBeenCalledWith(
+            MERCHANT_ID,
+            [
+                { variationId: 'v1', locationId: 'loc1', newMin: 2 },
+                { variationId: 'v3', locationId: 'loc1', newMin: 2 }
+            ]
+        );
+        expect(logger.info).toHaveBeenCalledWith(
+            'syncMinsToSquare: skipped deleted variations',
+            expect.objectContaining({ merchantId: MERCHANT_ID, skippedDeleted: 1, total: 3 })
+        );
+        expect(result.synced).toBe(2);
+    });
+
+    test('all variations deleted: returns zero counts, does not call push', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        const result = await syncMinsToSquare(MERCHANT_ID, [
+            makeAdjustment({ variationId: 'v1' }),
+            makeAdjustment({ variationId: 'v2' })
+        ]);
+
+        expect(result).toEqual({ synced: 0, failed: 0, repairedParents: 0, errors: [] });
+        expect(squareInventory.pushMinStockThresholdsToSquare).not.toHaveBeenCalled();
     });
 });

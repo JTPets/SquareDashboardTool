@@ -732,9 +732,33 @@ function _validateApplyArgs(merchantId, variationId, locationId, newMin) {
 /**
  * Fire-and-forget Square push for min stock thresholds.
  * Local DB is source of truth — failures are logged as warnings only.
+ *
+ * Filters out deleted variations at the query level before calling Square.
+ * Square no longer has these items so batch-retrieve returns nothing for
+ * them and they would all be counted as failed. The cron path's DATA_QUERY
+ * already excludes is_deleted, but applyRecommendation /
+ * applyAllRecommendations accept user-provided variation IDs that may be
+ * stale — this filter protects those paths.
  */
 function _pushToSquare(merchantId, changes) {
-    pushMinStockThresholdsToSquare(merchantId, changes).catch(err => {
+    if (!changes || changes.length === 0) return;
+    const variationIds = changes.map(c => c.variationId);
+    db.query(
+        `SELECT id FROM variations
+         WHERE merchant_id = $1 AND id = ANY($2) AND is_deleted = FALSE`,
+        [merchantId, variationIds]
+    ).then(({ rows }) => {
+        const liveIds = new Set(rows.map(r => r.id));
+        const liveChanges = changes.filter(c => liveIds.has(c.variationId));
+        const skipped = changes.length - liveChanges.length;
+        if (skipped > 0) {
+            logger.info('_pushToSquare: skipped deleted variations', {
+                merchantId, skipped, total: changes.length
+            });
+        }
+        if (liveChanges.length === 0) return;
+        return pushMinStockThresholdsToSquare(merchantId, liveChanges);
+    }).catch(err => {
         logger.warn('pushMinStockThresholdsToSquare unexpected error', {
             merchantId, error: err.message
         });
