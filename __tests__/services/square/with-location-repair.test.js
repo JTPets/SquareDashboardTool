@@ -27,9 +27,15 @@ jest.mock('../../../services/square/square-location-preflight', () => ({
     repairParentLocationMismatches: jest.fn()
 }));
 
+// square-diagnostics is lazy-required for targeted parent repair.
+jest.mock('../../../services/square/square-diagnostics', () => ({
+    enableItemAtAllLocations: jest.fn()
+}));
+
 const { withLocationRepair } = require('../../../services/square/with-location-repair');
 const { makeSquareRequest } = require('../../../services/square/square-client');
 const { repairParentLocationMismatches } = require('../../../services/square/square-location-preflight');
+const { enableItemAtAllLocations } = require('../../../services/square/square-diagnostics');
 const logger = require('../../../utils/logger');
 
 const MERCHANT_ID = 1;
@@ -59,9 +65,28 @@ beforeEach(() => {
     jest.clearAllMocks();
     // Default: repair succeeds with 1 repaired parent
     repairParentLocationMismatches.mockResolvedValue({ repairedParents: 1 });
+    enableItemAtAllLocations.mockResolvedValue({ success: true });
     // Default: batch-retrieve returns variation objects
     makeSquareRequest.mockResolvedValue(makeBatchRetrieveResponse(VARIATION_IDS));
 });
+
+/** Build a location-mismatch error whose detail matches Square's production format. */
+function makeParsedLocationError({
+    variationId = 'VAR1',
+    locationId = 'LOC_X',
+    itemId = 'ITEM1',
+    msg = 'Location mismatch'
+} = {}) {
+    const err = new Error(msg);
+    err.squareErrors = [{
+        code: 'INVALID_VALUE',
+        field: 'item_id',
+        detail: 'Object `' + variationId + '` of type ITEM_VARIATION is enabled at unit `'
+            + locationId + '`, but the referenced object with token `' + itemId
+            + '` of type ITEM is not.'
+    }];
+    return err;
+}
 
 describe('withLocationRepair', () => {
     test('fn succeeds first try — no repair called, returns result', async () => {
@@ -247,6 +272,82 @@ describe('withLocationRepair', () => {
             'withLocationRepair: repair step failed, proceeding to retry',
             expect.objectContaining({ merchantId: MERCHANT_ID })
         );
+    });
+
+    test('parses error detail and calls enableItemAtAllLocations with parsed itemId', async () => {
+        // Production case: Square's error detail names a location (EDVJ...)
+        // that differs from the sync location. repairParentLocationMismatches
+        // can't see this via the catalog object, so we parse the detail and
+        // directly enable the referenced parent everywhere.
+        const err = makeParsedLocationError({
+            variationId: 'ZAI3NVSTGMENOL6BNFZOGHQO',
+            locationId: 'EDVJ38R7K424Q',
+            itemId: '2SN7XICAOQNROZZB2HVLB42Y'
+        });
+        const retryResult = { objects: [] };
+        const fn = jest.fn()
+            .mockRejectedValueOnce(err)
+            .mockResolvedValueOnce(retryResult);
+
+        const result = await withLocationRepair({
+            merchantId: MERCHANT_ID,
+            accessToken: ACCESS_TOKEN,
+            fn,
+            variationIds: ['ZAI3NVSTGMENOL6BNFZOGHQO']
+        });
+
+        expect(result).toBe(retryResult);
+        expect(fn).toHaveBeenCalledTimes(2);
+        expect(enableItemAtAllLocations).toHaveBeenCalledWith(
+            '2SN7XICAOQNROZZB2HVLB42Y', MERCHANT_ID
+        );
+        // When the detail parses, the fallback path should be skipped.
+        expect(repairParentLocationMismatches).not.toHaveBeenCalled();
+        expect(makeSquareRequest).not.toHaveBeenCalled();
+    });
+
+    test('parsed-detail path: targeted repair failure is non-fatal, retry still happens', async () => {
+        const err = makeParsedLocationError();
+        const retryResult = { objects: [] };
+        const fn = jest.fn()
+            .mockRejectedValueOnce(err)
+            .mockResolvedValueOnce(retryResult);
+        enableItemAtAllLocations.mockRejectedValueOnce(new Error('Square down'));
+
+        const result = await withLocationRepair({
+            merchantId: MERCHANT_ID,
+            accessToken: ACCESS_TOKEN,
+            fn,
+            variationIds: ['VAR1']
+        });
+
+        expect(result).toBe(retryResult);
+        expect(fn).toHaveBeenCalledTimes(2);
+        expect(logger.warn).toHaveBeenCalledWith(
+            'withLocationRepair: targeted repair failed, proceeding to retry',
+            expect.objectContaining({ merchantId: MERCHANT_ID, itemId: 'ITEM1' })
+        );
+    });
+
+    test('unparseable detail falls back to batch-retrieve + repairParentLocationMismatches', async () => {
+        // Detail doesn't match the regex → fall through to the old path.
+        const err = new Error('mismatch');
+        err.squareErrors = [{ code: 'INVALID_VALUE', field: 'item_id', detail: 'unparseable' }];
+        const retryResult = { objects: [] };
+        const fn = jest.fn()
+            .mockRejectedValueOnce(err)
+            .mockResolvedValueOnce(retryResult);
+
+        await withLocationRepair({
+            merchantId: MERCHANT_ID,
+            accessToken: ACCESS_TOKEN,
+            fn,
+            variationIds: VARIATION_IDS
+        });
+
+        expect(enableItemAtAllLocations).not.toHaveBeenCalled();
+        expect(repairParentLocationMismatches).toHaveBeenCalled();
+        expect(makeSquareRequest).toHaveBeenCalled();
     });
 
     test('plain error without squareErrors → rethrown immediately', async () => {

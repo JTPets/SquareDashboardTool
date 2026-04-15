@@ -35,6 +35,7 @@ const { enableItemAtAllLocations } = require('../../../services/square/square-di
 const {
     repairParentLocationMismatches,
     isItemEnabledAtLocation,
+    hasLocationMismatch,
 } = require('../../../services/square/square-location-preflight');
 
 const MERCHANT_ID = 1;
@@ -358,6 +359,138 @@ describe('repairParentLocationMismatches — repair failure', () => {
         );
 
         expect(result).toEqual({ repairedParents: 0 });
+    });
+});
+
+describe('hasLocationMismatch — structural check', () => {
+    test('no mismatch when both present_at_all=true with identical absent lists', () => {
+        const variation = { present_at_all_locations: true, absent_at_location_ids: ['EDV'] };
+        const parent = { present_at_all_locations: true, absent_at_location_ids: ['EDV'] };
+        expect(hasLocationMismatch(variation, parent)).toBe(false);
+    });
+
+    test('mismatch when variation.present_at_all=true but parent.present_at_all=false', () => {
+        const variation = { present_at_all_locations: true, absent_at_location_ids: [] };
+        const parent = { present_at_all_locations: false, present_at_location_ids: ['LOC1'] };
+        expect(hasLocationMismatch(variation, parent)).toBe(true);
+    });
+
+    test('mismatch when parent is absent at a location the variation is present at (via present_at_all minus absent)', () => {
+        // Variation is enabled everywhere except LOC_OTHER.
+        // Parent is enabled everywhere except LOC_X.
+        // So at LOC_X: variation is enabled but parent is not → mismatch.
+        const variation = {
+            present_at_all_locations: true,
+            absent_at_location_ids: ['LOC_OTHER'],
+        };
+        const parent = {
+            present_at_all_locations: true,
+            absent_at_location_ids: ['LOC_X'],
+        };
+        expect(hasLocationMismatch(variation, parent)).toBe(true);
+    });
+
+    test('no mismatch when parent absent list is a subset of variation absent list', () => {
+        const variation = {
+            present_at_all_locations: true,
+            absent_at_location_ids: ['LOC_A', 'LOC_B'],
+        };
+        const parent = {
+            present_at_all_locations: true,
+            absent_at_location_ids: ['LOC_A'],
+        };
+        expect(hasLocationMismatch(variation, parent)).toBe(false);
+    });
+
+    test('mismatch when !present_at_all and parent missing a present location', () => {
+        const variation = {
+            present_at_all_locations: false,
+            present_at_location_ids: ['LOC1', 'LOC2'],
+        };
+        const parent = {
+            present_at_all_locations: false,
+            present_at_location_ids: ['LOC1'],
+        };
+        expect(hasLocationMismatch(variation, parent)).toBe(true);
+    });
+
+    test('no mismatch when !present_at_all and parent covers all variation locations', () => {
+        const variation = {
+            present_at_all_locations: false,
+            present_at_location_ids: ['LOC1'],
+        };
+        const parent = {
+            present_at_all_locations: true,
+            absent_at_location_ids: [],
+        };
+        expect(hasLocationMismatch(variation, parent)).toBe(false);
+    });
+});
+
+describe('repairParentLocationMismatches — structural consistency check', () => {
+    test('repairs when variation is present at location the parent is absent from, even if sync location is healthy', () => {
+        // Sync location (LTZ) is OK for both, but the variation is also
+        // implicitly enabled at every other location (present_at_all=true)
+        // including LOC_X where the parent is absent. That's a latent
+        // mismatch that would break other pushes, so repair proactively.
+        const retrievedVariations = new Map([[
+            'VAR1',
+            {
+                id: 'VAR1',
+                type: 'ITEM_VARIATION',
+                present_at_all_locations: true,
+                absent_at_location_ids: [],
+                item_variation_data: { item_id: 'ITEM1' },
+            },
+        ]]);
+        const changesByVariation = new Map([['VAR1', new Map([['LTZ', 5]])]]);
+
+        makeSquareRequest.mockResolvedValueOnce({
+            objects: [makeParentItem('ITEM1', {
+                presentAtAll: true,
+                absentAtLocationIds: ['LOC_X'],
+            })],
+        });
+        enableItemAtAllLocations.mockResolvedValueOnce({ success: true, itemId: 'ITEM1' });
+
+        return repairParentLocationMismatches(
+            MERCHANT_ID, ACCESS_TOKEN, retrievedVariations, changesByVariation
+        ).then(result => {
+            expect(enableItemAtAllLocations).toHaveBeenCalledWith('ITEM1', MERCHANT_ID);
+            expect(result).toEqual({ repairedParents: 1 });
+        });
+    });
+
+    test('no repair when variation.absent matches parent.absent and sync location is covered', () => {
+        // The specific production case described in the bug report:
+        // both variation and parent have identical absent_at_location_ids.
+        // Structurally consistent — proactive check finds nothing to do.
+        // (The reactive path in withLocationRepair handles this.)
+        const retrievedVariations = new Map([[
+            'VAR1',
+            {
+                id: 'VAR1',
+                type: 'ITEM_VARIATION',
+                present_at_all_locations: true,
+                absent_at_location_ids: ['EDV'],
+                item_variation_data: { item_id: 'ITEM1' },
+            },
+        ]]);
+        const changesByVariation = new Map([['VAR1', new Map([['LTZ', 5]])]]);
+
+        makeSquareRequest.mockResolvedValueOnce({
+            objects: [makeParentItem('ITEM1', {
+                presentAtAll: true,
+                absentAtLocationIds: ['EDV'],
+            })],
+        });
+
+        return repairParentLocationMismatches(
+            MERCHANT_ID, ACCESS_TOKEN, retrievedVariations, changesByVariation
+        ).then(result => {
+            expect(result).toEqual({ repairedParents: 0 });
+            expect(enableItemAtAllLocations).not.toHaveBeenCalled();
+        });
     });
 });
 
