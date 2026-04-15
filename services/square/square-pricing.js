@@ -125,7 +125,7 @@ async function batchUpdateVariationPrices(priceUpdates, merchantId) {
             const idempotencyKey = generateIdempotencyKey('price-batch');
             const updateVariationIds = updateObjects.map(o => o.id);
 
-            const upsertData = await withLocationRepair({
+            const { result: upsertData } = await withLocationRepair({
                 merchantId,
                 accessToken,
                 variationIds: updateVariationIds,

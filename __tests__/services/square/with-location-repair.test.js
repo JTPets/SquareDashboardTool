@@ -66,37 +66,39 @@ beforeEach(() => {
 });
 
 describe('withLocationRepair', () => {
-    test('fn succeeds first try — no repair called, returns result', async () => {
+    test('fn succeeds first try — no repair called, returns { result, repairedCount: 0 }', async () => {
         const successResult = { objects: [{ id: 'VAR1' }] };
         const fn = jest.fn().mockResolvedValue(successResult);
 
-        const result = await withLocationRepair({
+        const ret = await withLocationRepair({
             merchantId: MERCHANT_ID,
             accessToken: ACCESS_TOKEN,
             fn,
             variationIds: VARIATION_IDS
         });
 
-        expect(result).toBe(successResult);
+        expect(ret.result).toBe(successResult);
+        expect(ret.repairedCount).toBe(0);
         expect(fn).toHaveBeenCalledTimes(1);
         expect(enableItemAtAllLocations).not.toHaveBeenCalled();
     });
 
-    test('INVALID_VALUE + item_id with parseable detail → repair called, fn retried, returns retry result', async () => {
+    test('INVALID_VALUE + item_id with parseable detail → repair called, fn retried, returns { result, repairedCount: 1 }', async () => {
         const locationError = makeParsedLocationError();
         const retryResult = { objects: [{ id: 'VAR1' }] };
         const fn = jest.fn()
             .mockRejectedValueOnce(locationError)
             .mockResolvedValueOnce(retryResult);
 
-        const result = await withLocationRepair({
+        const ret = await withLocationRepair({
             merchantId: MERCHANT_ID,
             accessToken: ACCESS_TOKEN,
             fn,
             variationIds: VARIATION_IDS
         });
 
-        expect(result).toBe(retryResult);
+        expect(ret.result).toBe(retryResult);
+        expect(ret.repairedCount).toBe(1);
         expect(fn).toHaveBeenCalledTimes(2);
         expect(enableItemAtAllLocations).toHaveBeenCalledTimes(1);
         expect(enableItemAtAllLocations).toHaveBeenCalledWith('ITEM1', MERCHANT_ID);
@@ -218,7 +220,7 @@ describe('withLocationRepair', () => {
         expect(enableItemAtAllLocations).not.toHaveBeenCalled();
     });
 
-    test('repair throws internally → retry still happens (repair failure is non-fatal)', async () => {
+    test('repair throws internally → retry still happens, repairedCount stays 0', async () => {
         const firstErr = makeParsedLocationError();
         const retryResult = { objects: [] };
         const fn = jest.fn()
@@ -226,14 +228,15 @@ describe('withLocationRepair', () => {
             .mockResolvedValueOnce(retryResult);
         enableItemAtAllLocations.mockRejectedValueOnce(new Error('Square down'));
 
-        const result = await withLocationRepair({
+        const ret = await withLocationRepair({
             merchantId: MERCHANT_ID,
             accessToken: ACCESS_TOKEN,
             fn,
             variationIds: ['VAR1']
         });
 
-        expect(result).toBe(retryResult);
+        expect(ret.result).toBe(retryResult);
+        expect(ret.repairedCount).toBe(0);
         expect(fn).toHaveBeenCalledTimes(2);
         expect(logger.warn).toHaveBeenCalledWith(
             'withLocationRepair: targeted repair failed, proceeding to retry',

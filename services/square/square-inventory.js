@@ -371,7 +371,7 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
 
             // withLocationRepair catches INVALID_VALUE/item_id, repairs parent-item
             // location mismatches via repairParentLocationMismatches, and retries once.
-            const data = await withLocationRepair({
+            const { result: data } = await withLocationRepair({
                 merchantId,
                 accessToken,
                 variationIds: [catalogObjectId],
@@ -906,7 +906,9 @@ async function pushMinStockThresholdsToSquare(merchantId, changes) {
 
     // Step 1.5: Pre-flight — repair parent items not enabled at synced locations.
     // Prevents Square 400 INVALID_VALUE "variation enabled at location but item is not".
-    const { repairedParents } = await repairParentLocationMismatches(
+    // Reactive repairs triggered by withLocationRepair during Step 3 are added to
+    // this count below.
+    let { repairedParents } = await repairParentLocationMismatches(
         merchantId, accessToken, retrievedObjects, changesByVariation
     );
 
@@ -941,22 +943,32 @@ async function pushMinStockThresholdsToSquare(merchantId, changes) {
         });
     }
 
-    // Step 3: Batch-upsert updated objects
+    // Step 3: Batch-upsert updated objects. Wrap in withLocationRepair so
+    // INVALID_VALUE/item_id failures trigger a targeted parent-item repair
+    // and a single retry — without this, Square's internal-state
+    // inconsistencies (not catchable by the preflight) cause the whole
+    // batch to fail.
     for (let i = 0; i < objectsToUpsert.length; i += CATALOG_BATCH_SIZE) {
         const batch = objectsToUpsert.slice(i, i + CATALOG_BATCH_SIZE);
         const batchNum = Math.floor(i / CATALOG_BATCH_SIZE) + 1;
         try {
-            await makeSquareRequest('/v2/catalog/batch-upsert', {
-                method: 'POST',
-                body: JSON.stringify({
-                    idempotency_key: generateIdempotencyKey(`min-stock-push-b${batchNum}`),
-                    batches: [{ objects: batch }]
-                }),
-                accessToken
+            const { repairedCount } = await withLocationRepair({
+                merchantId,
+                accessToken,
+                variationIds: batch.map(o => o.id),
+                fn: () => makeSquareRequest('/v2/catalog/batch-upsert', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        idempotency_key: generateIdempotencyKey(`min-stock-push-b${batchNum}`),
+                        batches: [{ objects: batch }]
+                    }),
+                    accessToken
+                })
             });
             pushed += batch.length;
+            repairedParents += repairedCount;
             logger.info('pushMinStockThresholdsToSquare: batch upserted', {
-                merchantId, batchNum, count: batch.length
+                merchantId, batchNum, count: batch.length, repairedCount
             });
         } catch (err) {
             failed += batch.length;
