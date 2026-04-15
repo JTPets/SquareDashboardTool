@@ -17,6 +17,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { getMerchantToken, makeSquareRequest, sleep, generateIdempotencyKey } = require('./square-client');
+const { withLocationRepair } = require('./with-location-repair');
 
 const { SQUARE: { MAX_PAGINATION_ITERATIONS } } = require('../../config/constants');
 
@@ -351,13 +352,20 @@ async function fixInventoryAlerts(merchantId) {
             }));
 
             try {
-                await makeSquareRequest('/v2/catalog/batch-upsert', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        idempotency_key: generateIdempotencyKey('fix-alerts-batch'),
-                        batches: [{ objects: objectsForBatch }]
-                    }),
-                    accessToken
+                // withLocationRepair catches INVALID_VALUE/item_id, repairs
+                // parent-item location mismatches, and retries once.
+                await withLocationRepair({
+                    merchantId,
+                    accessToken,
+                    variationIds: batch.map(o => o.id),
+                    fn: () => makeSquareRequest('/v2/catalog/batch-upsert', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            idempotency_key: generateIdempotencyKey('fix-alerts-batch'),
+                            batches: [{ objects: objectsForBatch }]
+                        }),
+                        accessToken
+                    })
                 });
 
                 for (const obj of batch) {
