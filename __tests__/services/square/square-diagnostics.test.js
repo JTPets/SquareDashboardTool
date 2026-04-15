@@ -743,6 +743,96 @@ describe('enableItemAtAllLocations', () => {
         await expect(enableItemAtAllLocations('ITEM_1', merchantId)).resolves.toMatchObject({ success: true });
     });
 
+    test('does not skip upsert when item has present_at_all_locations=true but non-empty absent_at_location_ids', async () => {
+        // Production bug: item present_at_all=true AND absent_at_location_ids=["LOC_X"]
+        // Old code treated itemAlreadyEnabled=true and skipped the repair — Square would still reject.
+        makeSquareRequest
+            .mockResolvedValueOnce({
+                object: {
+                    id: 'ITEM_1', type: 'ITEM', version: 6,
+                    present_at_all_locations: true,
+                    absent_at_location_ids: ['LOC_X'],
+                    item_data: {
+                        name: 'Absent Override Item',
+                        variations: [
+                            { type: 'ITEM_VARIATION', id: 'VAR_A', version: 3,
+                              present_at_all_locations: true, item_variation_data: {} }
+                        ]
+                    }
+                }
+            })
+            .mockResolvedValueOnce({ objects: [] })  // batch-upsert
+            .mockResolvedValueOnce({
+                object: {
+                    id: 'ITEM_1', type: 'ITEM', version: 7,
+                    present_at_all_locations: true,
+                    absent_at_location_ids: [],
+                    item_data: {
+                        variations: [
+                            { type: 'ITEM_VARIATION', id: 'VAR_A', version: 4,
+                              present_at_all_locations: true }
+                        ]
+                    }
+                }
+            });
+
+        await enableItemAtAllLocations('ITEM_1', merchantId);
+
+        // Must have fired the upsert (call 2), not skipped
+        expect(makeSquareRequest).toHaveBeenCalledTimes(3);
+        expect(makeSquareRequest.mock.calls[1][0]).toBe('/v2/catalog/batch-upsert');
+
+        // The upsert payload must clear absent_at_location_ids on the item
+        const body = JSON.parse(makeSquareRequest.mock.calls[1][1].body);
+        const itemObj = body.batches[0].objects[0];
+        expect(itemObj.absent_at_location_ids).toEqual([]);
+    });
+
+    test('does not skip upsert when variation has non-empty absent_at_location_ids even though flag is true', async () => {
+        makeSquareRequest
+            .mockResolvedValueOnce({
+                object: {
+                    id: 'ITEM_1', type: 'ITEM', version: 6,
+                    present_at_all_locations: true,
+                    absent_at_location_ids: [],
+                    item_data: {
+                        name: 'Variation Absent Test',
+                        variations: [
+                            { type: 'ITEM_VARIATION', id: 'VAR_A', version: 3,
+                              present_at_all_locations: true,
+                              absent_at_location_ids: ['LOC_X'],
+                              item_variation_data: {} }
+                        ]
+                    }
+                }
+            })
+            .mockResolvedValueOnce({ objects: [] })
+            .mockResolvedValueOnce({
+                object: {
+                    id: 'ITEM_1', type: 'ITEM', version: 7,
+                    present_at_all_locations: true,
+                    item_data: {
+                        variations: [
+                            { type: 'ITEM_VARIATION', id: 'VAR_A', version: 4,
+                              present_at_all_locations: true, absent_at_location_ids: [] }
+                        ]
+                    }
+                }
+            });
+
+        await enableItemAtAllLocations('ITEM_1', merchantId);
+
+        expect(makeSquareRequest).toHaveBeenCalledTimes(3);
+        expect(makeSquareRequest.mock.calls[1][0]).toBe('/v2/catalog/batch-upsert');
+
+        // Variation entry should have absent_at_location_ids cleared
+        const body = JSON.parse(makeSquareRequest.mock.calls[1][1].body);
+        // Item has absent_at_location_ids=[] so itemNeedsUpdate=false → standalone variation entries
+        const varObj = body.batches[0].objects.find(o => o.id === 'VAR_A');
+        expect(varObj).toBeDefined();
+        expect(varObj.absent_at_location_ids).toEqual([]);
+    });
+
     test('idempotency check ignores deleted variations — skips upsert when only active ones are enabled', async () => {
         makeSquareRequest.mockResolvedValueOnce({
             object: {

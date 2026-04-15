@@ -459,8 +459,14 @@ async function enableItemAtAllLocations(itemId, merchantId) {
     // Sending a batch-upsert when the state is already right causes a
     // "Duplicate object" error because item_data.variations and the explicit
     // ITEM_VARIATION batch entries both reference the same IDs.
-    const itemAlreadyEnabled = currentObject.present_at_all_locations === true;
-    const allVariationsEnabled = variations.every(v => v.present_at_all_locations === true);
+    // An item is truly "at all locations" only when present_at_all_locations=true
+    // AND absent_at_location_ids is empty — Square treats the absent list as an
+    // override that wins over the flag.
+    const itemAlreadyEnabled = currentObject.present_at_all_locations === true &&
+        !(currentObject.absent_at_location_ids?.length > 0);
+    const allVariationsEnabled = variations.every(
+        v => v.present_at_all_locations === true && !(v.absent_at_location_ids?.length > 0)
+    );
     if (itemAlreadyEnabled && allVariationsEnabled) {
         logger.info('Item and all variations already present_at_all_locations=true, skipping upsert', {
             itemId, merchantId,
@@ -486,8 +492,11 @@ async function enableItemAtAllLocations(itemId, merchantId) {
     //     item_data.variations (nested). No separate ITEM_VARIATION entries.
     //   • Only variations need fixing → standalone ITEM_VARIATION entries only.
     //     No ITEM entry means no implicit child-locking.
-    const itemNeedsUpdate = currentObject.present_at_all_locations !== true;
-    const variationsNeedingUpdate = variations.filter(v => v.present_at_all_locations !== true);
+    const itemNeedsUpdate = currentObject.present_at_all_locations !== true ||
+        !!(currentObject.absent_at_location_ids?.length > 0);
+    const variationsNeedingUpdate = variations.filter(
+        v => v.present_at_all_locations !== true || !!(v.absent_at_location_ids?.length > 0)
+    );
 
     const { variations: _stripped, ...itemDataWithoutVariations } = currentObject.item_data || {};
 

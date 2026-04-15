@@ -51,6 +51,30 @@ describe('isItemEnabledAtLocation', () => {
         expect(isItemEnabledAtLocation({ present_at_all_locations: true }, 'LOC1')).toBe(true);
     });
 
+    test('returns true when present_at_all_locations is true and absent list is empty', () => {
+        expect(isItemEnabledAtLocation({
+            present_at_all_locations: true,
+            absent_at_location_ids: [],
+        }, 'LOC1')).toBe(true);
+    });
+
+    test('returns false when present_at_all_locations is true but location is in absent_at_location_ids', () => {
+        // This is the production bug: item U6HPEUEJWY3T7NQMDGJQ4DZL had
+        // present_at_all_locations=true AND absent_at_location_ids=["EDVJ38R7K424Q"].
+        // The old code returned true immediately, causing Square 400 INVALID_VALUE.
+        expect(isItemEnabledAtLocation({
+            present_at_all_locations: true,
+            absent_at_location_ids: ['LOC1'],
+        }, 'LOC1')).toBe(false);
+    });
+
+    test('returns true when present_at_all_locations is true and a different location is absent', () => {
+        expect(isItemEnabledAtLocation({
+            present_at_all_locations: true,
+            absent_at_location_ids: ['LOC2'],
+        }, 'LOC1')).toBe(true);
+    });
+
     test('returns true when locationId is in present_at_location_ids', () => {
         expect(isItemEnabledAtLocation({
             present_at_all_locations: false,
@@ -89,12 +113,17 @@ function makeVariation(variationId, itemId) {
 }
 
 // Build a fake parent item Square object
-function makeParentItem(itemId, { presentAtAll = true, presentAtLocationIds = [] } = {}) {
+function makeParentItem(itemId, {
+    presentAtAll = true,
+    presentAtLocationIds = [],
+    absentAtLocationIds = []
+} = {}) {
     return {
         id: itemId,
         type: 'ITEM',
         present_at_all_locations: presentAtAll,
         present_at_location_ids: presentAtLocationIds,
+        absent_at_location_ids: absentAtLocationIds,
     };
 }
 
@@ -221,6 +250,41 @@ describe('repairParentLocationMismatches — mismatch detected and repaired', ()
 
         expect(enableItemAtAllLocations).toHaveBeenCalledTimes(1);
         expect(result).toEqual({ repairedParents: 1 });
+    });
+
+    test('calls repair when parent has present_at_all_locations=true but location is in absent_at_location_ids', async () => {
+        // Production case: item present_at_all_locations=true AND absent_at_location_ids=["LOC1"]
+        // Variation is being synced at LOC1 → Square would return 400 INVALID_VALUE
+        const retrievedVariations = new Map([makeVariation('VAR1', 'ITEM1')]);
+        const changesByVariation = new Map([['VAR1', new Map([['LOC1', 5]])]]);
+
+        makeSquareRequest.mockResolvedValueOnce({
+            objects: [makeParentItem('ITEM1', { presentAtAll: true, absentAtLocationIds: ['LOC1'] })],
+        });
+        enableItemAtAllLocations.mockResolvedValueOnce({ success: true, itemId: 'ITEM1' });
+
+        const result = await repairParentLocationMismatches(
+            MERCHANT_ID, ACCESS_TOKEN, retrievedVariations, changesByVariation
+        );
+
+        expect(enableItemAtAllLocations).toHaveBeenCalledWith('ITEM1', MERCHANT_ID);
+        expect(result).toEqual({ repairedParents: 1 });
+    });
+
+    test('no repair when present_at_all_locations=true and absent list does not include the location', async () => {
+        const retrievedVariations = new Map([makeVariation('VAR1', 'ITEM1')]);
+        const changesByVariation = new Map([['VAR1', new Map([['LOC1', 5]])]]);
+
+        makeSquareRequest.mockResolvedValueOnce({
+            objects: [makeParentItem('ITEM1', { presentAtAll: true, absentAtLocationIds: ['LOC2'] })],
+        });
+
+        const result = await repairParentLocationMismatches(
+            MERCHANT_ID, ACCESS_TOKEN, retrievedVariations, changesByVariation
+        );
+
+        expect(result).toEqual({ repairedParents: 0 });
+        expect(enableItemAtAllLocations).not.toHaveBeenCalled();
     });
 
     test('logs completion with repaired and failed arrays', async () => {
