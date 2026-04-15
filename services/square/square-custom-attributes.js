@@ -26,6 +26,35 @@ const { getMerchantToken, makeSquareRequest, sleep, generateIdempotencyKey } = r
 
 const { SQUARE: { MAX_PAGINATION_ITERATIONS }, SYNC: { CATALOG_BATCH_SIZE, INTER_BATCH_DELAY_MS } } = require('../../config/constants');
 const { enableItemAtAllLocations } = require('./square-diagnostics');
+const { repairParentLocationMismatches } = require('./square-location-preflight');
+
+// Sentinel used when a variation is enabled at all locations — forces the
+// preflight to require that the parent ITEM is also present_at_all_locations.
+const ALL_LOCATIONS_SENTINEL = '__ALL_LOCATIONS__';
+
+/**
+ * Build a `changesByVariation` Map (as expected by repairParentLocationMismatches)
+ * from the variation objects that were batch-retrieved from Square. For each
+ * ITEM_VARIATION we record the locations where the variation itself is enabled;
+ * the preflight then verifies the parent item is enabled at every one of those
+ * locations, healing any mismatches.
+ */
+function buildChangesFromVariations(objectMap) {
+    const changes = new Map();
+    for (const [id, obj] of objectMap.entries()) {
+        if (!obj || obj.type !== 'ITEM_VARIATION') continue;
+        const locMap = new Map();
+        if (obj.present_at_all_locations === true) {
+            locMap.set(ALL_LOCATIONS_SENTINEL, 0);
+        } else {
+            for (const locId of (obj.present_at_location_ids || [])) {
+                locMap.set(locId, 0);
+            }
+        }
+        if (locMap.size > 0) changes.set(id, locMap);
+    }
+    return changes;
+}
 
 /**
  * List all custom attribute definitions from Square Catalog
@@ -279,7 +308,13 @@ async function batchUpdateCustomAttributeValues(updates, options = {}) {
         success: true,
         updated: 0,
         failed: 0,
-        errors: []
+        errors: [],
+        // Per-variation outcomes — surface these to callers so partial
+        // failures (e.g. location mismatches that couldn't be healed) are
+        // visible instead of being silently logged.
+        successVariations: [],
+        failedVariations: [],
+        repairedParents: 0
     };
 
     // LOGIC CHANGE: use centralized batch size from constants (C-1)
@@ -308,6 +343,32 @@ async function batchUpdateCustomAttributeValues(updates, options = {}) {
                 objectMap.set(obj.id, obj);
             }
 
+            // Pre-flight — heal parent-item location mismatches before the
+            // batch-upsert to prevent Square 400 INVALID_VALUE errors
+            // ("variation is enabled at location X but referenced item is not").
+            // Mirrors the pattern used in pushMinStockThresholdsToSquare.
+            try {
+                const changesByVariation = buildChangesFromVariations(objectMap);
+                if (changesByVariation.size > 0) {
+                    const { repairedParents } = await repairParentLocationMismatches(
+                        merchantId, accessToken, objectMap, changesByVariation
+                    );
+                    if (repairedParents > 0) {
+                        results.repairedParents += repairedParents;
+                        logger.info('Custom attribute push: preflight repaired parent locations', {
+                            merchantId, repairedParents, batchStart: i
+                        });
+                    }
+                }
+            } catch (preflightErr) {
+                // Preflight failure is non-fatal — proceed with the upsert
+                // and let the inline heal fallback handle any residual
+                // location mismatches.
+                logger.warn('Custom attribute push: preflight repair failed, continuing', {
+                    merchantId, error: preflightErr.message
+                });
+            }
+
             // Build batch update objects
             updateObjects = [];
 
@@ -316,6 +377,10 @@ async function batchUpdateCustomAttributeValues(updates, options = {}) {
                 if (!currentObject) {
                     results.failed++;
                     results.errors.push({ id: update.catalogObjectId, error: 'Object not found' });
+                    results.failedVariations.push({
+                        variationId: update.catalogObjectId,
+                        error: 'Object not found'
+                    });
                     continue;
                 }
 
@@ -351,6 +416,9 @@ async function batchUpdateCustomAttributeValues(updates, options = {}) {
             });
 
             results.updated += upsertData.objects?.length || 0;
+            for (const obj of updateObjects) {
+                results.successVariations.push(obj.id);
+            }
 
         } catch (error) {
             // Detect location mismatch: 400 INVALID_VALUE with field=item_id
@@ -446,6 +514,9 @@ async function batchUpdateCustomAttributeValues(updates, options = {}) {
                                 accessToken
                             });
                             results.updated += retryData.objects?.length || 0;
+                            for (const obj of retryObjects) {
+                                results.successVariations.push(obj.id);
+                            }
                             logger.info('Auto-healed batch retry succeeded', {
                                 merchantId, healed: healedItemIds.size, updated: retryData.objects?.length || 0
                             });
@@ -486,6 +557,20 @@ async function batchUpdateCustomAttributeValues(updates, options = {}) {
             });
             results.failed += batch.length;
             results.errors.push({ batch: Math.floor(i / batchSize), error: error.message });
+            // Surface every variation that reached the upsert as a per-variation
+            // failure so callers can display partial-failure warnings to the
+            // merchant. (Not-found variations are already recorded above.)
+            const alreadyFailed = new Set(
+                results.failedVariations.map(f => f.variationId)
+            );
+            for (const obj of (updateObjects || [])) {
+                if (!alreadyFailed.has(obj.id)) {
+                    results.failedVariations.push({
+                        variationId: obj.id,
+                        error: error.message
+                    });
+                }
+            }
         }
 
         // Small delay between batches

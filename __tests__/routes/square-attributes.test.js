@@ -185,6 +185,24 @@ describe('Square Custom Attributes Routes', () => {
             expect(res.body.success).toBe(true);
             expect(squareApi.pushCasePackToSquare).toHaveBeenCalledWith({ merchantId: 1 });
         });
+
+        it('should surface a warning when some variations failed to sync', async () => {
+            squareApi.pushCasePackToSquare.mockResolvedValueOnce({
+                success: false,
+                updated: 1,
+                failed: 1,
+                failedVariations: [{ variationId: 'VAR-X', error: 'location mismatch' }]
+            });
+
+            const res = await request(app)
+                .post('/api/square/custom-attributes/push/case-pack')
+                .expect(200);
+
+            expect(res.body.warning).toMatch(/failed to sync/i);
+            expect(res.body.failedVariations).toEqual([
+                { variationId: 'VAR-X', error: 'location mismatch' }
+            ]);
+        });
     });
 
     describe('POST /api/square/custom-attributes/push/brand', () => {
@@ -244,6 +262,28 @@ describe('Square Custom Attributes Routes', () => {
             expect(res.body.errors[0].type).toBe('brand');
             expect(res.body.casePack).toEqual({ updated: 10 });
             expect(res.body.brand).toBeNull();
+        });
+
+        it('should surface per-variation partial failures from sub-pushes', async () => {
+            squareApi.pushCasePackToSquare.mockResolvedValueOnce({
+                updated: 1,
+                failedVariations: [{ variationId: 'VAR-A', error: 'location mismatch' }]
+            });
+            squareApi.pushBrandsToSquare.mockResolvedValueOnce({ updated: 5, failedVariations: [] });
+            squareApi.pushExpiryDatesToSquare.mockResolvedValueOnce({
+                updated: 0,
+                failedVariations: [{ variationId: 'VAR-B', error: 'boom' }]
+            });
+
+            const res = await request(app)
+                .post('/api/square/custom-attributes/push/all')
+                .expect(200);
+
+            expect(res.body.warning).toMatch(/partialFailures/i);
+            expect(res.body.partialFailures).toEqual(expect.arrayContaining([
+                expect.objectContaining({ type: 'casePack', failedCount: 1 }),
+                expect.objectContaining({ type: 'expiry', failedCount: 1 })
+            ]));
         });
     });
 });
