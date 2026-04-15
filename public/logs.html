@@ -364,9 +364,14 @@
       </div>
 
       <div class="card">
-        <h2>Recent Logs (Last 100)</h2>
+        <h2 id="logs-heading">Recent Logs (Last 100)</h2>
 
         <div class="filters">
+          <label for="date-select">Date:</label>
+          <select id="date-select" data-change="changeDate">
+            <option value="">Loading dates...</option>
+          </select>
+
           <label for="level-filter">Filter by Level:</label>
           <select id="level-filter" data-change="filterLogs">
             <option value="all">All Levels</option>
@@ -391,6 +396,13 @@
 
         <div id="logs-content">
           <div class="loading">Loading logs...</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 id="errors-heading">Error Logs</h2>
+        <div id="errors-content">
+          <div class="loading">Loading errors...</div>
         </div>
       </div>
     </div>
@@ -428,5 +440,6 @@
   <script src="/js/utils/format-currency.js"></script>
   <!-- Page-specific JavaScript (externalized for CSP compliance) -->
   <script src="/js/logs.js"></script>
+  <script src="/js/logs-location-health.js"></script>
 </body>
 </html>

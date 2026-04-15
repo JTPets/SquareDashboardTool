@@ -2,27 +2,33 @@
  * Log Management Routes
  *
  * Handles log viewing and management (admin only):
- * - View recent logs
+ * - View recent logs (today or historical compressed .gz files)
  * - View error logs
  * - Download logs
  * - Get log statistics
+ * - List dates with available log files
  *
  * Endpoints:
- * - GET /api/logs           - View recent logs
- * - GET /api/logs/errors    - View error logs
+ * - GET /api/logs           - View recent logs (optional ?date=YYYY-MM-DD)
+ * - GET /api/logs/errors    - View error logs (optional ?date=YYYY-MM-DD)
  * - GET /api/logs/download  - Download log file
  * - GET /api/logs/stats     - Get log statistics
+ * - GET /api/logs/dates     - List dates with available log files
  */
 
 const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs').promises;
+const zlib = require('zlib');
+const { promisify } = require('util');
 const logger = require('../utils/logger');
 const { requireAdmin } = require('../middleware/auth');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/logs');
 const { sendSuccess } = require('../utils/response-helper');
+
+const gunzip = promisify(zlib.gunzip);
 
 // Get today's date in server timezone (YYYY-MM-DD format)
 // OSS: System-level — must match logger.js process.env.TZ for correct log file lookup.
@@ -38,22 +44,93 @@ function getTodayLocal() {
 }
 
 /**
+ * Read log content for a given prefix ('app' or 'error') and date.
+ * If date is today, reads the uncompressed file.
+ * Otherwise, reads and concatenates all matching .gz rotations in order.
+ * Returns '' if no file is found.
+ */
+async function readLogContent(logsDir, prefix, date) {
+    const today = getTodayLocal();
+    if (date === today) {
+        const logFile = path.join(logsDir, `${prefix}-${date}.log`);
+        try {
+            return await fs.readFile(logFile, 'utf-8');
+        } catch {
+            return '';
+        }
+    }
+
+    let entries;
+    try {
+        entries = await fs.readdir(logsDir);
+    } catch {
+        return '';
+    }
+
+    const base = `${prefix}-${date}.log`;
+    const rotationRe = new RegExp(`^${base.replace(/[-]/g, '\\-')}\\.(\\d+)\\.gz$`);
+    const matches = entries.filter(f => f === `${base}.gz` || rotationRe.test(f));
+    if (matches.length === 0) return '';
+
+    // Sort: base.log.gz (0) first, then .log.1.gz, .log.2.gz, etc.
+    matches.sort((a, b) => {
+        const getNum = n => {
+            if (n === `${base}.gz`) return 0;
+            const m = n.match(/\.(\d+)\.gz$/);
+            return m ? parseInt(m[1], 10) : 0;
+        };
+        return getNum(a) - getNum(b);
+    });
+
+    const parts = [];
+    for (const file of matches) {
+        try {
+            const buffer = await fs.readFile(path.join(logsDir, file));
+            const decompressed = await gunzip(buffer);
+            parts.push(decompressed.toString('utf-8'));
+        } catch (err) {
+            logger.warn('Failed to read compressed log file', { file, error: err.message });
+        }
+    }
+    return parts.join('');
+}
+
+/**
+ * Scan logs directory and return sorted list (newest first) of unique dates.
+ */
+async function listAvailableDates(logsDir) {
+    let entries;
+    try {
+        entries = await fs.readdir(logsDir);
+    } catch {
+        return [];
+    }
+
+    const dateRe = /^(?:app|error)-(\d{4}-\d{2}-\d{2})\.log(?:\.\d+)?(?:\.gz)?$/;
+    const dates = new Set();
+    for (const name of entries) {
+        const m = name.match(dateRe);
+        if (m) dates.add(m[1]);
+    }
+    return Array.from(dates).sort().reverse();
+}
+
+/**
  * GET /api/logs
- * View recent logs
- * Requires admin role
+ * View recent logs. Optional ?date=YYYY-MM-DD selects a historical day.
+ * Requires admin role.
  */
 router.get('/logs', requireAdmin, validators.list, asyncHandler(async (req, res) => {
     const limitParam = parseInt(req.query.limit);
     const limit = isNaN(limitParam) ? 100 : limitParam;
     const logsDir = path.join(__dirname, '..', 'output', 'logs');
+    const date = req.query.date || getTodayLocal();
 
-    // Get today's log file
-    const today = getTodayLocal();
-    const logFile = path.join(logsDir, `app-${today}.log`);
-
-    const content = await fs.readFile(logFile, 'utf-8').catch(() => '');
+    const content = await readLogContent(logsDir, 'app', date);
     if (!content.trim()) {
-        return sendSuccess(res, { logs: [], count: 0, message: 'No logs for today yet' });
+        const isToday = date === getTodayLocal();
+        const message = isToday ? 'No logs for today yet' : 'No logs for this date';
+        return sendSuccess(res, { logs: [], count: 0, date, message });
     }
 
     // limit=0 means all logs, otherwise take last N lines
@@ -67,26 +144,40 @@ router.get('/logs', requireAdmin, validators.list, asyncHandler(async (req, res)
         }
     });
 
-    sendSuccess(res, { logs, count: logs.length, total: allLines.length });
+    sendSuccess(res, { logs, count: logs.length, total: allLines.length, date });
 }));
 
 /**
  * GET /api/logs/errors
- * View errors only
+ * View errors only. Optional ?date=YYYY-MM-DD selects a historical day.
  */
 router.get('/logs/errors', requireAdmin, validators.errors, asyncHandler(async (req, res) => {
     const logsDir = path.join(__dirname, '..', 'output', 'logs');
-    const today = getTodayLocal();
-    const errorFile = path.join(logsDir, `error-${today}.log`);
+    const date = req.query.date || getTodayLocal();
+    const limitParam = parseInt(req.query.limit);
+    const limit = isNaN(limitParam) ? 200 : limitParam;
 
-    try {
-        const content = await fs.readFile(errorFile, 'utf-8');
-        const lines = content.trim().split('\n');
-        const errors = lines.map(line => JSON.parse(line));
-        sendSuccess(res, { errors, count: errors.length });
-    } catch {
-        sendSuccess(res, { errors: [], count: 0 }); // No errors is good!
+    const content = await readLogContent(logsDir, 'error', date);
+    if (!content.trim()) {
+        return sendSuccess(res, { errors: [], count: 0, date });
     }
+
+    const allLines = content.trim().split('\n');
+    const lines = limit === 0 ? allLines : allLines.slice(-limit);
+    const errors = lines.map(line => {
+        try { return JSON.parse(line); } catch { return { raw: line, level: 'error' }; }
+    });
+    sendSuccess(res, { errors, count: errors.length, total: allLines.length, date });
+}));
+
+/**
+ * GET /api/logs/dates
+ * Returns sorted list (newest first) of dates with available log files.
+ */
+router.get('/logs/dates', requireAdmin, validators.dates, asyncHandler(async (req, res) => {
+    const logsDir = path.join(__dirname, '..', 'output', 'logs');
+    const dates = await listAvailableDates(logsDir);
+    sendSuccess(res, { dates });
 }));
 
 /**
