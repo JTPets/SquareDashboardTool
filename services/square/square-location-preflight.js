@@ -34,6 +34,53 @@ function isItemEnabledAtLocation(itemObj, locationId) {
 }
 
 /**
+ * Detects whether a variation's enabled-location set is inconsistent with
+ * its parent ITEM's enabled-location set. A mismatch exists whenever the
+ * variation would be enabled at a location where the parent is not.
+ *
+ * Checks structurally against the catalog object representation:
+ *   - variation.present_at_all_locations + variation.absent_at_location_ids
+ *   - parent.present_at_all_locations + parent.absent_at_location_ids
+ *     (or parent.present_at_location_ids when not present_at_all)
+ *
+ * Does NOT enumerate "all locations" — those structural rules are sufficient
+ * to detect mismatches without needing the merchant's full location list.
+ *
+ * @param {Object} variation
+ * @param {Object} parentItem
+ * @returns {boolean} true when a mismatch exists, false when consistent
+ */
+function hasLocationMismatch(variation, parentItem) {
+    const varPresentAll = variation.present_at_all_locations === true;
+    const varAbsent = new Set(variation.absent_at_location_ids || []);
+    const varPresent = variation.present_at_location_ids || [];
+
+    if (varPresentAll) {
+        // Variation is enabled at every location except varAbsent.
+        // For consistency, parent must be enabled at every location where
+        // the variation is — i.e. everywhere except (a subset of) varAbsent.
+        if (parentItem.present_at_all_locations !== true) {
+            // Parent is explicitly-listed only — it can't cover the
+            // "everywhere minus varAbsent" set symbolically, so flag mismatch.
+            return true;
+        }
+        const parentAbsent = parentItem.absent_at_location_ids || [];
+        for (const loc of parentAbsent) {
+            // Parent is absent here. If the variation is still enabled here
+            // (i.e. loc not in varAbsent), that's a mismatch.
+            if (!varAbsent.has(loc)) return true;
+        }
+        return false;
+    }
+
+    // Variation explicitly lists its enabled locations — check each one.
+    for (const loc of varPresent) {
+        if (!isItemEnabledAtLocation(parentItem, loc)) return true;
+    }
+    return false;
+}
+
+/**
  * Detect and repair parent ITEM location mismatches before a batch upsert.
  *
  * Steps:
@@ -86,19 +133,44 @@ async function repairParentLocationMismatches(
         if (i + CATALOG_BATCH_SIZE < itemIdList.length) await sleep(INTER_BATCH_DELAY_MS);
     }
 
-    // Step 3: Identify mismatched parent items
+    // Step 3: Identify mismatched parent items.
+    //
+    // Two checks combined:
+    //   (a) Sync-location check: for each (variation, locationId) being
+    //       synced, the parent must be enabled at that specific location.
+    //   (b) Structural consistency check: the variation's full
+    //       enabled-location set (derived from present_at_all_locations
+    //       and absent_at_location_ids) must be a subset of the parent's.
+    //
+    // (b) catches the production case where the variation has
+    //     present_at_all=true, absent=[X] and the parent has the same
+    //     configuration but Square still rejects upserts because its
+    //     internal view has the variation enabled at X. Enabling the
+    //     parent at all locations resolves the inconsistency.
     const mismatchedItemIds = new Set();
     for (const [variationId, locationChanges] of changesByVariation.entries()) {
         const itemId = variationToItemId.get(variationId);
         if (!itemId) continue;
         const parentItem = parentItems.get(itemId);
         if (!parentItem) continue;
+        const variation = retrievedVariations.get(variationId);
+
+        // (a) Sync-location check
+        let mismatched = false;
         for (const [locationId] of locationChanges.entries()) {
             if (!isItemEnabledAtLocation(parentItem, locationId)) {
-                mismatchedItemIds.add(itemId);
+                mismatched = true;
                 break;
             }
         }
+
+        // (b) Structural consistency check against variation's full
+        //     enabled-location set.
+        if (!mismatched && variation && hasLocationMismatch(variation, parentItem)) {
+            mismatched = true;
+        }
+
+        if (mismatched) mismatchedItemIds.add(itemId);
     }
 
     if (mismatchedItemIds.size === 0) return { repairedParents: 0 };
@@ -125,4 +197,4 @@ async function repairParentLocationMismatches(
     return { repairedParents: repairedIds.length };
 }
 
-module.exports = { repairParentLocationMismatches, isItemEnabledAtLocation };
+module.exports = { repairParentLocationMismatches, isItemEnabledAtLocation, hasLocationMismatch };
