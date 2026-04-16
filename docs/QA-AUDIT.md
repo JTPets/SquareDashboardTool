@@ -800,3 +800,257 @@ Pages covered: `public/dashboard.html`, `public/admin-subscriptions.html`, `publ
 | **Total** | **41** | **~465** | **0** |
 
 All 41 HTML pages under `public/` were scanned. Every page-initiated API call was cross-referenced against the mounted Express routes in `server.js` and the route files in `routes/`. No broken internal links or missing endpoints were found during the Section 1 scan.
+
+---
+
+## Section 2 — Route & Middleware Inventory
+
+> **File-scope note:** The task references `routes/auth.js` and `routes/subscriptions.js` — both are directories (`routes/auth/`, `routes/subscriptions/`) composed via index barrel files. All sub-files within each directory are included in the relevant group. `routes/inventory.js` (Group 2) and `routes/reorder.js` (Group 3) do not exist; those endpoints live in `routes/catalog.js` and `routes/analytics.js` respectively — noted in the scope notes for each group.
+>
+> **Global middleware** applied to every non-public `/api/*` request (from `server.js`):
+> 1. `configureRateLimit()` — global IP-based rate limit (line 160)
+> 2. `loadMerchantContext` — populates `req.merchantContext` (line 289)
+> 3. `apiAuthMiddleware` → `requireAuth` for all non-public paths (line 329)
+> 4. `subscriptionEnforcementMiddleware` — blocks expired/suspended merchants; excludes `/auth/`, `/subscriptions/`, `/admin/`, `/merchants`, `/config`, etc. (line 385)
+> 5. Feature/permission gates via `gateApi()` — applied per path prefix (lines 401–422)
+>
+> Route-level middleware documented below is **in addition** to the above global chain.
+
+---
+
+### Group 1 — Auth & Subscriptions
+
+Files scanned: `routes/auth/session.js`, `routes/auth/password.js`, `routes/auth/users.js`, `routes/subscriptions/plans.js`, `routes/subscriptions/merchant.js`, `routes/subscriptions/admin.js`, `routes/subscriptions/public.js`, `routes/subscriptions/webhooks.js`, `routes/merchants.js`.
+
+Mount points: `routes/auth/*` → `/api/auth`; `routes/subscriptions/*` → `/api`; `routes/merchants.js` → `/api`.
+
+---
+
+#### `routes/auth/session.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/auth/login` | `loginRateLimit`, `validators.login` | `sessionService.loginUser` | Y | — |
+| POST | `/api/auth/logout` | _(public path — apiAuthMiddleware skips auth)_ | `sessionService.logoutUser` | Y | — |
+| GET | `/api/auth/me` | _(global apiAuthMiddleware applies requireAuth; inline session guard as well)_ | inline session check | Y | — |
+
+---
+
+#### `routes/auth/password.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/auth/change-password` | `requireAuth`, `validators.changePassword` | `passwordService.changePassword` | Y | — |
+| POST | `/api/auth/forgot-password` | `validators.forgotPassword` | `passwordService.forgotPassword` | Y | ⚠️ **Missing rate limit** — `passwordResetRateLimit` is declared in this file but not applied to this handler; unlimited password-reset emails can be triggered per IP |
+| POST | `/api/auth/reset-password` | `passwordResetRateLimit`, `validators.resetPassword` | `passwordService.resetPassword` | Y | — |
+| GET | `/api/auth/verify-reset-token` | `validators.verifyResetToken` _(public path)_ | `passwordService.verifyResetToken` | Y | — |
+
+---
+
+#### `routes/auth/users.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/auth/users` | `requireAuth`, `requireAdmin` | `accountService.listUsers` | Y | — |
+| POST | `/api/auth/users` | `requireAuth`, `requireAdmin`, `validators.createUser` | `accountService.createUser` | Y | — |
+| PUT | `/api/auth/users/:id` | `requireAuth`, `requireAdmin`, `validators.updateUser` | `accountService.updateUser` | Y | — |
+| POST | `/api/auth/users/:id/reset-password` | `requireAuth`, `requireAdmin`, `validators.resetUserPassword` | `accountService.adminResetPassword` | Y | — |
+| POST | `/api/auth/users/:id/unlock` | `requireAuth`, `requireAdmin`, `validators.unlockUser` | `accountService.unlockUser` | Y | — |
+
+---
+
+#### `routes/subscriptions/plans.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/square/payment-config` | _(public; no auth)_ | inline env read | Y | — |
+| GET | `/api/subscriptions/plans` | _(public; no auth)_ | `subscriptionHandler.getPlans` | Y | — |
+
+---
+
+#### `routes/subscriptions/merchant.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/subscriptions/promo/validate` | `promoRateLimit` (aliased to loginRateLimit), `validators.validatePromo` | `validatePromoCode` | Y | — |
+| POST | `/api/subscriptions/create` | `subscriptionRateLimit`, `validators.createSubscription` | `createSubscription` | Y | — |
+| GET | `/api/subscriptions/status` | `subscriptionRateLimit`, `validators.checkStatus` _(public path)_ | `subscriptionHandler.checkSubscriptionStatus` | Y | — |
+| GET | `/api/subscriptions/merchant-status` | `requireAuth` | `subscriptionBridge.getMerchantStatusSummary` | Y | — |
+| POST | `/api/subscriptions/cancel` | `requireAuth`, `validators.cancelSubscription` | `subscriptionHandler.cancelSubscription` | Y | — |
+
+---
+
+#### `routes/subscriptions/admin.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/subscriptions/refund` | `requireAdmin` | `subscriptionHandler.processRefund` | Y | ⚠️ No explicit `requireAuth` before `requireAdmin`; relies solely on global apiAuthMiddleware — recommend explicit chain |
+| GET | `/api/subscriptions/admin/list` | `requireAuth`, `requirePermission('subscription','admin')`, `validators.listSubscribers` | `subscriptionHandler.getAllSubscribers` | Y | — |
+| GET | `/api/subscriptions/admin/plans` | `requireAuth`, `requirePermission('subscription','admin')` | `squareSubscriptions.listPlans` | Y | — |
+| POST | `/api/subscriptions/admin/setup-plans` | `requireAuth`, `requirePermission('subscription','admin')`, `requireSuperAdmin` | `squareSubscriptions.setupSubscriptionPlans` | Y | — |
+| GET | `/api/admin/pricing` | `requireAuth`, `requirePermission('subscription','admin')`, `requireSuperAdmin` | `pricingService.getAllModulePricing` + `getPlatformPlanPricing` | Y | — |
+| PUT | `/api/admin/pricing/modules/:key` | `requireAuth`, `requirePermission('subscription','admin')`, `requireSuperAdmin`, `validators.updatePricingItem` | `pricingService.updateModulePrice` | Y | — |
+| PUT | `/api/admin/pricing/plans/:key` | `requireAuth`, `requirePermission('subscription','admin')`, `requireSuperAdmin`, `validators.updatePricingItem` | `pricingService.updatePlatformPlanPrice` | Y | — |
+
+---
+
+#### `routes/subscriptions/public.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/public/pricing` | _(public; no auth)_ | `pricingService.getAllModulePricing` + `getPlatformPlanPricing` | Y | — |
+| GET | `/api/public/promo/check` | `promoRateLimit` | `checkPublicPromo` | Y | — |
+
+---
+
+#### `routes/subscriptions/webhooks.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/webhooks/events` | `requireAuth`, `requireAdmin`, `requireSuperAdmin`, `validators.listWebhookEvents` | inline DB query | N | ⚠️ No test coverage — `__tests__/routes/webhooks.test.js` covers Square inbound processing only, not this admin view endpoint |
+
+---
+
+#### `routes/merchants.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/merchants` | `requireAuth`, `validators.list` | `getUserMerchants` | Y | — |
+| POST | `/api/merchants/switch` | `requireAuth`, `validators.switch` | `switchActiveMerchant` | Y | — |
+| GET | `/api/merchants/context` | `requireAuth`, `validators.context` | inline | Y | — |
+| GET | `/api/config` | `requireAuth`, `validators.config` | inline (merchant settings + env vars) | Y | — |
+
+---
+
+**Group 1 flag summary:**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | HIGH | `POST /api/auth/forgot-password` | Missing rate limit — `passwordResetRateLimit` declared in file but not applied; unlimited password-reset emails can be triggered per IP |
+| 2 | LOW | `POST /api/subscriptions/refund` | No explicit `requireAuth` in route chain; relies on global apiAuthMiddleware — recommend adding for clarity and defense-in-depth |
+| 3 | LOW | `GET /api/webhooks/events` | No test coverage for this admin endpoint |
+
+---
+
+### Group 2 — Catalog & Inventory
+
+Files scanned: `routes/catalog.js`, `routes/catalog-health.js`.
+
+> **Scope note:** `routes/inventory.js` does not exist. The `/api/inventory` and `/api/low-stock` endpoints are defined in `routes/catalog.js` and are included below.
+
+Mount points: `routes/catalog.js` → `/api`; `routes/catalog-health.js` → `/api/admin/catalog-health`.
+
+Additional global gates from `server.js` `gateApi()` calls:
+- `/expirations` → `requireFeature('expiry')`, `requirePermission('expiry', 'read')`
+- `/deleted-items` → `requireFeature('loyalty')`, `requirePermission('loyalty', 'read')`
+- `/catalog-audit` → `requirePermission('base', 'read')`
+
+---
+
+#### `routes/catalog.js`
+
+| Method | Path | Middleware chain (route-level + feature gate) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/locations` | `requireAuth`, `requireMerchant` | `catalogService.getLocations` | Y | — |
+| GET | `/api/categories` | `requireAuth`, `requireMerchant`, `validators.getCategories` | `catalogService.getCategories` | Y | — |
+| GET | `/api/items` | `requireAuth`, `requireMerchant`, `validators.getItems` | `catalogService.getItems` | Y | — |
+| GET | `/api/variations` | `requireAuth`, `requireMerchant`, `validators.getVariations` | `catalogService.getVariations` | Y | — |
+| GET | `/api/variations-with-costs` | `requireAuth`, `requireMerchant`, `validators.getVariationsWithCosts` | `catalogService.getVariationsWithCosts` | Y | — |
+| PATCH | `/api/variations/:id/extended` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.updateVariationExtended` | `catalogService.updateExtendedFields` | Y | — |
+| PATCH | `/api/variations/:id/min-stock` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.updateMinStock` | `catalogService.updateMinStock` | Y | — |
+| PATCH | `/api/variations/:id/cost` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.updateCost` | `catalogService.updateCost` | Y | — |
+| POST | `/api/variations/bulk-update-extended` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.bulkUpdateExtended` | `catalogService.bulkUpdateExtendedFields` | Y | — |
+| GET | `/api/expirations` | `requireAuth`, `requireMerchant`, `validators.getExpirations` + feat:expiry, perm:expiry/read | `catalogService.getExpirations` | Y | — |
+| POST | `/api/expirations` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.saveExpirations` + feat:expiry, perm:expiry/read | `catalogService.saveExpirations` | Y | — |
+| POST | `/api/expirations/pull` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.pullExpired` + feat:expiry, perm:expiry/read | `catalogService.handleExpiredPull` | Y | — |
+| POST | `/api/expirations/review` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.reviewExpirations` + feat:expiry, perm:expiry/read | `catalogService.markExpirationsReviewed` | Y | — |
+| GET | `/api/inventory` | `requireAuth`, `requireMerchant`, `validators.getInventory` | `catalogService.getInventory` | Y | — |
+| GET | `/api/low-stock` | `requireAuth`, `requireMerchant`, `validators.getLowStock` | `catalogService.getLowStock` | Y | — |
+| GET | `/api/deleted-items` | `requireAuth`, `requireMerchant`, `validators.getDeletedItems` + feat:loyalty, perm:loyalty/read | `catalogService.getDeletedItems` | Y | — |
+| GET | `/api/catalog-audit` | `requireAuth`, `requireMerchant`, `validators.getCatalogAudit` + perm:base/read | `catalogService.getCatalogAudit` | Y | — |
+| POST | `/api/catalog-audit/enable-item-at-locations` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.enableItemAtLocations` + perm:base/read | `catalogService.enableItemAtAllLocations` | Y | — |
+| POST | `/api/catalog-audit/fix-locations` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.fixLocations` + perm:base/read | `catalogService.fixLocationMismatches` | Y | ⚠️ Bulk destructive Square catalog write; no admin/superAdmin gate beyond `requireWriteAccess` |
+| POST | `/api/catalog-audit/fix-inventory-alerts` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.fixInventoryAlerts` + perm:base/read | `catalogService.fixInventoryAlerts` | Y | ⚠️ Same — bulk Square write with no elevated-role guard |
+
+---
+
+#### `routes/catalog-health.js`
+
+Mounted at `/api/admin/catalog-health`.
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/admin/catalog-health` | `requireAuth`, `requireAdmin`, `validators.getHealth` | `getHealthHistory`, `getOpenIssues` | Y | ⚠️ Hard-coded `DEBUG_MERCHANT_ID = 3` — always runs against merchant 3 regardless of caller; breaks multi-tenant design |
+| POST | `/api/admin/catalog-health/check` | `requireAuth`, `requireAdmin`, `validators.runCheck` | `runFullHealthCheck` | Y | ⚠️ Same hard-coded `DEBUG_MERCHANT_ID = 3` issue |
+
+---
+
+**Group 2 flag summary:**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | HIGH | `GET /api/admin/catalog-health`, `POST /api/admin/catalog-health/check` | Hard-coded `DEBUG_MERCHANT_ID = 3` — health check always targets merchant 3 regardless of authenticated caller; violates multi-tenant isolation |
+| 2 | MEDIUM | `POST /api/catalog-audit/fix-locations` | Bulk destructive Square catalog operation; only `requireWriteAccess` guards it — no admin or superAdmin role required |
+| 3 | MEDIUM | `POST /api/catalog-audit/fix-inventory-alerts` | Same — bulk Square write with no elevated-role gate |
+| 4 | INFO | — | `routes/inventory.js` referenced in task scope does not exist; `/api/inventory` and `/api/low-stock` are in `routes/catalog.js` |
+
+---
+
+### Group 3 — Purchasing & Counts
+
+Files scanned: `routes/purchase-orders.js`, `routes/cycle-counts.js`.
+
+> **Scope note:** `routes/reorder.js` does not exist. Reorder suggestion endpoints (`GET /api/reorder-suggestions`) live in `routes/analytics.js`, which is gated by `requireFeature('reorder')` and `requirePermission('reorder', 'read')` via `server.js` — those routes are outside the task scope for this group.
+
+Mount points: `routes/purchase-orders.js` → `/api/purchase-orders` (with `requireFeature('reorder')`, `requirePermission('reorder', 'read')` applied at mount); `routes/cycle-counts.js` → `/api` (with `requireFeature('cycle_counts')`, `requirePermission('cycle_counts', 'read')` on `/cycle-counts` via `gateApi`).
+
+---
+
+#### `routes/purchase-orders.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/purchase-orders` | `requireAuth`, `requireMerchant`, `validators.createPurchaseOrder` | `poService.createPurchaseOrder` | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/purchase-orders` | `requireAuth`, `requireMerchant`, `validators.listPurchaseOrders` | `poService.listPurchaseOrders` | Y | — |
+| GET | `/api/purchase-orders/:id` | `requireAuth`, `requireMerchant`, `validators.getPurchaseOrder` | `poService.getPurchaseOrder` | Y | — |
+| PATCH | `/api/purchase-orders/:id` | `requireAuth`, `requireMerchant`, `validators.updatePurchaseOrder` | `poService.updatePurchaseOrder` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/purchase-orders/:id/submit` | `requireAuth`, `requireMerchant`, `validators.submitPurchaseOrder` | `poService.submitPurchaseOrder` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/purchase-orders/:id/receive` | `requireAuth`, `requireMerchant`, `validators.receivePurchaseOrder` | `poReceiveService.receiveItems` | Y | ⚠️ Missing `requireWriteAccess` — records received inventory |
+| DELETE | `/api/purchase-orders/:id` | `requireAuth`, `requireMerchant`, `validators.deletePurchaseOrder` | `poService.deletePurchaseOrder` | Y | ⚠️ Missing `requireWriteAccess` — read-only users can delete POs |
+| GET | `/api/purchase-orders/:po_number/export-csv` | `requireAuth`, `requireMerchant`, `validators.exportPurchaseOrderCsv` | `poExportService.getPurchaseOrderForExport` + `buildCsvContent` | Y | — |
+| GET | `/api/purchase-orders/:po_number/export-xlsx` | `requireAuth`, `requireMerchant`, `validators.exportPurchaseOrderXlsx` | `poExportService.getPurchaseOrderForExport` + `buildXlsxWorkbook` | Y | — |
+
+---
+
+#### `routes/cycle-counts.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/cycle-counts/pending` | `requireAuth`, `requireMerchant` | inline DB query + `batchResolveImageUrls` | Y | — |
+| POST | `/api/cycle-counts/:id/complete` | `requireAuth`, `requireMerchant`, `validators.complete` | inline DB transaction (count_history, queue updates) | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/cycle-counts/:id/sync-to-square` | `requireAuth`, `requireMerchant`, `validators.syncToSquare` | `squareApi.setSquareInventoryCount` + DB update | Y | ⚠️ Missing `requireWriteAccess` — pushes inventory adjustment to Square |
+| POST | `/api/cycle-counts/send-now` | `requireAuth`, `requireMerchant`, `validators.sendNow` | inline DB insert (count_queue_priority) | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/cycle-counts/stats` | `requireAuth`, `requireMerchant`, `validators.getStats` | inline DB query | Y | — |
+| GET | `/api/cycle-counts/history` | `requireAuth`, `requireMerchant`, `validators.getHistory` | inline DB query | Y | — |
+| POST | `/api/cycle-counts/email-report` | `requireAuth`, `requireMerchant`, `validators.emailReport` | `sendCycleCountReport` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/cycle-counts/generate-batch` | `requireAuth`, `requireMerchant`, `validators.generateBatch` | `generateDailyBatch` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/cycle-counts/reset` | `requireAuth`, `requireMerchant`, `validators.reset` | inline DB delete + insert (can wipe all count history) | Y | ⚠️ Missing `requireWriteAccess`; no admin gate on a destructive full-wipe operation |
+
+---
+
+**Group 3 flag summary:**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | HIGH | `DELETE /api/purchase-orders/:id` | Missing `requireWriteAccess` — read-only role can delete POs |
+| 2 | MEDIUM | `POST /api/purchase-orders` | Missing `requireWriteAccess` — read-only role can create POs |
+| 3 | MEDIUM | `PATCH /api/purchase-orders/:id` | Missing `requireWriteAccess` |
+| 4 | MEDIUM | `POST /api/purchase-orders/:id/submit` | Missing `requireWriteAccess` |
+| 5 | MEDIUM | `POST /api/purchase-orders/:id/receive` | Missing `requireWriteAccess` — records received inventory without write-role check |
+| 6 | HIGH | `POST /api/cycle-counts/reset` | Missing `requireWriteAccess` AND no admin gate; can irrecoverably wipe all count history |
+| 7 | MEDIUM | `POST /api/cycle-counts/:id/complete` | Missing `requireWriteAccess` |
+| 8 | MEDIUM | `POST /api/cycle-counts/:id/sync-to-square` | Missing `requireWriteAccess` — pushes inventory adjustments to Square |
+| 9 | MEDIUM | `POST /api/cycle-counts/send-now` | Missing `requireWriteAccess` |
+| 10 | MEDIUM | `POST /api/cycle-counts/email-report` | Missing `requireWriteAccess` |
+| 11 | MEDIUM | `POST /api/cycle-counts/generate-batch` | Missing `requireWriteAccess` |
+| 12 | INFO | — | `routes/reorder.js` referenced in task scope does not exist; reorder suggestions are in `routes/analytics.js` |
