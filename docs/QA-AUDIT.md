@@ -2656,3 +2656,100 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - [ ] Verify merchant record retained after cancellation — Merchant row remains in DB with `is_active = false`; no hard delete — no frontend (DB/admin verification) — `POST /api/subscriptions/cancel` (soft deactivation)
 - [ ] Verify OAuth tokens cleared after revoke — `access_token` and `refresh_token` removed from DB; merchant cannot make Square API calls — no frontend (DB/admin verification) — `POST /api/square/oauth/revoke`
 - [ ] Verify session invalidated after cancellation or revoke — Subsequent requests using old session cookie return 401 or redirect to login — no frontend (API direct) — session middleware
+
+---
+
+## Section 5 — Gap Report
+
+> **Methodology:** All findings below are derived strictly from Sections 1–4. No new code scanning was performed. Each group consolidates and cross-references the flags already documented in those sections. Severity labels (CRITICAL / HIGH / MEDIUM / LOW) match the Section 2 flag ratings where applicable; new ratings follow the same criteria (data integrity, blast radius, exploitability, reversibility).
+
+---
+
+### Group 1 — UI & Route Gaps
+
+#### 1.1 — UI elements with no matching backend route
+
+**Finding: None.**
+
+Section 1 verified all 41 HTML pages and ~465 clickable elements. Every page-initiated API call was cross-referenced against mounted Express routes. No broken UI → backend calls were found.
+
+---
+
+#### 1.2 — Backend routes with no UI entry point (orphaned routes)
+
+| # | Severity | Route(s) | File | Reason |
+|---|----------|----------|------|--------|
+| 1 | **CRITICAL** | `GET /api/admin/catalog-location-health`, `POST /api/admin/catalog-location-health/check` | `routes/catalog-location-health.js` | File is **never mounted** in `server.js`; both endpoints are completely unreachable via HTTP. Handler unit tests exist and pass, but no HTTP request can reach them. |
+| 2 | MEDIUM | `GET /api/admin/pricing`, `PUT /api/admin/pricing/modules/:key`, `PUT /api/admin/pricing/plans/:key` | `routes/subscriptions/admin.js` | No HTML page in Section 1 was documented calling these endpoints. Accessible only via direct API call or an undocumented admin page. |
+| 3 | INFO | `GET /api/subscriptions/admin/list`, `GET /api/subscriptions/admin/plans`, `POST /api/subscriptions/admin/setup-plans` | `routes/subscriptions/admin.js` | Called from `public/admin-subscriptions.html` per Section 4 Journey 3, but Section 1 Group 5 (Admin & Settings) did not detail this page's endpoint calls. Low risk — admin-only routes. |
+| 4 | INFO | `GET /api/webhooks/events` | `routes/subscriptions/webhooks.js` | Admin-only event viewer with no documented UI page. S2 flag #3 (originally N); S3 confirmed test coverage via `subscriptions-untested-endpoints.test.js`. No UI exposure needed — admin-direct only. |
+
+---
+
+#### 1.3 — Navigation dead ends (Section 4 QA checklist path errors)
+
+Section 4 documents API paths in several journeys that do not match the actual mounted routes from Section 2. A QA tester following the checklist literally would encounter 404s. These are **checklist documentation errors**, not confirmed runtime bugs (Section 1 verified the HTML files resolve correctly at the JS level).
+
+**Journey 10 — Delivery System:** All delivery API paths in Section 4 omit the `/delivery/` prefix.
+
+| Section 4 path (incorrect) | Actual route (Section 2) |
+|---|---|
+| `GET /api/orders` | `GET /api/delivery/orders` |
+| `POST /api/orders` | `POST /api/delivery/orders` |
+| `GET /api/orders/:id` | `GET /api/delivery/orders/:id` |
+| `PATCH /api/orders/:id` | `PATCH /api/delivery/orders/:id` |
+| `DELETE /api/orders/:id` | `DELETE /api/delivery/orders/:id` |
+| `GET /api/orders/:id/customer` | `GET /api/delivery/orders/:id/customer` |
+| `GET /api/orders/:id/customer-stats` | `GET /api/delivery/orders/:id/customer-stats` |
+| `PATCH /api/orders/:id/notes` | `PATCH /api/delivery/orders/:id/notes` |
+| `PATCH /api/orders/:id/customer-note` | `PATCH /api/delivery/orders/:id/customer-note` |
+| `POST /api/orders/:id/skip` | `POST /api/delivery/orders/:id/skip` |
+| `POST /api/orders/:id/complete` | `POST /api/delivery/orders/:id/complete` |
+| `POST /api/route/generate` | `POST /api/delivery/route/generate` |
+| `GET /api/route/active` | `GET /api/delivery/route/active` |
+| `GET /api/route/:id` | `GET /api/delivery/route/:id` |
+| `POST /api/route/finish` | `POST /api/delivery/route/finish` |
+| `POST /api/geocode` | `POST /api/delivery/geocode` |
+| `GET /api/settings` (delivery) | `GET /api/delivery/settings` |
+| `PUT /api/settings` (delivery) | `PUT /api/delivery/settings` |
+
+**Journey 12 — Settings & Account Management:** Auth/user management paths omit the `/auth/` path segment.
+
+| Section 4 path (incorrect) | Actual route (Section 2) |
+|---|---|
+| `POST /api/change-password` | `POST /api/auth/change-password` |
+| `POST /api/forgot-password` | `POST /api/auth/forgot-password` |
+| `POST /api/reset-password` | `POST /api/auth/reset-password` |
+| `GET /api/verify-reset-token` | `GET /api/auth/verify-reset-token` |
+| `GET /api/users` | `GET /api/auth/users` |
+| `POST /api/users` | `POST /api/auth/users` |
+| `PUT /api/users/:id` | `PUT /api/auth/users/:id` |
+| `POST /api/users/:id/reset-password` | `POST /api/auth/users/:id/reset-password` |
+| `POST /api/users/:id/unlock` | `POST /api/auth/users/:id/unlock` |
+
+**Journey 5 — Vendor Management:** Two actions reference non-existent routes.
+
+| Section 4 path (incorrect) | Actual route (Section 2) |
+|---|---|
+| `POST /api/vendor-match-suggestions/:id/accept` | `POST /api/vendor-match-suggestions/:id/approve` |
+| `DELETE /api/vendor-match-suggestions/:id` | `POST /api/vendor-match-suggestions/:id/reject` |
+
+**Journey 3 — Subscription & Billing:** Admin subscription management actions reference non-existent routes.
+
+| Section 4 path (incorrect) | Actual route (Section 2) |
+|---|---|
+| `GET /api/admin/subscriptions` | `GET /api/subscriptions/admin/list` |
+| `PATCH /api/admin/subscriptions/:id` | ❌ **No matching route exists in Section 2** |
+
+The `PATCH /api/admin/subscriptions/:id` path documented in Section 4 Journey 3 ("Admin changes a merchant's subscription plan") has no corresponding route in Section 2's full route inventory. This is either an unimplemented feature or an undocumented route — both warrant investigation before beta.
+
+---
+
+#### Group 1 summary
+
+| Category | Count |
+|----------|-------|
+| UI → backend broken links | 0 |
+| Orphaned / unmounted backend routes | 1 CRITICAL + 3 INFO |
+| Section 4 checklist path errors | ~30 incorrect paths across 4 journeys |
+| Possible unimplemented admin route | 1 (`PATCH /api/admin/subscriptions/:id`) |
