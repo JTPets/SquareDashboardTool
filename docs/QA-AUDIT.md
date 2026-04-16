@@ -2300,3 +2300,18 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - [ ] Disconnect Square (click revoke / disconnect button) as owner ⚠️ — Token revoked at Square; merchant marked inactive; session `activeMerchantId` cleared — `public/settings.html` — `POST /api/square/oauth/revoke` ⚠️ (revokes real token)
 - [ ] Attempt disconnect as manager or lower role — Error: 403 Insufficient permissions — `public/settings.html` — `POST /api/square/oauth/revoke`
 - [ ] Admin manually refreshes token — Token refreshed; new `expiresAt` returned — `public/settings.html` (admin section) — `POST /api/square/oauth/refresh`
+
+### Journey 3 — Subscription & Billing
+
+- [ ] Load `/settings.html` as a trialing merchant — Subscription section shows trial status and trial end date — `public/settings.html` — `GET /api/subscriptions/merchant-status`, `GET /api/merchant/features`
+- [ ] Load `/settings.html` as an active (paid) merchant — Subscription section shows "Active", plan name, and renewal date — `public/settings.html` — `GET /api/subscriptions/merchant-status`
+- [ ] Load `/subscription-expired.html` — Expired/blocked message shown; "Upgrade" or "Contact support" links present — `public/subscription-expired.html` — static
+- [ ] Load `/upgrade.html` — Upgrade plan options displayed — `public/upgrade.html` — `GET /api/subscriptions/plans`
+- [ ] Apply a promo code on upgrade page — Valid: discount applied to displayed price; invalid: error shown — `public/upgrade.html` — `POST /api/subscriptions/promo/validate`
+- [ ] Complete upgrade payment ⚠️ — Subscription upgraded; new plan recorded; payment processed via Square — `public/upgrade.html` — `POST /api/subscriptions/create` ⚠️ (charges real Square payment)
+- [ ] Check subscription status by email (public endpoint) — Returns `active`, `trial`, or `expired` and relevant dates — no frontend page (API direct) — `GET /api/subscriptions/status?email=...`
+- [ ] Cancel subscription from settings page (owner only) — Confirmation modal appears; on confirm, subscription canceled and Square subscription canceled ⚠️ — `public/settings.html` — `POST /api/subscriptions/cancel` ⚠️ (cancels real Square subscription if present)
+- [ ] Attempt to cancel subscription as manager — Cancel button hidden or action returns 403 — `public/settings.html` — `POST /api/subscriptions/cancel`
+- [ ] Load any protected page as expired merchant — Redirect to `/subscription-expired.html` — `public/subscription-expired.html` — `GET /api/auth/me` (subscription gate middleware)
+- [ ] Load `/admin-subscriptions.html` as platform owner — Subscriber list loads; plan and status visible — `public/admin-subscriptions.html` — `GET /api/admin/subscriptions`, `GET /api/subscriptions/admin/plans`
+- [ ] Admin changes a merchant's subscription plan — Plan updated; event logged — `public/admin-subscriptions.html` — `PATCH /api/admin/subscriptions/:id`
