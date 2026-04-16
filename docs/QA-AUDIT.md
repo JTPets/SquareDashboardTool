@@ -2529,3 +2529,53 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - [ ] Save delivery settings with valid start/end addresses — Settings saved; addresses geocoded; audit log entry created — `public/delivery-settings.html` — `PUT /api/settings`
 - [ ] Save delivery settings with unresolvable address — Geocoding error returned; settings not saved — `public/delivery-settings.html` — `PUT /api/settings`
 - [ ] Access delivery pages as clerk — Page loads; delivery status update available — `public/delivery.html` — `GET /api/orders`
+
+### Journey 11 — Loyalty System
+
+#### Enroll & Earn
+
+- [ ] Load `/loyalty.html` — Loyalty dashboard renders; program stats and rewards list shown — `public/loyalty.html` — `GET /api/loyalty/stats`, `GET /api/loyalty/rewards`
+- [ ] Manually process a single order for loyalty (earn) ⚠️ — Order fetched from Square; loyalty points/reward credited if qualifying purchase — `public/loyalty.html` — `POST /api/loyalty/process-order/:orderId` ⚠️ (fetches real Square order)
+- [ ] Process an order that does not qualify for loyalty ⚠️ — No reward created; audit log entry records ineligible order — `public/loyalty.html` — `POST /api/loyalty/process-order/:orderId` ⚠️
+- [ ] Process an order already processed (duplicate) ⚠️ — Idempotent result; no duplicate reward created — `public/loyalty.html` — `POST /api/loyalty/process-order/:orderId` ⚠️
+- [ ] Add manual loyalty entry — Manual purchase entry recorded; loyalty calculated from supplied quantity and variation — `public/loyalty.html` — `POST /api/loyalty/manual-entry`
+- [ ] Process expired loyalty window entries — Expired windows closed; earned rewards finalized — `public/loyalty.html` — `POST /api/loyalty/process-expired`
+
+#### Redeem
+
+- [ ] View rewards list — All rewards with status (PENDING, EARNED, REDEEMED) shown — `public/loyalty.html` — `GET /api/loyalty/rewards`
+- [ ] Filter rewards by status — Filtered rewards list returned — `public/loyalty.html` — `GET /api/loyalty/rewards?status=EARNED`
+- [ ] Filter rewards by offer — Rewards for specific offer shown — `public/loyalty.html` — `GET /api/loyalty/rewards?offerId=...`
+- [ ] Filter rewards by customer — Rewards for specific Square customer shown — `public/loyalty.html` — `GET /api/loyalty/rewards?customerId=...`
+- [ ] Redeem a loyalty reward ⚠️ — Reward marked redeemed; redemption recorded with order ID and value; full-value-only rule enforced — `public/loyalty.html` — `POST /api/loyalty/rewards/:rewardId/redeem` ⚠️ (processes redemption in Square)
+- [ ] Attempt partial redemption of a reward ⚠️ — Error returned; business rule enforces full redemption only — `public/loyalty.html` — `POST /api/loyalty/rewards/:rewardId/redeem` ⚠️
+- [ ] Redeem reward with invalid Square order ID ⚠️ — Error returned; reward status unchanged — `public/loyalty.html` — `POST /api/loyalty/rewards/:rewardId/redeem` ⚠️
+- [ ] View redemption history — Redemption log with timestamps and values shown — `public/loyalty.html` — `GET /api/loyalty/redemptions`
+- [ ] Filter redemption history by date range — Filtered redemptions returned — `public/loyalty.html` — `GET /api/loyalty/redemptions?startDate=...&endDate=...`
+
+#### Refund & Vendor Credit
+
+- [ ] Update vendor credit status for a redeemed reward — Vendor credit status updated (e.g. PENDING → PAID); notes saved — `public/loyalty.html` — `PATCH /api/loyalty/rewards/:rewardId/vendor-credit`
+- [ ] Refresh customer data for rewards ⚠️ — Customer details re-fetched from Square; reward records updated with latest info — `public/loyalty.html` — `POST /api/loyalty/refresh-customers` ⚠️ (fetches from Square Customers API)
+
+#### Audit
+
+- [ ] View loyalty audit log — Audit entries rendered with action, customer, and timestamp — `public/loyalty.html` — `GET /api/loyalty/audit`
+- [ ] Filter audit log by action type — Entries for specific action (e.g. EARN, REDEEM) returned — `public/loyalty.html` — `GET /api/loyalty/audit?action=EARN`
+- [ ] Filter audit log by Square customer ID — All audit entries for specific customer shown — `public/loyalty.html` — `GET /api/loyalty/audit?squareCustomerId=...`
+- [ ] Filter audit log by offer — Entries scoped to specific loyalty offer shown — `public/loyalty.html` — `GET /api/loyalty/audit?offerId=...`
+- [ ] View loyalty statistics — Active rewards count, total redemptions, and program totals shown — `public/loyalty.html` — `GET /api/loyalty/stats`
+- [ ] View audit findings (orphaned rewards) — Unresolved audit findings listed by issue type — `public/loyalty.html` — `GET /api/loyalty/audit-findings`
+- [ ] Filter audit findings by issue type — Findings filtered to specified issue type — `public/loyalty.html` — `GET /api/loyalty/audit-findings?issueType=...`
+- [ ] Filter audit findings to unresolved only — Only open findings returned — `public/loyalty.html` — `GET /api/loyalty/audit-findings?resolved=false`
+- [ ] Resolve an audit finding — Finding marked resolved; removed from open findings list — `public/loyalty.html` — `POST /api/loyalty/audit-findings/resolve/:id`
+- [ ] Audit for missed redemptions (dry run) ⚠️ — Missed redemptions detected in recent orders; no changes applied — `public/loyalty.html` — `POST /api/loyalty/audit-missed-redemptions?dryRun=true` ⚠️ (scans real Square orders)
+- [ ] Audit for missed redemptions (apply) ⚠️ — Missed redemptions processed and recorded in loyalty log — `public/loyalty.html` — `POST /api/loyalty/audit-missed-redemptions` ⚠️
+
+#### Backfill
+
+- [ ] Run loyalty backfill for recent orders ⚠️ — Recent Square orders scanned; missing loyalty earn entries created — `public/loyalty.html` — `POST /api/loyalty/backfill` ⚠️ (fetches Square orders)
+- [ ] Run loyalty backfill for extended period ⚠️ — Backfill window extended via `days` parameter — `public/loyalty.html` — `POST /api/loyalty/backfill` (with `days`) ⚠️
+- [ ] Run loyalty catchup for all known customers ⚠️ — Reverse-lookup catchup runs; gaps in loyalty history filled — `public/loyalty.html` — `POST /api/loyalty/catchup` ⚠️ (fetches Square order history per customer)
+- [ ] Run loyalty catchup scoped to specific customer IDs ⚠️ — Catchup limited to supplied customer list — `public/loyalty.html` — `POST /api/loyalty/catchup` (with `customerIds`) ⚠️
+- [ ] Attempt to access loyalty page as clerk — 403 or feature-gate blocks access — `public/loyalty.html` — `GET /api/merchant/features`
