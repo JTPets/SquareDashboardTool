@@ -2356,3 +2356,18 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - [ ] Load `/sales-velocity.html` as readonly — Sales velocity data visible — `public/sales-velocity.html` — `GET /api/sales-velocity`
 - [ ] Attempt to POST to any write endpoint as readonly (e.g. `POST /api/purchase-orders`) — 403 Insufficient permissions — no frontend (API direct) — `POST /api/purchase-orders`
 - [ ] Attempt to access staff page as readonly — 403 or redirect (no base write/staff access) — `public/staff.html` — `GET /api/staff`
+
+### Journey 5 — Vendor Management
+
+- [ ] Load `/vendor-dashboard.html` — Vendor list renders with OOS counts per vendor; global OOS count shown — `public/vendor-dashboard.html` — `GET /api/vendor-dashboard`
+- [ ] Expand a vendor row — Vendor detail expands showing OOS items and reorder data — `public/vendor-dashboard.html` — client-side (data already loaded)
+- [ ] Click "Edit Vendor Settings" for a vendor — Inline form opens with schedule type, minimum order, lead time fields — `public/vendor-dashboard.html` — client-side only
+- [ ] Save vendor settings (schedule type, min order, lead time) — Settings saved; vendor row updates; success toast shown — `public/vendor-dashboard.html` — `PATCH /api/vendors/:id/settings`
+- [ ] Save vendor settings with invalid data (e.g. negative minimum) — Validation error shown; no save — `public/vendor-dashboard.html` — `PATCH /api/vendors/:id/settings`
+- [ ] Load `/vendor-catalog.html` — Vendor catalog items render — `public/vendor-catalog.html` — `GET /api/vendor-catalog`
+- [ ] Filter vendor list by status (ACTIVE/INACTIVE) — Filtered vendor list returned — `public/vendor-dashboard.html` — `GET /api/vendors?status=ACTIVE`
+- [ ] Load `/vendor-match-suggestions.html` — Unmatched catalog items with suggested vendor matches shown — `public/vendor-match-suggestions.html` — `GET /api/vendor-match-suggestions`
+- [ ] Accept a vendor match suggestion — Item linked to vendor; suggestion removed from list — `public/vendor-match-suggestions.html` — `POST /api/vendor-match-suggestions/:id/accept`
+- [ ] Reject a vendor match suggestion — Suggestion dismissed — `public/vendor-match-suggestions.html` — `DELETE /api/vendor-match-suggestions/:id`
+- [ ] Load merchant tax list — Taxes for merchant's Square account returned — no dedicated page (used in vendor-catalog forms) — `GET /api/vendor-catalog/merchant-taxes`
+- [ ] Access vendor pages as clerk — 403 or feature-gate blocks (clerk has no vendor access per permissions matrix) — `public/vendor-dashboard.html` — `GET /api/vendor-dashboard`
