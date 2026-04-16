@@ -800,3 +800,132 @@ Pages covered: `public/dashboard.html`, `public/admin-subscriptions.html`, `publ
 | **Total** | **41** | **~465** | **0** |
 
 All 41 HTML pages under `public/` were scanned. Every page-initiated API call was cross-referenced against the mounted Express routes in `server.js` and the route files in `routes/`. No broken internal links or missing endpoints were found during the Section 1 scan.
+
+---
+
+## Section 2 — Route & Middleware Inventory
+
+> **File-scope note:** The task references `routes/auth.js` and `routes/subscriptions.js` — both are directories (`routes/auth/`, `routes/subscriptions/`) composed via index barrel files. All sub-files within each directory are included in the relevant group. `routes/inventory.js` (Group 2) and `routes/reorder.js` (Group 3) do not exist; those endpoints live in `routes/catalog.js` and `routes/analytics.js` respectively — noted in the scope notes for each group.
+>
+> **Global middleware** applied to every non-public `/api/*` request (from `server.js`):
+> 1. `configureRateLimit()` — global IP-based rate limit (line 160)
+> 2. `loadMerchantContext` — populates `req.merchantContext` (line 289)
+> 3. `apiAuthMiddleware` → `requireAuth` for all non-public paths (line 329)
+> 4. `subscriptionEnforcementMiddleware` — blocks expired/suspended merchants; excludes `/auth/`, `/subscriptions/`, `/admin/`, `/merchants`, `/config`, etc. (line 385)
+> 5. Feature/permission gates via `gateApi()` — applied per path prefix (lines 401–422)
+>
+> Route-level middleware documented below is **in addition** to the above global chain.
+
+---
+
+### Group 1 — Auth & Subscriptions
+
+Files scanned: `routes/auth/session.js`, `routes/auth/password.js`, `routes/auth/users.js`, `routes/subscriptions/plans.js`, `routes/subscriptions/merchant.js`, `routes/subscriptions/admin.js`, `routes/subscriptions/public.js`, `routes/subscriptions/webhooks.js`, `routes/merchants.js`.
+
+Mount points: `routes/auth/*` → `/api/auth`; `routes/subscriptions/*` → `/api`; `routes/merchants.js` → `/api`.
+
+---
+
+#### `routes/auth/session.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/auth/login` | `loginRateLimit`, `validators.login` | `sessionService.loginUser` | Y | — |
+| POST | `/api/auth/logout` | _(public path — apiAuthMiddleware skips auth)_ | `sessionService.logoutUser` | Y | — |
+| GET | `/api/auth/me` | _(global apiAuthMiddleware applies requireAuth; inline session guard as well)_ | inline session check | Y | — |
+
+---
+
+#### `routes/auth/password.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/auth/change-password` | `requireAuth`, `validators.changePassword` | `passwordService.changePassword` | Y | — |
+| POST | `/api/auth/forgot-password` | `validators.forgotPassword` | `passwordService.forgotPassword` | Y | ⚠️ **Missing rate limit** — `passwordResetRateLimit` is declared in this file but not applied to this handler; unlimited password-reset emails can be triggered per IP |
+| POST | `/api/auth/reset-password` | `passwordResetRateLimit`, `validators.resetPassword` | `passwordService.resetPassword` | Y | — |
+| GET | `/api/auth/verify-reset-token` | `validators.verifyResetToken` _(public path)_ | `passwordService.verifyResetToken` | Y | — |
+
+---
+
+#### `routes/auth/users.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/auth/users` | `requireAuth`, `requireAdmin` | `accountService.listUsers` | Y | — |
+| POST | `/api/auth/users` | `requireAuth`, `requireAdmin`, `validators.createUser` | `accountService.createUser` | Y | — |
+| PUT | `/api/auth/users/:id` | `requireAuth`, `requireAdmin`, `validators.updateUser` | `accountService.updateUser` | Y | — |
+| POST | `/api/auth/users/:id/reset-password` | `requireAuth`, `requireAdmin`, `validators.resetUserPassword` | `accountService.adminResetPassword` | Y | — |
+| POST | `/api/auth/users/:id/unlock` | `requireAuth`, `requireAdmin`, `validators.unlockUser` | `accountService.unlockUser` | Y | — |
+
+---
+
+#### `routes/subscriptions/plans.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/square/payment-config` | _(public; no auth)_ | inline env read | Y | — |
+| GET | `/api/subscriptions/plans` | _(public; no auth)_ | `subscriptionHandler.getPlans` | Y | — |
+
+---
+
+#### `routes/subscriptions/merchant.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/subscriptions/promo/validate` | `promoRateLimit` (aliased to loginRateLimit), `validators.validatePromo` | `validatePromoCode` | Y | — |
+| POST | `/api/subscriptions/create` | `subscriptionRateLimit`, `validators.createSubscription` | `createSubscription` | Y | — |
+| GET | `/api/subscriptions/status` | `subscriptionRateLimit`, `validators.checkStatus` _(public path)_ | `subscriptionHandler.checkSubscriptionStatus` | Y | — |
+| GET | `/api/subscriptions/merchant-status` | `requireAuth` | `subscriptionBridge.getMerchantStatusSummary` | Y | — |
+| POST | `/api/subscriptions/cancel` | `requireAuth`, `validators.cancelSubscription` | `subscriptionHandler.cancelSubscription` | Y | — |
+
+---
+
+#### `routes/subscriptions/admin.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/subscriptions/refund` | `requireAdmin` | `subscriptionHandler.processRefund` | Y | ⚠️ No explicit `requireAuth` before `requireAdmin`; relies solely on global apiAuthMiddleware — recommend explicit chain |
+| GET | `/api/subscriptions/admin/list` | `requireAuth`, `requirePermission('subscription','admin')`, `validators.listSubscribers` | `subscriptionHandler.getAllSubscribers` | Y | — |
+| GET | `/api/subscriptions/admin/plans` | `requireAuth`, `requirePermission('subscription','admin')` | `squareSubscriptions.listPlans` | Y | — |
+| POST | `/api/subscriptions/admin/setup-plans` | `requireAuth`, `requirePermission('subscription','admin')`, `requireSuperAdmin` | `squareSubscriptions.setupSubscriptionPlans` | Y | — |
+| GET | `/api/admin/pricing` | `requireAuth`, `requirePermission('subscription','admin')`, `requireSuperAdmin` | `pricingService.getAllModulePricing` + `getPlatformPlanPricing` | Y | — |
+| PUT | `/api/admin/pricing/modules/:key` | `requireAuth`, `requirePermission('subscription','admin')`, `requireSuperAdmin`, `validators.updatePricingItem` | `pricingService.updateModulePrice` | Y | — |
+| PUT | `/api/admin/pricing/plans/:key` | `requireAuth`, `requirePermission('subscription','admin')`, `requireSuperAdmin`, `validators.updatePricingItem` | `pricingService.updatePlatformPlanPrice` | Y | — |
+
+---
+
+#### `routes/subscriptions/public.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/public/pricing` | _(public; no auth)_ | `pricingService.getAllModulePricing` + `getPlatformPlanPricing` | Y | — |
+| GET | `/api/public/promo/check` | `promoRateLimit` | `checkPublicPromo` | Y | — |
+
+---
+
+#### `routes/subscriptions/webhooks.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/webhooks/events` | `requireAuth`, `requireAdmin`, `requireSuperAdmin`, `validators.listWebhookEvents` | inline DB query | N | ⚠️ No test coverage — `__tests__/routes/webhooks.test.js` covers Square inbound processing only, not this admin view endpoint |
+
+---
+
+#### `routes/merchants.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/merchants` | `requireAuth`, `validators.list` | `getUserMerchants` | Y | — |
+| POST | `/api/merchants/switch` | `requireAuth`, `validators.switch` | `switchActiveMerchant` | Y | — |
+| GET | `/api/merchants/context` | `requireAuth`, `validators.context` | inline | Y | — |
+| GET | `/api/config` | `requireAuth`, `validators.config` | inline (merchant settings + env vars) | Y | — |
+
+---
+
+**Group 1 flag summary:**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | HIGH | `POST /api/auth/forgot-password` | Missing rate limit — `passwordResetRateLimit` declared in file but not applied; unlimited password-reset emails can be triggered per IP |
+| 2 | LOW | `POST /api/subscriptions/refund` | No explicit `requireAuth` in route chain; relies on global apiAuthMiddleware — recommend adding for clarity and defense-in-depth |
+| 3 | LOW | `GET /api/webhooks/events` | No test coverage for this admin endpoint |
