@@ -2391,3 +2391,23 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - [ ] Export PO as CSV — CSV file downloaded — `public/purchase-orders.html` — `GET /api/purchase-orders/:po_number/export-csv`
 - [ ] Delete a DRAFT PO — PO removed; success message with PO number shown — `public/purchase-orders.html` — `DELETE /api/purchase-orders/:id`
 - [ ] Attempt to delete a non-DRAFT PO — Error: cannot delete submitted/received PO — `public/purchase-orders.html` — `DELETE /api/purchase-orders/:id`
+
+### Journey 7 — Purchase Orders Automation
+
+> All steps that read from or write to real Square data are flagged ⚠️. The automation path is triggered by the weekly cron job or by sending `X-Request-Source: automation` header on `POST /api/purchase-orders`.
+
+- [ ] Load `/reorder.html` and select a vendor — Reorder suggestions load using sales velocity data ⚠️ — `public/reorder.html` — `GET /api/reorder-suggestions` ⚠️ (reads real Square sales/inventory data via DB sync)
+- [ ] Trigger automated PO creation via API with `X-Request-Source: automation` header ⚠️ — `req.isAutomated` set to `true`; PO created as DRAFT — no frontend (API/cron direct) — `POST /api/purchase-orders` ⚠️
+- [ ] Automated PO creation where order total is below vendor minimum ⚠️ — 422 returned with `BELOW_VENDOR_MINIMUM` code; no PO created (hard reject for automation, no soft warning) — no frontend — `POST /api/purchase-orders` ⚠️
+- [ ] Load `/min-max-history.html` — Auto min/max adjustment history renders for merchant — `public/min-max-history.html` — `GET /api/min-max/history`
+- [ ] Filter min/max history by date range — Filtered adjustment records returned — `public/min-max-history.html` — `GET /api/min-max/history?startDate=...&endDate=...`
+- [ ] Load `/reorder.html` and view min/max recommendations — AI-driven min/max recommendations rendered per variation ⚠️ — `public/reorder.html` — `GET /api/min-max/recommendations` ⚠️ (reads real inventory from Square sync)
+- [ ] Apply all min/max recommendations — Min/max levels updated in DB; thresholds pushed to Square catalog (fire-and-forget) ⚠️ — `public/reorder.html` — `POST /api/min-max/apply` ⚠️ (writes to real Square catalog via `pushMinStockThresholdsToSquare`)
+- [ ] Pin a variation to prevent auto adjustment — Variation pinned; weekly job will skip it — `public/min-max-history.html` — `POST /api/min-max/pin`
+- [ ] Unpin a previously pinned variation — Variation unpinned; weekly job will include it again — `public/min-max-history.html` — `POST /api/min-max/pin` (with `pinned: false`)
+- [ ] Load `/min-max-suppression.html` — Suppressed variations list renders — `public/min-max-suppression.html` — `GET /api/min-max/suppression`
+- [ ] Suppress a variation from auto min/max — Variation added to suppression list — `public/min-max-suppression.html` — `POST /api/min-max/suppression`
+- [ ] Remove suppression for a variation — Variation removed from suppression list — `public/min-max-suppression.html` — `DELETE /api/min-max/suppression/:id`
+- [ ] Weekly auto min/max cron job runs (simulated via job trigger) ⚠️ — Recommendations generated; thresholds updated in DB; changes pushed to Square catalog; summary email sent — no frontend (cron/`jobs/auto-min-max-job.js`) — internal + `pushMinStockThresholdsToSquare` ⚠️
+- [ ] Get sales velocity data — Sales velocity per item returned based on synced Square order history ⚠️ — `public/sales-velocity.html` — `GET /api/sales-velocity` ⚠️ (reads real sales data synced from Square)
+- [ ] View reorder suggestions with custom supply days — Suggestions recalculated for specified supply window ⚠️ — `public/reorder.html` — `GET /api/reorder-suggestions?supply_days=45` ⚠️
