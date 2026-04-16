@@ -2656,3 +2656,523 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - [ ] Verify merchant record retained after cancellation — Merchant row remains in DB with `is_active = false`; no hard delete — no frontend (DB/admin verification) — `POST /api/subscriptions/cancel` (soft deactivation)
 - [ ] Verify OAuth tokens cleared after revoke — `access_token` and `refresh_token` removed from DB; merchant cannot make Square API calls — no frontend (DB/admin verification) — `POST /api/square/oauth/revoke`
 - [ ] Verify session invalidated after cancellation or revoke — Subsequent requests using old session cookie return 401 or redirect to login — no frontend (API direct) — session middleware
+
+---
+
+## Section 5 — Gap Report
+
+> **Methodology:** All findings below are derived strictly from Sections 1–4. No new code scanning was performed. Each group consolidates and cross-references the flags already documented in those sections. Severity labels (CRITICAL / HIGH / MEDIUM / LOW) match the Section 2 flag ratings where applicable; new ratings follow the same criteria (data integrity, blast radius, exploitability, reversibility).
+
+---
+
+### Group 1 — UI & Route Gaps
+
+#### 1.1 — UI elements with no matching backend route
+
+**Finding: None.**
+
+Section 1 verified all 41 HTML pages and ~465 clickable elements. Every page-initiated API call was cross-referenced against mounted Express routes. No broken UI → backend calls were found.
+
+---
+
+#### 1.2 — Backend routes with no UI entry point (orphaned routes)
+
+| # | Severity | Route(s) | File | Reason |
+|---|----------|----------|------|--------|
+| 1 | **CRITICAL** | `GET /api/admin/catalog-location-health`, `POST /api/admin/catalog-location-health/check` | `routes/catalog-location-health.js` | File is **never mounted** in `server.js`; both endpoints are completely unreachable via HTTP. Handler unit tests exist and pass, but no HTTP request can reach them. |
+| 2 | MEDIUM | `GET /api/admin/pricing`, `PUT /api/admin/pricing/modules/:key`, `PUT /api/admin/pricing/plans/:key` | `routes/subscriptions/admin.js` | No HTML page in Section 1 was documented calling these endpoints. Accessible only via direct API call or an undocumented admin page. |
+| 3 | INFO | `GET /api/subscriptions/admin/list`, `GET /api/subscriptions/admin/plans`, `POST /api/subscriptions/admin/setup-plans` | `routes/subscriptions/admin.js` | Called from `public/admin-subscriptions.html` per Section 4 Journey 3, but Section 1 Group 5 (Admin & Settings) did not detail this page's endpoint calls. Low risk — admin-only routes. |
+| 4 | INFO | `GET /api/webhooks/events` | `routes/subscriptions/webhooks.js` | Admin-only event viewer with no documented UI page. S2 flag #3 (originally N); S3 confirmed test coverage via `subscriptions-untested-endpoints.test.js`. No UI exposure needed — admin-direct only. |
+
+---
+
+#### 1.3 — Navigation dead ends (Section 4 QA checklist path errors)
+
+Section 4 documents API paths in several journeys that do not match the actual mounted routes from Section 2. A QA tester following the checklist literally would encounter 404s. These are **checklist documentation errors**, not confirmed runtime bugs (Section 1 verified the HTML files resolve correctly at the JS level).
+
+**Journey 10 — Delivery System:** All delivery API paths in Section 4 omit the `/delivery/` prefix.
+
+| Section 4 path (incorrect) | Actual route (Section 2) |
+|---|---|
+| `GET /api/orders` | `GET /api/delivery/orders` |
+| `POST /api/orders` | `POST /api/delivery/orders` |
+| `GET /api/orders/:id` | `GET /api/delivery/orders/:id` |
+| `PATCH /api/orders/:id` | `PATCH /api/delivery/orders/:id` |
+| `DELETE /api/orders/:id` | `DELETE /api/delivery/orders/:id` |
+| `GET /api/orders/:id/customer` | `GET /api/delivery/orders/:id/customer` |
+| `GET /api/orders/:id/customer-stats` | `GET /api/delivery/orders/:id/customer-stats` |
+| `PATCH /api/orders/:id/notes` | `PATCH /api/delivery/orders/:id/notes` |
+| `PATCH /api/orders/:id/customer-note` | `PATCH /api/delivery/orders/:id/customer-note` |
+| `POST /api/orders/:id/skip` | `POST /api/delivery/orders/:id/skip` |
+| `POST /api/orders/:id/complete` | `POST /api/delivery/orders/:id/complete` |
+| `POST /api/route/generate` | `POST /api/delivery/route/generate` |
+| `GET /api/route/active` | `GET /api/delivery/route/active` |
+| `GET /api/route/:id` | `GET /api/delivery/route/:id` |
+| `POST /api/route/finish` | `POST /api/delivery/route/finish` |
+| `POST /api/geocode` | `POST /api/delivery/geocode` |
+| `GET /api/settings` (delivery) | `GET /api/delivery/settings` |
+| `PUT /api/settings` (delivery) | `PUT /api/delivery/settings` |
+
+**Journey 12 — Settings & Account Management:** Auth/user management paths omit the `/auth/` path segment.
+
+| Section 4 path (incorrect) | Actual route (Section 2) |
+|---|---|
+| `POST /api/change-password` | `POST /api/auth/change-password` |
+| `POST /api/forgot-password` | `POST /api/auth/forgot-password` |
+| `POST /api/reset-password` | `POST /api/auth/reset-password` |
+| `GET /api/verify-reset-token` | `GET /api/auth/verify-reset-token` |
+| `GET /api/users` | `GET /api/auth/users` |
+| `POST /api/users` | `POST /api/auth/users` |
+| `PUT /api/users/:id` | `PUT /api/auth/users/:id` |
+| `POST /api/users/:id/reset-password` | `POST /api/auth/users/:id/reset-password` |
+| `POST /api/users/:id/unlock` | `POST /api/auth/users/:id/unlock` |
+
+**Journey 5 — Vendor Management:** Two actions reference non-existent routes.
+
+| Section 4 path (incorrect) | Actual route (Section 2) |
+|---|---|
+| `POST /api/vendor-match-suggestions/:id/accept` | `POST /api/vendor-match-suggestions/:id/approve` |
+| `DELETE /api/vendor-match-suggestions/:id` | `POST /api/vendor-match-suggestions/:id/reject` |
+
+**Journey 3 — Subscription & Billing:** Admin subscription management actions reference non-existent routes.
+
+| Section 4 path (incorrect) | Actual route (Section 2) |
+|---|---|
+| `GET /api/admin/subscriptions` | `GET /api/subscriptions/admin/list` |
+| `PATCH /api/admin/subscriptions/:id` | ❌ **No matching route exists in Section 2** |
+
+The `PATCH /api/admin/subscriptions/:id` path documented in Section 4 Journey 3 ("Admin changes a merchant's subscription plan") has no corresponding route in Section 2's full route inventory. This is either an unimplemented feature or an undocumented route — both warrant investigation before beta.
+
+---
+
+#### Group 1 summary
+
+| Category | Count |
+|----------|-------|
+| UI → backend broken links | 0 |
+| Orphaned / unmounted backend routes | 1 CRITICAL + 3 INFO |
+| Section 4 checklist path errors | ~30 incorrect paths across 4 journeys |
+| Possible unimplemented admin route | 1 (`PATCH /api/admin/subscriptions/:id`) |
+
+---
+
+### Group 2 — Security Gaps
+
+> All items below are drawn directly from Section 2 flag summaries (Groups 1–6). No new analysis was performed. Items are organized by vulnerability class, then by severity within each class.
+
+---
+
+#### 2.A — Multi-tenant isolation violation
+
+| # | Severity | Route(s) | File | Issue |
+|---|----------|----------|------|-------|
+| 1 | **CRITICAL** | `GET /api/admin/catalog-health`, `POST /api/admin/catalog-health/check` | `routes/catalog-health.js` | Hard-coded `DEBUG_MERCHANT_ID = 3` — health check always runs against merchant 3 regardless of the authenticated admin caller. Any admin user effectively sees and operates on merchant 3's data only. Violates the multi-tenant isolation contract enforced everywhere else in the codebase. |
+
+---
+
+#### 2.B — Missing rate limiting on abuse-prone endpoints
+
+| # | Severity | Route | File | Issue |
+|---|----------|-------|------|-------|
+| 1 | **HIGH** | `POST /api/auth/forgot-password` | `routes/auth/password.js` | `passwordResetRateLimit` is declared in the same file but not applied to this handler. An attacker can trigger unlimited password-reset emails per IP — account enumeration vector and email spam risk. |
+| 2 | MEDIUM | `POST /api/loyalty/backfill` | `routes/loyalty/processing.js` | No rate limit. Triggers an unbounded Square order fetch that fans out across the merchant's full order history. Can exhaust Square API quota and server CPU. |
+| 3 | MEDIUM | `POST /api/loyalty/catchup` | `routes/loyalty/processing.js` | No rate limit. Reverse-lookup catchup fans out across all customers and their Square order histories. Same Square API exhaustion risk. |
+| 4 | LOW | `POST /api/loyalty/refresh-customers` | `routes/loyalty/processing.js` | No rate limit. Fetches Square customer data for all customers with missing phone numbers — bounded by customer count but unbounded by frequency. |
+
+---
+
+#### 2.C — Missing `requireWriteAccess` on write/destructive endpoints
+
+Read-only users (role: `readonly`) can currently invoke all of the following routes. `requireWriteAccess` is declared in `middleware/auth.js` and enforced correctly elsewhere (e.g., all loyalty write routes, GMC writes, most catalog mutations) — these are omissions, not design decisions.
+
+**Delivery — HIGH (entire write surface unprotected)**
+
+All delivery write routes inherit `requireAuth` + `requireMerchant` from `routes/delivery/index.js` but `requireWriteAccess` was never added at the sub-router level. Rate limiting substitutes, but rate limiting is not an access control mechanism.
+
+| Route | Effect if exploited |
+|-------|---------------------|
+| `POST /api/delivery/orders` | Read-only user creates delivery orders |
+| `PATCH /api/delivery/orders/:id` | Modifies any order address, phone, or status |
+| `DELETE /api/delivery/orders/:id` | Permanently deletes orders |
+| `POST /api/delivery/orders/:id/skip` | Skips orders in active route |
+| `POST /api/delivery/orders/:id/complete` | Marks orders delivered; updates Square fulfillment ⚠️ |
+| `PATCH /api/delivery/orders/:id/notes` | Overwrites internal notes |
+| `PATCH /api/delivery/orders/:id/customer-note` | Overwrites note synced to Square customer ⚠️ |
+| `POST /api/delivery/orders/:id/pod` | Uploads proof-of-delivery photo |
+| `POST /api/delivery/route/generate` | Generates (overwrites) active delivery route |
+| `POST /api/delivery/route/finish` | Closes the active route |
+| `POST /api/delivery/geocode` | Triggers external geocoding API calls |
+| `PUT /api/delivery/settings` | Overwrites delivery settings (with geocoding) |
+| `POST /api/delivery/sync` | Triggers full Square order sync ⚠️ |
+| `POST /api/delivery/backfill-customers` | Fetches unknown customers from Square ⚠️ |
+| `POST /api/delivery/route/:id/share` | Generates and publishes a driver share token |
+| `DELETE /api/delivery/route/:id/token` | Revokes a driver share token |
+
+**Purchase Orders**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | **HIGH** | `DELETE /api/purchase-orders/:id` | Read-only user can permanently delete purchase orders |
+| 2 | MEDIUM | `POST /api/purchase-orders` | Read-only user can create POs |
+| 3 | MEDIUM | `PATCH /api/purchase-orders/:id` | Read-only user can edit POs |
+| 4 | MEDIUM | `POST /api/purchase-orders/:id/submit` | Read-only user can submit (commit) POs |
+| 5 | MEDIUM | `POST /api/purchase-orders/:id/receive` | Read-only user can record received inventory |
+
+**Cycle Counts**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | **HIGH** | `POST /api/cycle-counts/reset` | No `requireWriteAccess` AND no admin/superAdmin gate. Can irrecoverably wipe all cycle count history. Only `requireAuth` + `requireMerchant` stand between any authenticated merchant user and full data destruction. |
+| 2 | MEDIUM | `POST /api/cycle-counts/:id/complete` | Read-only user can record cycle count completions |
+| 3 | MEDIUM | `POST /api/cycle-counts/:id/sync-to-square` | Read-only user can push inventory adjustments to Square ⚠️ |
+| 4 | MEDIUM | `POST /api/cycle-counts/send-now` | Read-only user can inject items into priority count queue |
+| 5 | MEDIUM | `POST /api/cycle-counts/email-report` | Read-only user can trigger report emails |
+| 6 | MEDIUM | `POST /api/cycle-counts/generate-batch` | Read-only user can force-generate count batches |
+
+**Square Custom Attributes — HIGH (entire write surface unprotected)**
+
+All 7 write endpoints in `routes/square-attributes.js` lack `requireWriteAccess`:
+
+| Route | Effect if exploited |
+|-------|---------------------|
+| `POST /api/square/custom-attributes/init` | Creates Square attribute definitions ⚠️ |
+| `POST /api/square/custom-attributes/definition` | Upserts custom attribute definitions ⚠️ |
+| `DELETE /api/square/custom-attributes/definition/:key` | Deletes definition AND all stored values ⚠️ |
+| `PUT /api/square/custom-attributes/:objectId` | Overwrites custom attribute values on catalog objects ⚠️ |
+| `POST /api/square/custom-attributes/push/case-pack` | Bulk-pushes case-pack data to Square ⚠️ |
+| `POST /api/square/custom-attributes/push/brand` | Bulk-pushes brand data to Square ⚠️ |
+| `POST /api/square/custom-attributes/push/expiry` | Bulk-pushes expiry dates to Square ⚠️ |
+| `POST /api/square/custom-attributes/push/all` | Bulk-pushes all attribute types simultaneously ⚠️ |
+
+**Vendor Catalog**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | **HIGH** | `POST /api/vendor-catalog/push-price-changes` | Bulk Square catalog price updates — no write gate |
+| 2 | **HIGH** | `POST /api/vendor-catalog/create-items` | Bulk Square catalog item creation — no write gate |
+| 3 | MEDIUM | `POST /api/vendor-catalog/import` | Catalog import without write gate |
+| 4 | MEDIUM | `POST /api/vendor-catalog/import-mapped` | Mapped import without write gate |
+| 5 | MEDIUM | `POST /api/vendor-catalog/deduplicate` | Permanently removes DB rows — no write gate |
+| 6 | MEDIUM | `DELETE /api/vendor-catalog/batches/:batchId` | Permanent batch deletion — no write gate |
+| 7 | MEDIUM | `POST /api/vendor-catalog/confirm-links` | Confirms vendor-variation links — no write gate |
+| 8 | MEDIUM | `POST /api/vendor-catalog/batches/:batchId/archive` | Archives batches — no write gate |
+| 9 | MEDIUM | `POST /api/vendor-catalog/batches/:batchId/unarchive` | Unarchives batches — no write gate |
+| 10 | MEDIUM | `PATCH /api/vendors/:id/settings` | Updates vendor schedule/min-order/lead-time — no write gate |
+
+**Sync Routes**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | MEDIUM | `POST /api/sync` | Triggers full Square catalog sync — no write gate |
+| 2 | MEDIUM | `POST /api/sync-sales` | Triggers sales sync — no write gate |
+| 3 | MEDIUM | `POST /api/sync-smart` | Triggers smart sync — no write gate |
+
+**Webhook Management**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | MEDIUM | `POST /api/webhooks/register` | Creates Square webhook subscription — no write gate |
+| 2 | MEDIUM | `POST /api/webhooks/ensure` | Ensures/creates webhook subscription — no write gate |
+| 3 | MEDIUM | `PUT /api/webhooks/subscriptions/:subscriptionId` | Updates webhook configuration — no write gate |
+| 4 | MEDIUM | `DELETE /api/webhooks/subscriptions/:subscriptionId` | Deletes webhook subscription — no write gate |
+
+**Vendor Match Suggestions**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | MEDIUM | `POST /api/vendor-match-suggestions/bulk-approve` | Bulk-approves vendor links — no write gate |
+| 2 | MEDIUM | `POST /api/vendor-match-suggestions/backfill` | Triggers match backfill — no write gate |
+| 3 | MEDIUM | `POST /api/vendor-match-suggestions/:id/approve` | Approves individual match — no write gate |
+| 4 | MEDIUM | `POST /api/vendor-match-suggestions/:id/reject` | Rejects individual match — no write gate |
+
+**Expiry Discounts**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | MEDIUM | `POST /api/expiry-discounts/apply` | Applies discounts to Square catalog ⚠️ — no write gate |
+| 2 | MEDIUM | `POST /api/expiry-discounts/run` | Full discount run (evaluate + apply) ⚠️ — no write gate |
+| 3 | MEDIUM | `POST /api/expiry-discounts/init-square` | Creates Square discount objects ⚠️ — no write gate |
+| 4 | MEDIUM | `PATCH /api/expiry-discounts/tiers/:id` | Modifies discount tier config — no write gate |
+| 5 | MEDIUM | `PATCH /api/expiry-discounts/settings` | Modifies expiry settings — no write gate |
+
+**Bundles, Settings, AI Autofill, Labels, Google OAuth**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | MEDIUM | `POST /api/bundles` | Creates bundle — no write gate |
+| 2 | MEDIUM | `PUT /api/bundles/:id` | Updates bundle — no write gate |
+| 3 | MEDIUM | `DELETE /api/bundles/:id` | Soft-deletes bundle — no write gate |
+| 4 | MEDIUM | `PUT /api/settings/merchant` | Overwrites merchant operational settings — no write gate |
+| 5 | MEDIUM | `POST /api/ai-autofill/apply` | Applies AI content to Square catalog ⚠️ — no write gate |
+| 6 | MEDIUM | `DELETE /api/ai-autofill/api-key` | Deletes stored AI API key — no write gate |
+| 7 | MEDIUM | `POST /api/labels/generate` | Generates PDF labels — no write gate |
+| 8 | MEDIUM | `POST /api/labels/generate-with-prices` | Generates price-labelled PDF — no write gate |
+| 9 | MEDIUM | `PUT /api/labels/templates/:id/default` | Sets default label template — no write gate |
+| 10 | LOW | `POST /api/google/disconnect` | Disconnects Google OAuth — no write gate |
+
+---
+
+#### 2.D — Missing `requireMerchant` (consistency / defence-in-depth)
+
+These endpoints are low-risk (read-only metadata) but inconsistent with the project pattern that all authenticated merchant-scoped requests carry `requireMerchant`.
+
+| # | Severity | Route | File | Issue |
+|---|----------|-------|------|-------|
+| 1 | LOW | `GET /api/vendor-catalog/field-types` | `routes/vendor-catalog/import.js` | `requireAuth` only; no `requireMerchant` |
+| 2 | LOW | `GET /api/webhooks/event-types` | `routes/webhooks.js` | `requireAuth` only; no `requireMerchant` |
+| 3 | LOW | `GET /api/gmc/taxonomy` | `routes/gmc/taxonomy.js` | `requireAuth` only; no `requireMerchant` (global data) |
+| 4 | LOW | `GET /api/settings/merchant/defaults` | `routes/settings.js` | `requireAuth` only; no `requireMerchant` |
+| 5 | LOW | `GET /api/sync-intervals` | `routes/sync.js` | `requireAuth` only; no `requireMerchant` |
+
+---
+
+#### 2.E — Missing elevated-role guard on destructive bulk operations
+
+| # | Severity | Route | File | Issue |
+|---|----------|-------|------|-------|
+| 1 | MEDIUM | `POST /api/catalog-audit/fix-locations` | `routes/catalog.js` | Bulk destructive Square catalog write. `requireWriteAccess` is the only gate — no admin or superAdmin role required for a bulk catalog mutation. |
+| 2 | MEDIUM | `POST /api/catalog-audit/fix-inventory-alerts` | `routes/catalog.js` | Same issue — bulk Square write with no elevated-role check. |
+
+---
+
+#### 2.F — Implicit-only authentication (defence-in-depth)
+
+| # | Severity | Route | File | Issue |
+|---|----------|-------|------|-------|
+| 1 | LOW | `POST /api/subscriptions/refund` | `routes/subscriptions/admin.js` | No explicit `requireAuth` in the route chain. Relies solely on the global `apiAuthMiddleware` applied in `server.js`. Should have explicit `requireAuth` as defence-in-depth. |
+
+---
+
+#### Group 2 summary
+
+| Class | CRITICAL | HIGH | MEDIUM | LOW | Total issues |
+|-------|----------|------|--------|-----|-------------|
+| Multi-tenant isolation | 1 | — | — | — | 1 |
+| Missing rate limiting | — | 1 | 2 | 1 | 4 |
+| Missing requireWriteAccess | — | 4 groups (~30 routes) | ~33 routes | 1 | ~38 unique routes |
+| Missing requireMerchant | — | — | — | 5 | 5 |
+| Missing elevated-role gate | — | — | 2 | — | 2 |
+| Implicit-only auth | — | — | — | 1 | 1 |
+| **Total** | **1** | **~8** | **~37** | **8** | **~54** |
+
+---
+
+### Group 3 — Test Coverage Gaps
+
+> All items below are drawn directly from Section 3. No new test scanning was performed. Section 3 established 100% route coverage across all 351 documented routes; the gaps below are quality and depth issues, not quantity issues.
+
+---
+
+#### 3.1 — Features with zero test coverage
+
+**Finding: None.**
+
+Section 3 confirmed that every feature domain has test coverage at both the route level and the service level. The Overall Summary Table (Section 3 Group 4) shows 100% route coverage across all 24 domains, 292 test files, and 5,688 tests.
+
+---
+
+#### 3.2 — Routes from Section 2 with no corresponding test
+
+**Finding: Structurally none — with one architectural exception.**
+
+Every route documented in Section 2 has at least one test. The single exception originally flagged (`GET /api/webhooks/events`, Section 2 Group 1 flag #3, marked N) was reconciled in Section 3: `__tests__/routes/subscriptions-untested-endpoints.test.js:330` covers it.
+
+**Architectural exception (not a missing test, but an unreachable route):**
+
+| Severity | Route(s) | Test file | Issue |
+|----------|----------|-----------|-------|
+| CRITICAL | `GET /api/admin/catalog-location-health`, `POST /api/admin/catalog-location-health/check` | `__tests__/routes/catalog-location-health.test.js` | Handler-level unit tests exist and pass. However, `routes/catalog-location-health.js` is not mounted in `server.js`, so these tests exercise the handler functions directly — they do not cover the HTTP dispatch path, middleware chain (requireAuth, requireAdmin), or validator execution. Integration tests via HTTP are impossible until the file is mounted. |
+
+---
+
+#### 3.3 — Negative-path auth tests missing
+
+This is the most significant test coverage gap in the codebase. The `requireWriteAccess` access-control gaps documented in Section 2 Group 2.C affect approximately 38 routes across 12 route files. **Not a single one of those routes has a dedicated negative-path test asserting that a `readonly` user receives a 403.**
+
+Existing tests confirm the happy path (authenticated write-role user succeeds). They do not assert that a read-only user is blocked.
+
+**Affected domains and test files with no negative-path `requireWriteAccess` coverage:**
+
+| Domain | Route file | Write routes without negative-path test | Test file |
+|--------|-----------|----------------------------------------|-----------|
+| Delivery | `routes/delivery/orders.js`, `pod.js`, `routes.js`, `settings.js`, `sync.js`, `routes/driver-api.js` | 16 write endpoints | `delivery.test.js`, `delivery-completion.test.js` |
+| Purchase Orders | `routes/purchase-orders.js` | 5 write endpoints | `purchase-orders.test.js` |
+| Cycle Counts | `routes/cycle-counts.js` | 6 write endpoints | `cycle-counts.test.js` |
+| Square Attributes | `routes/square-attributes.js` | 8 write endpoints | `square-attributes.test.js` |
+| Vendor Catalog | `routes/vendor-catalog/import.js`, `manage.js`, `vendors.js` | 10 write endpoints | `vendor-catalog.test.js`, `vendor-catalog-create.test.js` |
+| Vendor Match Suggestions | `routes/vendor-match-suggestions.js` | 4 write endpoints | `vendor-match-suggestions.test.js` |
+| Sync | `routes/sync.js` | 3 write endpoints | `sync.test.js` |
+| Webhooks | `routes/webhooks.js` | 4 write endpoints | _(webhook tests focus on inbound Square processing)_ |
+| Expiry Discounts | `routes/expiry-discounts.js` | 5 write endpoints | `expiry-discounts.test.js` |
+| Bundles | `routes/bundles.js` | 3 write endpoints | `bundles.test.js` |
+| Settings | `routes/settings.js` | 1 write endpoint | `settings.test.js` |
+| AI Autofill | `routes/ai-autofill.js` | 2 write endpoints | `ai-autofill.test.js` |
+| Labels | `routes/labels.js` | 3 write endpoints | `labels.test.js` |
+
+**Write-access test file that does exist** — `__tests__/routes/catalog-write-access.test.js` (3 tests) covers `PATCH /api/variations/:id/*` routes. This is the correct pattern; it needs to be replicated across the domains above.
+
+**Additional negative-path gaps (non-requireWriteAccess):**
+
+| # | Severity | Gap | Relevant Section 2 flag |
+|---|----------|-----|-------------------------|
+| 1 | MEDIUM | No test asserts that a read-only user is blocked from any of the 16 delivery write endpoints | S2 Group 5 flag #1 |
+| 2 | MEDIUM | No test asserts that triggering `POST /api/auth/forgot-password` in rapid succession is rate-limited (the rate limit is not applied, so no such test can pass until 2.B flag #1 is fixed) | S2 Group 1 flag #1 |
+| 3 | MEDIUM | No test asserts that `GET /api/admin/catalog-health` returns merchant-scoped data for the calling admin's merchant (the hard-coded DEBUG_MERCHANT_ID = 3 makes any such test trivially pass against merchant 3 only) | S2 Group 2 flag #1 |
+| 4 | LOW | `delivery-rate-limiting.test.js` contains only 1 test; rate-limit enforcement across all delivery write routes is not systematically validated | S3 Group 3 delivery notes |
+| 5 | LOW | No test validates that `POST /api/loyalty/backfill`, `/catchup`, or `/refresh-customers` are blocked when called in rapid succession (no rate limit exists to enforce) | S2 Group 4 flags |
+
+---
+
+#### Group 3 summary
+
+| Category | Gap count | Severity |
+|----------|-----------|----------|
+| Features with zero coverage | 0 | — |
+| Routes with no test at all | 0 (1 structurally unmountable) | CRITICAL (architectural) |
+| Routes missing negative-path auth test (`requireWriteAccess`) | ~38 routes across 13 domains | HIGH |
+| Rate-limit enforcement tests missing | 4 endpoints (forgot-password, loyalty backfill/catchup/refresh) | MEDIUM |
+| Rate-limit depth thin | Delivery (1 test covers 16 write routes) | LOW |
+| Catalog-location-health HTTP integration | 2 routes (unmounted — untestable via HTTP until fixed) | CRITICAL (blocked by Group 1.2 fix) |
+
+---
+
+### Group 4 — Summary & Beta Priorities
+
+---
+
+#### 4.1 — Total gap count by category
+
+| Group | Category | CRITICAL | HIGH | MEDIUM | LOW | Total |
+|-------|----------|----------|------|--------|-----|-------|
+| 1 | Unmounted route file | 1 | — | — | — | 1 |
+| 1 | Orphaned admin endpoints (no UI) | — | — | 3 | 1 | 4 |
+| 1 | Section 4 QA checklist path errors | — | — | — | ~30 | ~30 |
+| 1 | Possible unimplemented admin route (`PATCH /api/admin/subscriptions/:id`) | — | 1 | — | — | 1 |
+| 2 | Multi-tenant isolation (hardcoded merchantId) | 1 | — | — | — | 1 |
+| 2 | Missing rate limiting | — | 1 | 2 | 1 | 4 |
+| 2 | Missing `requireWriteAccess` (delivery) | — | 1 group | — | — | 16 routes |
+| 2 | Missing `requireWriteAccess` (Square attributes) | — | 1 group | — | — | 8 routes |
+| 2 | Missing `requireWriteAccess` (vendor catalog) | — | 2 routes | 8 routes | — | 10 routes |
+| 2 | Missing `requireWriteAccess` (purchase orders) | — | 1 route | 4 routes | — | 5 routes |
+| 2 | Missing `requireWriteAccess` (cycle counts) | — | 1 route | 5 routes | — | 6 routes |
+| 2 | Missing `requireWriteAccess` (other domains) | — | — | ~16 routes | 1 | ~17 routes |
+| 2 | Missing `requireMerchant` | — | — | — | 5 | 5 |
+| 2 | Missing elevated-role gate on bulk ops | — | — | 2 | — | 2 |
+| 2 | Implicit-only auth | — | — | — | 1 | 1 |
+| 3 | Missing negative-path `requireWriteAccess` tests | — | ~38 routes | — | — | ~38 |
+| 3 | Missing rate-limit negative-path tests | — | — | 4 | — | 4 |
+| 3 | Delivery rate-limit test depth | — | — | — | 1 | 1 |
+| 3 | Catalog-location-health HTTP untestable | 1 | — | — | — | 1 |
+| **TOTAL** | | **3** | **~47** | **~40** | **~40** | **~130** |
+
+> Note: Route counts for `requireWriteAccess` reflect individual routes, not issue groups. The 3 CRITICAL items are: unmounted route file (Group 1), multi-tenant isolation violation (Group 2), and untestable HTTP path (Group 3 — dependent on Group 1 fix).
+
+---
+
+#### 4.2 — Priority ranking
+
+**CRITICAL — 3 items**
+
+These must be fixed before any beta testing. They represent either data integrity failures (wrong merchant's data served) or dead infrastructure (endpoints exist only on paper).
+
+| # | Item | Location |
+|---|------|----------|
+| C1 | Hard-coded `DEBUG_MERCHANT_ID = 3` in catalog-health — multi-tenant isolation violation | `routes/catalog-health.js` |
+| C2 | `routes/catalog-location-health.js` not mounted in `server.js` — two endpoints completely unreachable | `server.js` (add mount) |
+| C3 | `catalog-location-health.js` has no HTTP integration tests (blocked by C2 — fix C2 first) | `__tests__/routes/` |
+
+**HIGH — ~47 route-level issues**
+
+These expose write/destructive operations to read-only users, or allow abuse of expensive external API calls. All are one-line fixes in most cases (`requireWriteAccess` middleware insertion).
+
+| Priority within HIGH | Cluster | Route count |
+|----------------------|---------|-------------|
+| H1 | All delivery write routes (orders, routes, sync, POD, settings, driver-share) | 16 |
+| H2 | All Square custom-attribute write routes (init, define, push) | 8 |
+| H3 | `POST /api/auth/forgot-password` — missing rate limit | 1 |
+| H4 | `DELETE /api/purchase-orders/:id` — read-only can delete POs | 1 |
+| H5 | `POST /api/cycle-counts/reset` — read-only + no admin gate on full data wipe | 1 |
+| H6 | `POST /api/vendor-catalog/push-price-changes`, `/create-items` — bulk Square writes | 2 |
+| H7 | Missing negative-path `requireWriteAccess` tests across all affected domains | ~38 routes |
+| H8 | `PATCH /api/admin/subscriptions/:id` — route referenced in QA but may not exist | 1 |
+
+**MEDIUM — ~40 items**
+
+| Priority within MEDIUM | Cluster |
+|------------------------|---------|
+| M1 | Remaining purchase-order write routes missing `requireWriteAccess` (create, update, submit, receive) |
+| M2 | Remaining cycle-count write routes missing `requireWriteAccess` (complete, sync-to-square, send-now, email-report, generate-batch) |
+| M3 | Vendor-catalog write routes missing `requireWriteAccess` (import, deduplicate, batch ops, vendor settings, confirm-links) |
+| M4 | Sync routes missing `requireWriteAccess` (3 routes) |
+| M5 | Webhook management routes missing `requireWriteAccess` (4 routes) |
+| M6 | Expiry-discount write routes missing `requireWriteAccess` (apply, run, init-square, tier/settings PATCH) |
+| M7 | Bundles, settings, AI autofill, labels write routes missing `requireWriteAccess` (~10 routes) |
+| M8 | `POST /api/loyalty/backfill` and `/catchup` — no rate limit on expensive Square fan-out |
+| M9 | `POST /api/catalog-audit/fix-locations`, `/fix-inventory-alerts` — bulk Square writes with no elevated-role gate |
+| M10 | Section 4 QA checklist path errors corrected (delivery prefix, auth prefix, vendor-match verbs) |
+| M11 | Missing rate-limit tests for forgot-password, loyalty backfill/catchup (can only be added after H3/M8 fixes) |
+
+**LOW — ~40 items**
+
+Includes: missing `requireMerchant` on 5 metadata endpoints, implicit-only auth on subscription refund, `POST /api/loyalty/refresh-customers` rate limit, delivery rate-limit test depth (1 test), and the ~30 Section 4 checklist typos.
+
+---
+
+#### 4.3 — Top 10 items to fix before beta
+
+Ranked by: exploitability × blast radius × ease of fix.
+
+| Rank | Severity | Fix | File(s) | Effort |
+|------|----------|-----|---------|--------|
+| **1** | CRITICAL | Mount `routes/catalog-location-health.js` in `server.js` | `server.js` | 2 lines |
+| **2** | CRITICAL | Replace hard-coded `DEBUG_MERCHANT_ID = 3` with `req.merchantContext.id` in catalog-health | `routes/catalog-health.js` | 2 changes |
+| **3** | HIGH | Apply `passwordResetRateLimit` to `POST /api/auth/forgot-password` | `routes/auth/password.js` | 1 line |
+| **4** | HIGH | Add `requireWriteAccess` to all delivery write routes (create/update/delete orders, route ops, sync, POD, settings) | `routes/delivery/index.js` or per sub-router | 15–20 insertions |
+| **5** | HIGH | Add `requireWriteAccess` to all `routes/square-attributes.js` write endpoints | `routes/square-attributes.js` | 8 insertions |
+| **6** | HIGH | Add `requireWriteAccess` + `requireAdmin` gate to `POST /api/cycle-counts/reset` | `routes/cycle-counts.js` | 2 insertions |
+| **7** | HIGH | Add `requireWriteAccess` to `DELETE /api/purchase-orders/:id` (read-only deletion) | `routes/purchase-orders.js` | 1 insertion |
+| **8** | HIGH | Add `requireWriteAccess` to `POST /api/vendor-catalog/push-price-changes` and `/create-items` | `routes/vendor-catalog/manage.js` | 2 insertions |
+| **9** | HIGH | Add negative-path `requireWriteAccess` tests for delivery, purchase-orders, and cycle-counts (highest-blast-radius domains first; follow the pattern in `catalog-write-access.test.js`) | `__tests__/routes/` | New test files |
+| **10** | MEDIUM | Investigate and implement (or document as intentionally absent) `PATCH /api/admin/subscriptions/:id` — referenced in Section 4 Journey 3 with no matching route in Section 2 | `routes/subscriptions/admin.js` | Unknown |
+
+---
+
+#### 4.4 — Reference to existing BACKLOG items
+
+The following gaps identified in this audit overlap with items already tracked in `docs/BACKLOG.md` (current status per CLAUDE.md: 1 CRITICAL, 6 HIGH, ~33 MEDIUM, ~18 LOW):
+
+| Audit gap | Expected BACKLOG category | Notes |
+|-----------|--------------------------|-------|
+| Hard-coded `DEBUG_MERCHANT_ID = 3` (C1) | CRITICAL | Multi-tenant isolation failures are always CRITICAL in this codebase |
+| `routes/catalog-location-health.js` unmounted (C2) | HIGH | Route infrastructure gap — likely already known |
+| `POST /api/auth/forgot-password` missing rate limit (H3) | HIGH | Auth hardening — likely already tracked |
+| Delivery `requireWriteAccess` gap (H1) | HIGH | Delivery module write-access gap — large surface area |
+| Square attributes `requireWriteAccess` gap (H2) | HIGH | May be tracked as Square attributes hardening |
+| `POST /api/cycle-counts/reset` no admin gate (H6) | HIGH | Destructive operation guardrails |
+| Vendor-catalog `requireWriteAccess` gaps (H6) | MEDIUM | Vendor catalog hardening |
+| Loyalty backfill/catchup rate limits (M8) | MEDIUM | API throttling improvements |
+| Negative-path auth test suite (H9) | MEDIUM | Test coverage improvement |
+| Section 4 QA checklist path errors (M10) | LOW | Documentation cleanup |
+
+> If any of the CRITICAL or HIGH items above are not already in `docs/BACKLOG.md`, they should be added immediately. The BACKLOG currently lists 1 CRITICAL; this audit confirms at minimum 3 CRITICAL-severity issues (C1, C2, C3).
+
+---
+
+#### Group 4 summary
+
+| Metric | Value |
+|--------|-------|
+| Total gaps identified | ~130 |
+| CRITICAL | 3 |
+| HIGH | ~47 (mostly `requireWriteAccess` route-level and test gaps) |
+| MEDIUM | ~40 |
+| LOW | ~40 |
+| Domains fully clean (no gaps at any level) | Auth, Subscriptions (post-reconciliation), Merchants, Loyalty, Seniors, GMC, Admin, Staff, Cart Activity, Reorder/Analytics, Webhooks (inbound), Square OAuth, Google OAuth (minus disconnect write gate) |
+| Domains with CRITICAL/HIGH gaps | Catalog-health (multi-tenant), Catalog-location-health (unmounted), Delivery (full write surface), Square Attributes (full write surface), Vendor Catalog (bulk write ops), Purchase Orders (delete), Cycle Counts (reset) |
+| Single highest-leverage fix | Mount `catalog-location-health.js` + fix `DEBUG_MERCHANT_ID` (2 files, ~4 lines, eliminates 2 CRITICALs) |
+| Estimated routes needing `requireWriteAccess` insertion | ~62 routes across 13 route files |
+| Estimated new negative-path tests needed | ~38–50 (one per unguarded write route) |
+
+---
+
+*Section 5 complete. Generated: 2026-04-16.*
