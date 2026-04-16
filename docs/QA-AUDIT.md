@@ -1054,3 +1054,156 @@ Mount points: `routes/purchase-orders.js` → `/api/purchase-orders` (with `requ
 | 10 | MEDIUM | `POST /api/cycle-counts/email-report` | Missing `requireWriteAccess` |
 | 11 | MEDIUM | `POST /api/cycle-counts/generate-batch` | Missing `requireWriteAccess` |
 | 12 | INFO | — | `routes/reorder.js` referenced in task scope does not exist; reorder suggestions are in `routes/analytics.js` |
+
+---
+
+### Group 4 — Loyalty & Seniors
+
+Files scanned: `routes/loyalty/` (10 sub-modules via `routes/loyalty.js` facade), `routes/seniors.js`.
+
+Mount points:
+- `routes/loyalty.js` → `/api/loyalty` (and `/api/v1/loyalty`); server.js applies `requireFeature('loyalty')`, `requirePermission('loyalty', 'read')` at mount; `routes/loyalty/index.js` mounts all 10 sub-routers flat.
+- `routes/seniors.js` → `/api`; server.js applies `gateApi('/seniors', requireFeature('loyalty'), requirePermission('loyalty', 'read'))`.
+
+All routes below carry the feature/permission gate noted in the mount summary. "feat:loyalty + perm:loyalty/read" is omitted from individual rows for brevity — it applies to every route in this group.
+
+---
+
+#### `routes/loyalty/offers.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/loyalty/offers` | `requireAuth`, `requireMerchant`, `validators.listOffers` | `loyaltyService.getOffers` | Y | — |
+| POST | `/api/loyalty/offers` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.createOffer` | `loyaltyService.createOffer` | Y | — |
+| GET | `/api/loyalty/offers/:id` | `requireAuth`, `requireMerchant`, `validators.getOffer` | `loyaltyService.getOfferById` + `getQualifyingVariations` | Y | — |
+| PATCH | `/api/loyalty/offers/:id` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.updateOffer` | `loyaltyService.updateOffer` | Y | — |
+| DELETE | `/api/loyalty/offers/:id` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.deleteOffer` | `loyaltyService.deleteOffer` | Y | — |
+
+---
+
+#### `routes/loyalty/variations.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/loyalty/offers/:id/variations` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.addVariations` | `loyaltyService.addQualifyingVariations` | Y | — |
+| GET | `/api/loyalty/offers/:id/variations` | `requireAuth`, `requireMerchant`, `validators.getOfferVariations` | `loyaltyService.getQualifyingVariations` | Y | — |
+| GET | `/api/loyalty/variations/assignments` | `requireAuth`, `requireMerchant` | `loyaltyService.getVariationAssignments` | Y | — |
+| DELETE | `/api/loyalty/offers/:offerId/variations/:variationId` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.removeVariation` | `loyaltyService.removeQualifyingVariation` | Y | — |
+
+---
+
+#### `routes/loyalty/customers.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/loyalty/customer/:customerId` | `requireAuth`, `requireMerchant`, `validators.getCustomer` | `loyaltyService.getCustomerDetails` + `getCustomerLoyaltyStatus` | Y | — |
+| GET | `/api/loyalty/customer/:customerId/profile` | `requireAuth`, `requireMerchant`, `validators.getCustomer` | `loyaltyService.getCustomerDetails` + `getCustomerOfferProgress` | Y | — |
+| GET | `/api/loyalty/customer/:customerId/history` | `requireAuth`, `requireMerchant`, `validators.getCustomerHistory` | `loyaltyService.getCustomerLoyaltyHistory` | Y | — |
+| GET | `/api/loyalty/customer/:customerId/rewards` | `requireAuth`, `requireMerchant`, `validators.getCustomer` | `loyaltyService.getCustomerEarnedRewards` | Y | — |
+| GET | `/api/loyalty/customer/:customerId/audit-history` | `requireAuth`, `requireMerchant`, `validators.getCustomerAuditHistory` | `loyaltyService.getCustomerOrderHistoryForAudit` | Y | — |
+| POST | `/api/loyalty/customer/:customerId/add-orders` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.addOrders` | `loyaltyService.addOrdersToLoyaltyTracking` | Y | — |
+| GET | `/api/loyalty/customers/search` | `requireAuth`, `requireMerchant`, `validators.searchCustomers` | `searchCustomers` | Y | — |
+
+---
+
+#### `routes/loyalty/rewards.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/loyalty/rewards/:rewardId/redeem` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.redeemReward` | `loyaltyService.redeemReward` | Y | — |
+| PATCH | `/api/loyalty/rewards/:rewardId/vendor-credit` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.updateVendorCredit` | `loyaltyService.updateVendorCreditStatus` | Y | — |
+| GET | `/api/loyalty/rewards` | `requireAuth`, `requireMerchant`, `validators.listRewards` | `loyaltyService.getRewards` | Y | — |
+| GET | `/api/loyalty/redemptions` | `requireAuth`, `requireMerchant`, `validators.listRedemptions` | `loyaltyService.getRedemptions` | Y | — |
+
+---
+
+#### `routes/loyalty/square-integration.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/loyalty/square-program` | `requireAuth`, `requireMerchant` | `loyaltyService.getSquareLoyaltyProgram` | Y | — |
+| PUT | `/api/loyalty/offers/:id/square-tier` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.linkSquareTier` | `loyaltyService.linkOfferToSquareTier` | Y | — |
+| POST | `/api/loyalty/rewards/:id/create-square-reward` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.createSquareReward` | `loyaltyService.createSquareReward` | Y | — |
+| POST | `/api/loyalty/rewards/sync-to-pos` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.syncToPOS` | `loyaltyService.syncRewardsToPOS` | Y | — |
+| GET | `/api/loyalty/rewards/pending-sync` | `requireAuth`, `requireMerchant` | `loyaltyService.getPendingSyncCounts` | Y | — |
+
+---
+
+#### `routes/loyalty/processing.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/loyalty/process-order/:orderId` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.processOrder` | `loyaltyService.processOrderManually` | Y | — |
+| POST | `/api/loyalty/backfill` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.backfill` | `loyaltyService.runBackfill` | Y | ⚠️ No rate limit on expensive backfill operation |
+| POST | `/api/loyalty/catchup` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.catchup` | `loyaltyService.runLoyaltyCatchup` | Y | ⚠️ No rate limit — can initiate large Square API fan-out |
+| POST | `/api/loyalty/refresh-customers` | `requireAuth`, `requireMerchant`, `requireWriteAccess` | `loyaltyService.refreshCustomersWithMissingData` | Y | ⚠️ No rate limit — unbounded Square customer fetch |
+| POST | `/api/loyalty/manual-entry` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.manualEntry` | `loyaltyService.processManualEntry` | Y | — |
+| POST | `/api/loyalty/process-expired` | `requireAuth`, `requireMerchant`, `requireWriteAccess` | `loyaltyService.processExpiredWindowEntries` + `processExpiredEarnedRewards` | Y | — |
+
+---
+
+#### `routes/loyalty/audit.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/loyalty/audit` | `requireAuth`, `requireMerchant`, `validators.listAudit` | `loyaltyService.getAuditLogs` | Y | — |
+| GET | `/api/loyalty/stats` | `requireAuth`, `requireMerchant` | `loyaltyService.getLoyaltyStats` | Y | — |
+| GET | `/api/loyalty/audit-findings` | `requireAuth`, `requireMerchant`, `validators.listAuditFindings` | `loyaltyService.getAuditFindings` | Y | — |
+| POST | `/api/loyalty/audit-findings/resolve/:id` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.resolveAuditFinding` | `loyaltyService.resolveAuditFinding` | Y | — |
+| POST | `/api/loyalty/audit-missed-redemptions` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.auditMissedRedemptions` | `loyaltyService.auditMissedRedemptions` | Y | — |
+
+---
+
+#### `routes/loyalty/reports.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/loyalty/reports` | `requireAuth`, `requireMerchant` | inline (endpoint index) | Y | — |
+| GET | `/api/loyalty/reports/vendor-receipt/:rewardId` | `requireAuth`, `requireMerchant`, `validators.getVendorReceipt` | `loyaltyReports.generateVendorReceipt` | Y | — |
+| GET | `/api/loyalty/reports/brand-redemptions` | `requireAuth`, `requireMerchant`, `validators.getBrandRedemptions` | `brandRedemptionReport.buildBrandRedemptionReport` / `generateBrandRedemptionHTML` / `generateBrandRedemptionCSV` | Y | — |
+| GET | `/api/loyalty/reports/redemptions/csv` | `requireAuth`, `requireMerchant`, `validators.exportRedemptionsCSV` | `loyaltyReports.generateRedemptionsCSV` | Y | — |
+| GET | `/api/loyalty/reports/audit/csv` | `requireAuth`, `requireMerchant`, `validators.exportAuditCSV` | `loyaltyReports.generateAuditCSV` | Y | — |
+| GET | `/api/loyalty/reports/summary/csv` | `requireAuth`, `requireMerchant`, `validators.exportSummaryCSV` | `loyaltyReports.generateSummaryCSV` | Y | — |
+| GET | `/api/loyalty/reports/customers/csv` | `requireAuth`, `requireMerchant`, `validators.exportCustomersCSV` | `loyaltyReports.generateCustomerActivityCSV` | Y | — |
+| GET | `/api/loyalty/reports/redemption/:rewardId` | `requireAuth`, `requireMerchant`, `validators.getRedemptionDetails` | `loyaltyReports.getRedemptionDetails` | Y | — |
+
+---
+
+#### `routes/loyalty/settings.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/loyalty/settings` | `requireAuth`, `requireMerchant` | `loyaltyService.getSettings` | Y | — |
+| PUT | `/api/loyalty/settings` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.updateSettings` | `loyaltyService.updateSetting` | Y | — |
+
+---
+
+#### `routes/loyalty/discounts.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/loyalty/discounts/validate` | `requireAuth`, `requireMerchant` | `loyaltyService.validateEarnedRewardsDiscounts({fixIssues: false})` | Y | — |
+| POST | `/api/loyalty/discounts/validate-and-fix` | `requireAuth`, `requireMerchant`, `requireWriteAccess` | `loyaltyService.validateEarnedRewardsDiscounts({fixIssues: true})` | Y | — |
+
+---
+
+#### `routes/seniors.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/seniors/status` | `requireAuth`, `requireMerchant` | inline DB + `SeniorsService.verifyPricingRuleState` | Y | — |
+| POST | `/api/seniors/setup` | `requireAuth`, `requireMerchant`, `requireWriteAccess` | `SeniorsService.setupSquareObjects` | Y | — |
+| GET | `/api/seniors/config` | `requireAuth`, `requireMerchant` | inline DB | Y | — |
+| PATCH | `/api/seniors/config` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.updateConfig` | inline DB | Y | — |
+| GET | `/api/seniors/members` | `requireAuth`, `requireMerchant`, `validators.listMembers` | inline DB | Y | — |
+| GET | `/api/seniors/audit-log` | `requireAuth`, `requireMerchant`, `validators.listAuditLog` | inline DB | Y | — |
+
+---
+
+**Group 4 flag summary:**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | MEDIUM | `POST /api/loyalty/backfill` | No rate limit — can trigger unbounded Square order fetch (expensive API fan-out) |
+| 2 | MEDIUM | `POST /api/loyalty/catchup` | No rate limit — reverse-lookup can fan out across many customers and Square API calls |
+| 3 | LOW | `POST /api/loyalty/refresh-customers` | No rate limit — fetches Square customer data for all customers with missing phone numbers |
