@@ -2371,3 +2371,23 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - [ ] Reject a vendor match suggestion — Suggestion dismissed — `public/vendor-match-suggestions.html` — `DELETE /api/vendor-match-suggestions/:id`
 - [ ] Load merchant tax list — Taxes for merchant's Square account returned — no dedicated page (used in vendor-catalog forms) — `GET /api/vendor-catalog/merchant-taxes`
 - [ ] Access vendor pages as clerk — 403 or feature-gate blocks (clerk has no vendor access per permissions matrix) — `public/vendor-dashboard.html` — `GET /api/vendor-dashboard`
+
+### Journey 6 — Purchase Orders Manual
+
+- [ ] Load `/purchase-orders.html` — PO list renders; status filters (DRAFT, SUBMITTED, RECEIVED) available — `public/purchase-orders.html` — `GET /api/purchase-orders`
+- [ ] Filter PO list by status — Filtered list returned — `public/purchase-orders.html` — `GET /api/purchase-orders?status=DRAFT`
+- [ ] Filter PO list by vendor — Filtered list returned — `public/purchase-orders.html` — `GET /api/purchase-orders?vendor_id=...`
+- [ ] View a single PO (click row) — PO detail modal opens with items, quantities, and totals — `public/purchase-orders.html` — `GET /api/purchase-orders/:id`
+- [ ] Load `/reorder.html` and select a vendor — Reorder suggestions load for selected vendor — `public/reorder.html` — `GET /api/reorder-suggestions?vendor_id=...`
+- [ ] Add items to manual order from reorder page — Items appear in order basket — `public/reorder.html` — client-side only
+- [ ] Submit order from reorder page (creates DRAFT PO) — PO created with status DRAFT; confirmation shown — `public/reorder.html` — `POST /api/purchase-orders`
+- [ ] Create PO where order total is below vendor minimum — Soft warning returned: `warning: below_minimum_order` with amounts; user prompted to confirm or cancel — `public/reorder.html` — `POST /api/purchase-orders`
+- [ ] Confirm below-minimum PO with `force: true` — PO created despite below-minimum — `public/reorder.html` — `POST /api/purchase-orders` (with `force: true`)
+- [ ] Edit a DRAFT PO (update quantities, notes) — PO updated; totals recalculated — `public/purchase-orders.html` — `PATCH /api/purchase-orders/:id`
+- [ ] Attempt to edit a non-DRAFT PO (SUBMITTED or RECEIVED) — Error: cannot edit a submitted/received PO — `public/purchase-orders.html` — `PATCH /api/purchase-orders/:id`
+- [ ] Submit a DRAFT PO (DRAFT → SUBMITTED) — Status changes to SUBMITTED; edit controls hidden — `public/purchase-orders.html` — `POST /api/purchase-orders/:id/submit`
+- [ ] Receive items on a SUBMITTED PO — Received quantities recorded; PO status updated — `public/purchase-orders.html` — `POST /api/purchase-orders/:id/receive`
+- [ ] Export PO as XLSX — XLSX file downloaded with PO items and quantities — `public/purchase-orders.html` — `GET /api/purchase-orders/:po_number/export-xlsx`
+- [ ] Export PO as CSV — CSV file downloaded — `public/purchase-orders.html` — `GET /api/purchase-orders/:po_number/export-csv`
+- [ ] Delete a DRAFT PO — PO removed; success message with PO number shown — `public/purchase-orders.html` — `DELETE /api/purchase-orders/:id`
+- [ ] Attempt to delete a non-DRAFT PO — Error: cannot delete submitted/received PO — `public/purchase-orders.html` — `DELETE /api/purchase-orders/:id`
