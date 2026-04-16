@@ -2284,3 +2284,19 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - [ ] Load `/login.html?setup=complete` — "Setup complete" banner shown — `public/login.html` — client-side only
 - [ ] Log in with new credentials — Authenticated; redirect to `/dashboard.html` — `public/login.html` — `POST /api/auth/login`
 - [ ] Load `/dashboard.html` after login — Dashboard renders for authenticated user — `public/dashboard.html` — `GET /api/auth/me`
+
+### Journey 2 — Square OAuth Connection
+
+- [ ] Log in and load `/dashboard.html` with no Square account connected — "Connect Square" prompt or banner visible — `public/dashboard.html` — `GET /api/auth/me`
+- [ ] Load `/settings.html` — Connection status card shows "Disconnected" for Square — `public/settings.html` — `GET /api/health`
+- [ ] Click "Connect Square" / initiate OAuth flow ⚠️ — Browser redirects to `GET /api/square/oauth/connect`; then to Square authorization page — `public/settings.html` — `GET /api/square/oauth/connect` ⚠️ (initiates real Square OAuth)
+- [ ] On Square authorization page, grant all requested scopes ⚠️ — Square redirects back to `/api/square/oauth/callback?code=...&state=...` — external (Square UI) — `GET /api/square/oauth/callback` ⚠️ (exchanges real authorization code for tokens)
+- [ ] Callback completes for a new merchant ⚠️ — Merchant record created/updated in DB; tokens encrypted; trial period set; custom attributes initialized async; redirect to `/dashboard.html?connected=true` — `public/dashboard.html` (redirect target) — `GET /api/square/oauth/callback` ⚠️
+- [ ] Callback completes for an existing merchant (re-auth) ⚠️ — Existing merchant tokens refreshed; `trial_ends_at` NOT overwritten; redirect to dashboard — `public/dashboard.html` — `GET /api/square/oauth/callback` ⚠️
+- [ ] Deny/cancel on Square authorization page — Square redirects with `error` param; user lands on `/dashboard.html?error=...` with error banner — `public/dashboard.html` — `GET /api/square/oauth/callback`
+- [ ] Attempt OAuth flow with expired state token (wait >10 min or replay) — Error: "OAuth session expired. Please try again." — `public/dashboard.html` — `GET /api/square/oauth/callback`
+- [ ] Reload `/settings.html` after successful connect ⚠️ — Square connection card shows "Connected" with business name and token status — `public/settings.html` — `GET /api/health`, `GET /api/locations` ⚠️ (reads real Square locations)
+- [ ] Click "Test Connection" on settings page ⚠️ — Success toast with Square API response; locations count shown — `public/settings.html` — `GET /api/health` ⚠️
+- [ ] Disconnect Square (click revoke / disconnect button) as owner ⚠️ — Token revoked at Square; merchant marked inactive; session `activeMerchantId` cleared — `public/settings.html` — `POST /api/square/oauth/revoke` ⚠️ (revokes real token)
+- [ ] Attempt disconnect as manager or lower role — Error: 403 Insufficient permissions — `public/settings.html` — `POST /api/square/oauth/revoke`
+- [ ] Admin manually refreshes token — Token refreshed; new `expiresAt` returned — `public/settings.html` (admin section) — `POST /api/square/oauth/refresh`
