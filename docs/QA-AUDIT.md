@@ -370,3 +370,142 @@ Pages covered: `public/vendor-dashboard.html`, `public/vendor-catalog.html`, `pu
 ---
 
 **Group 2 summary:** 14 pages, ~110 clickable elements. All API endpoints referenced by these pages exist. No broken links or missing endpoints detected.
+
+---
+
+### Group 3 — Orders & Purchasing
+
+Pages covered: `public/purchase-orders.html`, `public/reorder.html`, `public/min-max-history.html`, `public/min-max-suppression.html`, `public/pricing.html`, `public/cart-activity.html`, `public/gmc-feed.html`.
+
+---
+
+#### `public/purchase-orders.html` — Manage purchase orders
+
+| # | Clickable element | Action / endpoint | Endpoint exists? |
+|---|---|---|---|
+| 1 | `<a href="reorder.html">` | Static page load | ✅ |
+| 2 | `<a href="/dashboard.html">` | Static page load | ✅ |
+| 3 | `<button data-action="closeModal">` / `closeConfirmModal` | Client close (no HTTP) | N/A |
+| 4 | `<button data-action="confirmAction">` | Routes to update / submit / delete PO (see below) | ✅ |
+| 5 | Page load | `GET /api/purchase-orders` | ✅ `routes/purchase-orders.js:57` (mounted at `/api/purchase-orders`) |
+| 6 | View PO (dynamic) | `GET /api/purchase-orders/:id` | ✅ `routes/purchase-orders.js:65` |
+| 7 | Save edits | `PATCH /api/purchase-orders/:id` | ✅ `routes/purchase-orders.js:72` |
+| 8 | Delete PO (confirmed) | `DELETE /api/purchase-orders/:id` | ✅ `routes/purchase-orders.js:107` |
+| 9 | Submit PO (confirmed) | `POST /api/purchase-orders/:id/submit` | ✅ `routes/purchase-orders.js:85` |
+| 10 | Export CSV (from PO view links, if used) | `GET /api/purchase-orders/:po_number/export-csv` | ✅ `routes/purchase-orders.js:118` |
+| 11 | Export XLSX | `GET /api/purchase-orders/:po_number/export-xlsx` | ✅ `routes/purchase-orders.js:133` |
+
+Note: `POST /api/purchase-orders/:id/receive` exists on the server but is not invoked from this page — it is called from reorder workflows.
+
+---
+
+#### `public/reorder.html` — Reorder suggestions / create PO
+
+| # | Clickable element | Action / endpoint | Endpoint exists? |
+|---|---|---|---|
+| 1 | `<a href="purchase-orders.html">` / `<a href="bundle-manager.html">` / `<a href="/dashboard.html">` | Static page loads | ✅ |
+| 2 | `<div data-action="toggleReorderSection">` | Client UI toggle | N/A |
+| 3 | `<div data-action="toggleOtherItems">` | Client UI toggle | N/A |
+| 4 | `<th data-action="sortTable">` × ~16 | Client-side sort | N/A |
+| 5 | `<button data-action="createPurchaseOrder">` | `POST /api/purchase-orders` | ✅ `routes/purchase-orders.js:23` |
+| 6 | Page load — expiry tiers | `GET /api/expiry-discounts/tiers` | ✅ |
+| 7 | Page load — merchant config | `GET /api/config` | ✅ `routes/merchants.js:86` |
+| 8 | Page load — locations | `GET /api/locations` | ✅ `routes/catalog.js:51` |
+| 9 | Vendor dropdown | `GET /api/vendors?status=ACTIVE` | ✅ |
+| 10 | Suggestions load | `GET /api/reorder-suggestions?supply_days=&location_id=&vendor_id=&include_other=true` | ✅ `routes/analytics.js:92` |
+| 11 | Inline extended-field edits | `PATCH /api/variations/:id/extended` | ✅ `routes/catalog.js:106` |
+| 12 | Inline cost edits | `PATCH /api/variations/:id/cost` | ✅ `routes/catalog.js:146` |
+| 13 | Inline min-stock edits | `PATCH /api/variations/:id/min-stock` | ✅ `routes/catalog.js:128` |
+| 14 | "Enable at locations" fallback | `POST /api/catalog-audit/enable-item-at-locations` | ✅ `routes/catalog.js:317` |
+
+---
+
+#### `public/min-max-history.html` — Min/max adjustment history
+
+| # | Clickable element | Action / endpoint | Endpoint exists? |
+|---|---|---|---|
+| 1 | `<a href="/min-max-suppression.html">` | Static page load | ✅ |
+| 2 | `<a href="/dashboard.html">` | Static page load | ✅ |
+| 3 | Page load + filter changes | `GET /api/min-max/history?...` | ✅ `routes/analytics.js:154` |
+| 4 | Pin/unpin action (dynamic) | `POST /api/min-max/pin` | ✅ `routes/analytics.js:172` |
+
+---
+
+#### `public/min-max-suppression.html` — Suppression dashboard
+
+| # | Clickable element | Action / endpoint | Endpoint exists? |
+|---|---|---|---|
+| 1 | `<a href="/min-max-history.html">` | Static page load | ✅ |
+| 2 | `<a href="/dashboard.html">` | Static page load | ✅ |
+| 3 | Suppressed list load | `GET /api/min-max/suppressed` | ✅ `routes/min-max-suppression-routes.js:25` |
+| 4 | Audit log tab | `GET /api/min-max/audit-log?limit=50` | ✅ `routes/min-max-suppression-routes.js:38` |
+| 5 | Toggle pin (dynamic) | `POST /api/min-max/toggle-pin` | ✅ `routes/min-max-suppression-routes.js:52` |
+
+---
+
+#### `public/pricing.html` — Public pricing page
+
+| # | Clickable element | Action / endpoint | Endpoint exists? |
+|---|---|---|---|
+| 1 | `<a href="/support.html">` (contact) | Static page load | ✅ |
+| 2 | `<a href="/login.html">` | Static page load | ✅ |
+| 3 | `<a href="/subscribe.html">` | Static page load | ✅ |
+| 4 | `<a href="/support.html">` (footer) | Static page load | ✅ |
+| 5 | Page load — pricing data | `GET /api/public/pricing` | ✅ `routes/subscriptions/public.js:14` |
+| 6 | Promo code check (if implemented) | `GET /api/public/promo/check?code=...` | ✅ `routes/subscriptions/public.js:37` |
+
+This is a public page with no auth required; routes are in the `public` sub-router.
+
+---
+
+#### `public/cart-activity.html` — Abandoned / open cart insights
+
+| # | Clickable element | Action / endpoint | Endpoint exists? |
+|---|---|---|---|
+| 1 | `<a href="dashboard.html">` | Static page load | ✅ |
+| 2 | `<select data-action="filter">` (status) / `<input data-action="filter">` (dates) | `GET /api/cart-activity?...` | ✅ `routes/cart-activity.js:38` (mounted at `/api/cart-activity`) |
+| 3 | `<button data-action="prev">` / `data-action="next"` | Paginates same endpoint | ✅ |
+| 4 | Page-load stats | `GET /api/cart-activity/stats?days=7` | ✅ `routes/cart-activity.js:76` |
+
+---
+
+#### `public/gmc-feed.html` — Google Merchant Center feed & sync
+
+| # | Clickable element | Action / endpoint | Endpoint exists? |
+|---|---|---|---|
+| 1 | `<a href="/dashboard.html">` | Static page load | ✅ |
+| 2 | Tab `data-action="switchTab"` (product-feed / local-inventory) | Client tab (no HTTP) | N/A |
+| 3 | `<div data-action="toggleApiSettings">` / `toggleFeedSettings` | Client UI | N/A |
+| 4 | `<button data-action="saveGmcApiSettings">` | `PUT /api/gmc/api-settings` | ✅ `routes/gmc/settings.js:51` |
+| 5 | `<button data-action="testGmcConnection">` | `POST /api/gmc/api/test-connection` | ✅ `routes/gmc/settings.js:56` |
+| 6 | `<button data-action="saveFeedSettings">` | `PUT /api/gmc/settings` | ✅ `routes/gmc/settings.js:18` |
+| 7 | `<button data-action="syncProductsToGmc">` | `POST /api/gmc/api/sync-products` | ✅ `routes/gmc/settings.js:70` |
+| 8 | `<span data-action="openBrandManager">` | Opens modal (no HTTP) | N/A |
+| 9 | `<span data-action="openCategoryManager">` | Opens modal (no HTTP) | N/A |
+| 10 | `<button data-action="closeBrandManager">` / `closeCategoryManager` | Client close | N/A |
+| 11 | `<button data-action="detectBrands">` | `POST /api/gmc/brands/auto-detect` | ✅ `routes/gmc/brands.js:32` |
+| 12 | `<button data-action="applyBrands">` | `POST /api/gmc/brands/bulk-assign` | ✅ `routes/gmc/brands.js:38` |
+| 13 | `<span data-action="setCategoryFilter">` × 3 | Client filter (no HTTP) | N/A |
+| 14 | `<button data-action="importGoogleTaxonomy">` | `GET /api/gmc/taxonomy/fetch-google` | ✅ `routes/gmc/taxonomy.js:19` |
+| 15 | `<button data-action="removeCategoryMapping">` | `DELETE /api/gmc/category-taxonomy` | ✅ `routes/gmc/taxonomy.js:43` |
+| 16 | `<button data-action="assignTaxonomy">` | `PUT /api/gmc/category-taxonomy` | ✅ `routes/gmc/taxonomy.js:39` |
+| 17 | `<button data-action="downloadTsv">` | `GET /api/gmc/feed.tsv` (implied download) | ✅ `routes/gmc/feed.js:62` |
+| 18 | `<button data-action="exportCsv">` | Client CSV export | N/A |
+| 19 | `<button data-action="prevPage">` / `nextPage` | Client pagination | N/A |
+| 20 | `<button data-action="copyLocalFeedUrl">` | Copies URL (no HTTP) | N/A |
+| 21 | `<button data-action="downloadLocalInventoryTsv">` | `GET /api/gmc/local-inventory-feed.tsv` | ✅ `routes/gmc/feed.js:102` |
+| 22 | Page load — feed URL | `GET /api/gmc/feed-url` | ✅ `routes/gmc/feed.js:72` |
+| 23 | Regenerate token | `POST /api/gmc/regenerate-token` | ✅ `routes/gmc/feed.js:79` |
+| 24 | Feed products load | `GET /api/gmc/feed?include_products=true` | ✅ `routes/gmc/feed.js:54` |
+| 25 | Category mappings load | `GET /api/gmc/category-mappings` | ✅ `routes/gmc/taxonomy.js:35` |
+| 26 | Taxonomy load | `GET /api/gmc/taxonomy?limit=10000` | ✅ `routes/gmc/taxonomy.js:11` |
+| 27 | Feed settings load | `GET /api/gmc/settings` | ✅ `routes/gmc/settings.js:14` |
+| 28 | Local inventory feed URL | `GET /api/gmc/local-inventory-feed-url` | ✅ `routes/gmc/feed.js:88` |
+| 29 | API settings load | `GET /api/gmc/api-settings` | ✅ `routes/gmc/settings.js:47` |
+| 30 | Sync status polling | `GET /api/gmc/api/sync-status` | ✅ `routes/gmc/settings.js:78` |
+| 31 | Location settings list/save | `GET /api/gmc/location-settings`, `PUT /api/gmc/location-settings/:id` | ✅ `routes/gmc/settings.js:24`, `:38` |
+| 32 | Local inventory feed JSON | `GET /api/gmc/local-inventory-feed?location_id=&format=json` | ✅ `routes/gmc/feed.js:95` |
+
+---
+
+**Group 3 summary:** 7 pages, ~90 clickable elements. All API endpoints referenced by these pages exist on the server. No broken links or missing endpoints detected.
