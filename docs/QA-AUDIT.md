@@ -2482,3 +2482,50 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 
 - [ ] Initialize Square discount objects ⚠️ — Discount catalog objects created in Square for expiry tiers — `public/expiry.html` — `POST /api/expiry-discounts/init-square` ⚠️ (creates objects in Square catalog)
 - [ ] Pull expiry data from Square ⚠️ — Inventory adjusted based on pull request; Square data reflected locally — `public/expiry.html` — `POST /api/expirations/pull` ⚠️ (adjusts Square inventory)
+
+### Journey 10 — Delivery System
+
+#### Order Management
+
+- [ ] Load `/delivery.html` — Delivery orders list renders with status filters and pagination — `public/delivery.html` — `GET /api/orders`
+- [ ] Filter orders by status (e.g. PENDING, DELIVERED) — Filtered order list returned — `public/delivery.html` — `GET /api/orders?status=PENDING`
+- [ ] Filter orders by date range — Orders within specified date window returned — `public/delivery.html` — `GET /api/orders?dateFrom=...&dateTo=...`
+- [ ] Filter orders by route — Orders assigned to specific route shown — `public/delivery.html` — `GET /api/orders?routeId=...`
+- [ ] View paginated order list — Pagination controls work; correct total count shown — `public/delivery.html` — `GET /api/orders?limit=...&offset=...`
+- [ ] Create a manual delivery order — Order created with geocoding triggered; new row appears in list — `public/delivery.html` — `POST /api/orders`
+- [ ] Create order with invalid address (geocoding fails) — Order created; geocode error flagged on row — `public/delivery.html` — `POST /api/orders`
+- [ ] View single order detail — Detail panel opens with address, phone, notes, and status — `public/delivery.html` — `GET /api/orders/:id`
+- [ ] Edit order notes and phone — Notes and phone updated; success toast shown — `public/delivery.html` — `PATCH /api/orders/:id`
+- [ ] Edit order address — Address updated and re-geocoded automatically — `public/delivery.html` — `PATCH /api/orders/:id`
+- [ ] Delete a manual order not yet delivered — Order removed from list; success message shown — `public/delivery.html` — `DELETE /api/orders/:id`
+- [ ] Attempt to delete an already-delivered order — Error: cannot delete delivered order — `public/delivery.html` — `DELETE /api/orders/:id`
+- [ ] View customer profile for an order — Customer history and details panel shown — `public/delivery.html` — `GET /api/orders/:id/customer`
+- [ ] View customer delivery statistics — Delivery count, last delivery, and history stats shown — `public/delivery.html` — `GET /api/orders/:id/customer-stats`
+- [ ] Update internal order notes — Notes saved; no Square sync triggered — `public/delivery.html` — `PATCH /api/orders/:id/notes`
+- [ ] Update customer note ⚠️ — Note saved locally and synced to Square customer record — `public/delivery.html` — `PATCH /api/orders/:id/customer-note` ⚠️ (writes to Square customer)
+- [ ] Skip an order in the active route — Order marked as skipped; route continues to next stop — `public/delivery.html` — `POST /api/orders/:id/skip`
+- [ ] Complete a delivery ⚠️ — Order marked delivered; Square fulfillment updated; `square_synced: true` returned — `public/delivery.html` — `POST /api/orders/:id/complete` ⚠️ (updates Square order fulfillment)
+- [ ] Complete a delivery when Square sync fails ⚠️ — Order marked delivered locally; `square_sync_error` flag set; no delivery blocked — `public/delivery.html` — `POST /api/orders/:id/complete` ⚠️
+- [ ] Load `/delivery-history.html` — Completed delivery history renders with filters — `public/delivery-history.html` — `GET /api/orders?includeCompleted=true`
+
+#### Route Management
+
+- [ ] Load `/delivery-route.html` — Route page loads; active route (if any) shown with stops in order — `public/delivery-route.html` — `GET /api/route/active`
+- [ ] Generate optimized delivery route — Route generated with optimal stop order; map renders — `public/delivery-route.html` — `POST /api/route/generate`
+- [ ] Generate route for specific order IDs only — Route generated using only supplied orders — `public/delivery-route.html` — `POST /api/route/generate` (with `orderIds`)
+- [ ] Generate route excluding specific orders — Route excludes specified order IDs — `public/delivery-route.html` — `POST /api/route/generate` (with `excludeOrderIds`)
+- [ ] Generate route with custom start/end coordinates — Route uses provided depot coordinates — `public/delivery-route.html` — `POST /api/route/generate` (with `startLat`, `startLng`, `endLat`, `endLng`)
+- [ ] Force regenerate an existing route — Existing route overwritten with new optimization — `public/delivery-route.html` — `POST /api/route/generate` (with `force: true`)
+- [ ] View active route for a specific date — Route for the given date loaded — `public/delivery-route.html` — `GET /api/route/active?routeDate=...`
+- [ ] View a specific route by ID — Route detail with all stops and statuses shown — `public/delivery-route.html` — `GET /api/route/:id`
+- [ ] Finish the active route — Route marked complete; summary shown — `public/delivery-route.html` — `POST /api/route/finish`
+- [ ] Finish a specific route by ID — Named route closed out — `public/delivery-route.html` — `POST /api/route/finish` (with `routeId`)
+- [ ] Geocode pending orders (batch) — Ungeocoded addresses resolved; coordinates stored — `public/delivery-route.html` — `POST /api/geocode`
+- [ ] Load `/driver.html` — Driver view loads with active route stops in sequence — `public/driver.html` — `GET /api/route/active`
+
+#### Delivery Settings
+
+- [ ] Load `/delivery-settings.html` — Settings form renders with saved start/end address and defaults — `public/delivery-settings.html` — `GET /api/settings`
+- [ ] Save delivery settings with valid start/end addresses — Settings saved; addresses geocoded; audit log entry created — `public/delivery-settings.html` — `PUT /api/settings`
+- [ ] Save delivery settings with unresolvable address — Geocoding error returned; settings not saved — `public/delivery-settings.html` — `PUT /api/settings`
+- [ ] Access delivery pages as clerk — Page loads; delivery status update available — `public/delivery.html` — `GET /api/orders`
