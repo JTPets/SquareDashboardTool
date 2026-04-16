@@ -1938,3 +1938,109 @@ Covered in full under **Inventory** in Group 1 (`routes/cycle-counts.js`, `route
 **Routes with NO tests:** None.
 
 **Untested flows:** None.
+
+---
+
+### Group 3 — Loyalty, Seniors, Delivery
+
+#### Loyalty
+
+**Section 2 location:** Group 4 — `routes/loyalty/` (10 sub-modules: `offers.js`, `variations.js`, `customers.js`, `rewards.js`, `square-integration.js`, `processing.js`, `audit.js`, `reports.js`, `settings.js`, `discounts.js`)
+
+Route-level tests:
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/loyalty.test.js` | 48 |
+| `__tests__/routes/loyalty-routes-gap.test.js` | 59 |
+| `__tests__/routes/loyalty-square-integration.test.js` | 27 |
+| **Route subtotal** | **134** |
+
+Service-level tests (`__tests__/services/loyalty-admin/` — 53 files, total 817 tests):
+
+| Notable Files | Tests |
+|---------------|-------|
+| `reward-service.test.js` | 60 |
+| `square-discount-service.test.js` | 53 |
+| `discount-validation-service.test.js` | 40 |
+| `order-history-audit-service.test.js` | 39 |
+| `order-intake.test.js` | 34 |
+| `refund-service.test.js` | 31 |
+| `customer-identification-service.test.js` | 28 |
+| `square-api-client.test.js` | 27 |
+| `customer-cache-service.test.js` | 27 |
+| _(48 additional files)_ | _(481)_ |
+| **Service subtotal** | **817** |
+
+Additional loyalty-adjacent files:
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/services/loyalty-reports.test.js` | 16 |
+| `__tests__/services/reports/brand-redemption-report.test.js` | 41 |
+| `__tests__/utils/loyalty-free-items.test.js` | 21 |
+| `__tests__/utils/loyalty-logger.test.js` | 20 |
+| `__tests__/tools/loyalty-square-orphan-audit.test.js` | 13 |
+| **Subtotal** | **111** |
+
+**Total: 1,062 tests across 61 files.**
+
+**Routes with tests:** All 47 routes across the 10 loyalty sub-modules marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None. Loyalty is the most test-dense domain in the codebase, with dedicated test files covering offers, variations, customers, rewards, Square integration, order processing, backfill, audit, reports, settings, and discount validation.
+
+---
+
+#### Seniors
+
+**Section 2 location:** Group 4 — `routes/seniors.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/seniors.test.js` | 25 |
+| `__tests__/services/seniors/age-calculator.test.js` | 34 |
+| `__tests__/services/seniors-service.test.js` | 13 |
+| `__tests__/jobs/seniors-day-job.test.js` | 17 |
+| **Total** | **89** |
+
+**Routes with tests:** All 6 routes in `seniors.js` (`GET /api/seniors/status`, `POST /api/seniors/setup`, `GET /api/seniors/config`, `PATCH /api/seniors/config`, `GET /api/seniors/members`, `GET /api/seniors/audit-log`) marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None.
+
+---
+
+#### Delivery
+
+**Section 2 location:** Groups 5 and 6 — `routes/delivery/orders.js`, `routes/delivery/pod.js`, `routes/delivery/routes.js`, `routes/delivery/settings.js`, `routes/delivery/sync.js`, `routes/driver-api.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/delivery.test.js` | 39 |
+| `__tests__/routes/delivery-completion.test.js` | 15 |
+| `__tests__/routes/delivery-rate-limiting.test.js` | 1 |
+| `__tests__/routes/driver-api.test.js` | 13 |
+| `__tests__/services/delivery/delivery-fulfillment.test.js` | 8 |
+| `__tests__/services/delivery/delivery-geocoding.test.js` | 8 |
+| `__tests__/services/delivery/delivery-orders.test.js` | 4 |
+| `__tests__/services/delivery/delivery-routes.test.js` | 5 |
+| `__tests__/services/delivery/delivery-service.test.js` | 74 |
+| `__tests__/services/delivery/delivery-settings.test.js` | 3 |
+| `__tests__/services/delivery/delivery-sync.test.js` | 8 |
+| `__tests__/services/delivery/order-lifecycle.test.js` | 58 |
+| `__tests__/services/delivery-dedup.test.js` | 10 |
+| `__tests__/services/delivery-stats.test.js` | 30 |
+| `__tests__/services/delivery-ors-encryption.test.js` | 6 |
+| `__tests__/services/delivery-pod-path-traversal.test.js` | 4 |
+| `__tests__/jobs/delivery-auto-finish-job.test.js` | 13 |
+| `__tests__/jobs/pod-cleanup-job.test.js` | 6 |
+| **Total** | **305** |
+
+**Routes with tests:** All 32 routes across the five delivery sub-modules and `driver-api.js` marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** `delivery-rate-limiting.test.js` contains only 1 test — rate-limit enforcement on delivery write routes has minimal dedicated coverage. This aligns with the Section 2 HIGH flag that all delivery write routes lack `requireWriteAccess`; neither the access control gap nor the rate-limit behaviour has meaningful test depth.
