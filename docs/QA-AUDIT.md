@@ -2315,3 +2315,44 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - [ ] Load any protected page as expired merchant — Redirect to `/subscription-expired.html` — `public/subscription-expired.html` — `GET /api/auth/me` (subscription gate middleware)
 - [ ] Load `/admin-subscriptions.html` as platform owner — Subscriber list loads; plan and status visible — `public/admin-subscriptions.html` — `GET /api/admin/subscriptions`, `GET /api/subscriptions/admin/plans`
 - [ ] Admin changes a merchant's subscription plan — Plan updated; event logged — `public/admin-subscriptions.html` — `PATCH /api/admin/subscriptions/:id`
+
+### Journey 4 — Staff Roles & Permissions
+
+> **Role levels tested:** owner (full access), manager (read/write; no billing/staff/subscription admin), clerk (operational read/write only), readonly (read-only on base features).
+
+#### As owner
+
+- [ ] Load `/staff.html` as owner — Staff list and pending invitations render — `public/staff.html` — `GET /api/staff`
+- [ ] Invite a new staff member (owner) — Invitation email sent; pending invite appears in list; invite URL returned if email fails — `public/staff.html` — `POST /api/staff/invite`
+- [ ] Cancel a pending invitation (owner) — Invitation removed from list — `public/staff.html` — `DELETE /api/staff/invitations/:id`
+- [ ] Change a staff member's role (owner) — Role updated in DB and reflected in list — `public/staff.html` — `PATCH /api/staff/:userId/role`
+- [ ] Remove a staff member (owner) — Staff member removed from merchant — `public/staff.html` — `DELETE /api/staff/:userId`
+- [ ] Attempt to remove own account (owner) — Error: cannot remove self — `public/staff.html` — `DELETE /api/staff/:userId`
+- [ ] Access `/settings.html` billing section as owner — Cancel subscription button visible; plan details visible — `public/settings.html` — `GET /api/subscriptions/merchant-status`
+
+#### As manager
+
+- [ ] Load `/staff.html` as manager — Staff list visible (read access); invite/remove/change-role buttons hidden or disabled — `public/staff.html` — `GET /api/staff`
+- [ ] Attempt `POST /api/staff/invite` as manager directly — 403 Insufficient permissions — no frontend (API direct) — `POST /api/staff/invite`
+- [ ] Access `/settings.html` subscription section as manager — Status shown (read-only); cancel button absent — `public/settings.html` — `GET /api/subscriptions/merchant-status`
+- [ ] Attempt `POST /api/subscriptions/cancel` as manager — 403 Insufficient permissions — no frontend (API direct) — `POST /api/subscriptions/cancel`
+- [ ] Access inventory, catalog, and reorder pages as manager — All pages load and write actions (save, update) function — `public/inventory.html`, `public/reorder.html` — various `GET`/`PATCH` routes
+- [ ] Attempt `POST /api/square/oauth/revoke` as manager — 403 Insufficient permissions — no frontend (API direct) — `POST /api/square/oauth/revoke`
+
+#### As clerk
+
+- [ ] Load `/staff.html` as clerk — 403 or page redirects (no staff:read permission) — `public/staff.html` — `GET /api/staff`
+- [ ] Access cycle count page as clerk — Page loads; scan/complete actions available — `public/cycle-count.html` — `GET /api/cycle-counts/pending`, `POST /api/cycle-counts/:id/complete`
+- [ ] Access delivery page as clerk — Page loads; delivery status update available — `public/delivery.html` — `GET /api/deliveries`, `PATCH /api/deliveries/:id`
+- [ ] Access expiry page as clerk — Page loads; expiry review actions available — `public/expiry.html` — `GET /api/expirations`, `POST /api/expirations`
+- [ ] Attempt to access loyalty page as clerk — 403 or feature-gate blocks access (clerk has no loyalty access) — `public/loyalty.html` — `GET /api/merchant/features` (feature-check.js)
+- [ ] Attempt to access GMC feed page as clerk — 403 or feature-gate blocks access — `public/gmc-feed.html` — `GET /api/merchant/features`
+- [ ] Attempt `POST /api/purchase-orders` as clerk — 403 Insufficient permissions — no frontend (API direct) — `POST /api/purchase-orders`
+
+#### As readonly
+
+- [ ] Load `/dashboard.html` as readonly — Dashboard loads; read-only view with no write actions — `public/dashboard.html` — `GET /api/auth/me`
+- [ ] Load `/inventory.html` as readonly — Inventory list visible; edit/update buttons absent or disabled — `public/inventory.html` — `GET /api/inventory`
+- [ ] Load `/sales-velocity.html` as readonly — Sales velocity data visible — `public/sales-velocity.html` — `GET /api/sales-velocity`
+- [ ] Attempt to POST to any write endpoint as readonly (e.g. `POST /api/purchase-orders`) — 403 Insufficient permissions — no frontend (API direct) — `POST /api/purchase-orders`
+- [ ] Attempt to access staff page as readonly — 403 or redirect (no base write/staff access) — `public/staff.html` — `GET /api/staff`
