@@ -993,3 +993,64 @@ Mounted at `/api/admin/catalog-health`.
 | 2 | MEDIUM | `POST /api/catalog-audit/fix-locations` | Bulk destructive Square catalog operation; only `requireWriteAccess` guards it — no admin or superAdmin role required |
 | 3 | MEDIUM | `POST /api/catalog-audit/fix-inventory-alerts` | Same — bulk Square write with no elevated-role gate |
 | 4 | INFO | — | `routes/inventory.js` referenced in task scope does not exist; `/api/inventory` and `/api/low-stock` are in `routes/catalog.js` |
+
+---
+
+### Group 3 — Purchasing & Counts
+
+Files scanned: `routes/purchase-orders.js`, `routes/cycle-counts.js`.
+
+> **Scope note:** `routes/reorder.js` does not exist. Reorder suggestion endpoints (`GET /api/reorder-suggestions`) live in `routes/analytics.js`, which is gated by `requireFeature('reorder')` and `requirePermission('reorder', 'read')` via `server.js` — those routes are outside the task scope for this group.
+
+Mount points: `routes/purchase-orders.js` → `/api/purchase-orders` (with `requireFeature('reorder')`, `requirePermission('reorder', 'read')` applied at mount); `routes/cycle-counts.js` → `/api` (with `requireFeature('cycle_counts')`, `requirePermission('cycle_counts', 'read')` on `/cycle-counts` via `gateApi`).
+
+---
+
+#### `routes/purchase-orders.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/purchase-orders` | `requireAuth`, `requireMerchant`, `validators.createPurchaseOrder` | `poService.createPurchaseOrder` | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/purchase-orders` | `requireAuth`, `requireMerchant`, `validators.listPurchaseOrders` | `poService.listPurchaseOrders` | Y | — |
+| GET | `/api/purchase-orders/:id` | `requireAuth`, `requireMerchant`, `validators.getPurchaseOrder` | `poService.getPurchaseOrder` | Y | — |
+| PATCH | `/api/purchase-orders/:id` | `requireAuth`, `requireMerchant`, `validators.updatePurchaseOrder` | `poService.updatePurchaseOrder` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/purchase-orders/:id/submit` | `requireAuth`, `requireMerchant`, `validators.submitPurchaseOrder` | `poService.submitPurchaseOrder` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/purchase-orders/:id/receive` | `requireAuth`, `requireMerchant`, `validators.receivePurchaseOrder` | `poReceiveService.receiveItems` | Y | ⚠️ Missing `requireWriteAccess` — records received inventory |
+| DELETE | `/api/purchase-orders/:id` | `requireAuth`, `requireMerchant`, `validators.deletePurchaseOrder` | `poService.deletePurchaseOrder` | Y | ⚠️ Missing `requireWriteAccess` — read-only users can delete POs |
+| GET | `/api/purchase-orders/:po_number/export-csv` | `requireAuth`, `requireMerchant`, `validators.exportPurchaseOrderCsv` | `poExportService.getPurchaseOrderForExport` + `buildCsvContent` | Y | — |
+| GET | `/api/purchase-orders/:po_number/export-xlsx` | `requireAuth`, `requireMerchant`, `validators.exportPurchaseOrderXlsx` | `poExportService.getPurchaseOrderForExport` + `buildXlsxWorkbook` | Y | — |
+
+---
+
+#### `routes/cycle-counts.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/cycle-counts/pending` | `requireAuth`, `requireMerchant` | inline DB query + `batchResolveImageUrls` | Y | — |
+| POST | `/api/cycle-counts/:id/complete` | `requireAuth`, `requireMerchant`, `validators.complete` | inline DB transaction (count_history, queue updates) | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/cycle-counts/:id/sync-to-square` | `requireAuth`, `requireMerchant`, `validators.syncToSquare` | `squareApi.setSquareInventoryCount` + DB update | Y | ⚠️ Missing `requireWriteAccess` — pushes inventory adjustment to Square |
+| POST | `/api/cycle-counts/send-now` | `requireAuth`, `requireMerchant`, `validators.sendNow` | inline DB insert (count_queue_priority) | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/cycle-counts/stats` | `requireAuth`, `requireMerchant`, `validators.getStats` | inline DB query | Y | — |
+| GET | `/api/cycle-counts/history` | `requireAuth`, `requireMerchant`, `validators.getHistory` | inline DB query | Y | — |
+| POST | `/api/cycle-counts/email-report` | `requireAuth`, `requireMerchant`, `validators.emailReport` | `sendCycleCountReport` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/cycle-counts/generate-batch` | `requireAuth`, `requireMerchant`, `validators.generateBatch` | `generateDailyBatch` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/cycle-counts/reset` | `requireAuth`, `requireMerchant`, `validators.reset` | inline DB delete + insert (can wipe all count history) | Y | ⚠️ Missing `requireWriteAccess`; no admin gate on a destructive full-wipe operation |
+
+---
+
+**Group 3 flag summary:**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | HIGH | `DELETE /api/purchase-orders/:id` | Missing `requireWriteAccess` — read-only role can delete POs |
+| 2 | MEDIUM | `POST /api/purchase-orders` | Missing `requireWriteAccess` — read-only role can create POs |
+| 3 | MEDIUM | `PATCH /api/purchase-orders/:id` | Missing `requireWriteAccess` |
+| 4 | MEDIUM | `POST /api/purchase-orders/:id/submit` | Missing `requireWriteAccess` |
+| 5 | MEDIUM | `POST /api/purchase-orders/:id/receive` | Missing `requireWriteAccess` — records received inventory without write-role check |
+| 6 | HIGH | `POST /api/cycle-counts/reset` | Missing `requireWriteAccess` AND no admin gate; can irrecoverably wipe all count history |
+| 7 | MEDIUM | `POST /api/cycle-counts/:id/complete` | Missing `requireWriteAccess` |
+| 8 | MEDIUM | `POST /api/cycle-counts/:id/sync-to-square` | Missing `requireWriteAccess` — pushes inventory adjustments to Square |
+| 9 | MEDIUM | `POST /api/cycle-counts/send-now` | Missing `requireWriteAccess` |
+| 10 | MEDIUM | `POST /api/cycle-counts/email-report` | Missing `requireWriteAccess` |
+| 11 | MEDIUM | `POST /api/cycle-counts/generate-batch` | Missing `requireWriteAccess` |
+| 12 | INFO | — | `routes/reorder.js` referenced in task scope does not exist; reorder suggestions are in `routes/analytics.js` |
