@@ -2256,3 +2256,158 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - The `requireWriteAccess` gaps documented in Section 2 (delivery, vendor-catalog, cycle-counts, square-attributes, sync, bundles, expiry-discounts, labels, settings, webhooks, ai-autofill, vendor-match-suggestions) are present in the code but **not validated by dedicated negative-path tests** — existing tests confirm the happy path works but do not assert that read-only users are blocked from write endpoints.
 - Delivery rate-limit enforcement has only 1 dedicated test.
 - `catalog-location-health.js` endpoints are exercised by unit tests but cannot be reached in production.
+
+---
+
+## Section 4 — QA Checklist
+
+> **Format:** Each item is: `- [ ] Action — Expected result — Frontend file — Backend route`
+> **⚠️** marks any step that touches real Square data or fires real payment/PO operations.
+
+---
+
+### Journey 1 — Sign-up & Onboarding
+
+- [ ] Navigate to `/` (marketing landing page) — Page loads; nav shows "Log In" and "Get Started" links — `public/index.html` — static (no API)
+- [ ] Click "Get Started" hero button — Redirected to `/subscribe.html` — `public/index.html` — static
+- [ ] Load `/subscribe.html` — Plans render (monthly/annual); Square payment form mounts — `public/subscribe.html` — `GET /api/subscriptions/plans`, `GET /api/square/payment-config`
+- [ ] Click "Select Monthly" plan toggle — Monthly plan highlighted; price updates in UI — `public/subscribe.html` — client-side only
+- [ ] Click "Select Annual" plan toggle — Annual plan highlighted; price updates in UI — `public/subscribe.html` — client-side only
+- [ ] Enter a promo code and click "Apply" — Valid code: discount shown; invalid code: inline error — `public/subscribe.html` — `POST /api/subscriptions/promo/validate`
+- [ ] Click "Terms of Service" link — Terms modal opens — `public/subscribe.html` — client-side only
+- [ ] Click "I Understand and Accept" in modal — Modal closes; terms checkbox checked — `public/subscribe.html` — client-side only
+- [ ] Submit signup form with valid email, business name, and payment details ⚠️ — Account created; password setup email sent; `passwordSetupUrl` returned — `public/subscribe.html` — `POST /api/subscriptions/create` ⚠️ (charges real Square payment)
+- [ ] Submit signup form with an already-registered email — Error: "An account with this email already exists" — `public/subscribe.html` — `POST /api/subscriptions/create`
+- [ ] Submit signup form without accepting terms — Client-side validation prevents submission — `public/subscribe.html` — client-side only
+- [ ] Follow password setup link (`/set-password.html?token=...`) — Token validated; password form displayed — `public/set-password.html` — `GET /api/auth/verify-reset-token`
+- [ ] Submit new password — Password saved; redirect to `/login.html?setup=complete` — `public/set-password.html` — `POST /api/auth/reset-password`
+- [ ] Load `/login.html?setup=complete` — "Setup complete" banner shown — `public/login.html` — client-side only
+- [ ] Log in with new credentials — Authenticated; redirect to `/dashboard.html` — `public/login.html` — `POST /api/auth/login`
+- [ ] Load `/dashboard.html` after login — Dashboard renders for authenticated user — `public/dashboard.html` — `GET /api/auth/me`
+
+### Journey 2 — Square OAuth Connection
+
+- [ ] Log in and load `/dashboard.html` with no Square account connected — "Connect Square" prompt or banner visible — `public/dashboard.html` — `GET /api/auth/me`
+- [ ] Load `/settings.html` — Connection status card shows "Disconnected" for Square — `public/settings.html` — `GET /api/health`
+- [ ] Click "Connect Square" / initiate OAuth flow ⚠️ — Browser redirects to `GET /api/square/oauth/connect`; then to Square authorization page — `public/settings.html` — `GET /api/square/oauth/connect` ⚠️ (initiates real Square OAuth)
+- [ ] On Square authorization page, grant all requested scopes ⚠️ — Square redirects back to `/api/square/oauth/callback?code=...&state=...` — external (Square UI) — `GET /api/square/oauth/callback` ⚠️ (exchanges real authorization code for tokens)
+- [ ] Callback completes for a new merchant ⚠️ — Merchant record created/updated in DB; tokens encrypted; trial period set; custom attributes initialized async; redirect to `/dashboard.html?connected=true` — `public/dashboard.html` (redirect target) — `GET /api/square/oauth/callback` ⚠️
+- [ ] Callback completes for an existing merchant (re-auth) ⚠️ — Existing merchant tokens refreshed; `trial_ends_at` NOT overwritten; redirect to dashboard — `public/dashboard.html` — `GET /api/square/oauth/callback` ⚠️
+- [ ] Deny/cancel on Square authorization page — Square redirects with `error` param; user lands on `/dashboard.html?error=...` with error banner — `public/dashboard.html` — `GET /api/square/oauth/callback`
+- [ ] Attempt OAuth flow with expired state token (wait >10 min or replay) — Error: "OAuth session expired. Please try again." — `public/dashboard.html` — `GET /api/square/oauth/callback`
+- [ ] Reload `/settings.html` after successful connect ⚠️ — Square connection card shows "Connected" with business name and token status — `public/settings.html` — `GET /api/health`, `GET /api/locations` ⚠️ (reads real Square locations)
+- [ ] Click "Test Connection" on settings page ⚠️ — Success toast with Square API response; locations count shown — `public/settings.html` — `GET /api/health` ⚠️
+- [ ] Disconnect Square (click revoke / disconnect button) as owner ⚠️ — Token revoked at Square; merchant marked inactive; session `activeMerchantId` cleared — `public/settings.html` — `POST /api/square/oauth/revoke` ⚠️ (revokes real token)
+- [ ] Attempt disconnect as manager or lower role — Error: 403 Insufficient permissions — `public/settings.html` — `POST /api/square/oauth/revoke`
+- [ ] Admin manually refreshes token — Token refreshed; new `expiresAt` returned — `public/settings.html` (admin section) — `POST /api/square/oauth/refresh`
+
+### Journey 3 — Subscription & Billing
+
+- [ ] Load `/settings.html` as a trialing merchant — Subscription section shows trial status and trial end date — `public/settings.html` — `GET /api/subscriptions/merchant-status`, `GET /api/merchant/features`
+- [ ] Load `/settings.html` as an active (paid) merchant — Subscription section shows "Active", plan name, and renewal date — `public/settings.html` — `GET /api/subscriptions/merchant-status`
+- [ ] Load `/subscription-expired.html` — Expired/blocked message shown; "Upgrade" or "Contact support" links present — `public/subscription-expired.html` — static
+- [ ] Load `/upgrade.html` — Upgrade plan options displayed — `public/upgrade.html` — `GET /api/subscriptions/plans`
+- [ ] Apply a promo code on upgrade page — Valid: discount applied to displayed price; invalid: error shown — `public/upgrade.html` — `POST /api/subscriptions/promo/validate`
+- [ ] Complete upgrade payment ⚠️ — Subscription upgraded; new plan recorded; payment processed via Square — `public/upgrade.html` — `POST /api/subscriptions/create` ⚠️ (charges real Square payment)
+- [ ] Check subscription status by email (public endpoint) — Returns `active`, `trial`, or `expired` and relevant dates — no frontend page (API direct) — `GET /api/subscriptions/status?email=...`
+- [ ] Cancel subscription from settings page (owner only) — Confirmation modal appears; on confirm, subscription canceled and Square subscription canceled ⚠️ — `public/settings.html` — `POST /api/subscriptions/cancel` ⚠️ (cancels real Square subscription if present)
+- [ ] Attempt to cancel subscription as manager — Cancel button hidden or action returns 403 — `public/settings.html` — `POST /api/subscriptions/cancel`
+- [ ] Load any protected page as expired merchant — Redirect to `/subscription-expired.html` — `public/subscription-expired.html` — `GET /api/auth/me` (subscription gate middleware)
+- [ ] Load `/admin-subscriptions.html` as platform owner — Subscriber list loads; plan and status visible — `public/admin-subscriptions.html` — `GET /api/admin/subscriptions`, `GET /api/subscriptions/admin/plans`
+- [ ] Admin changes a merchant's subscription plan — Plan updated; event logged — `public/admin-subscriptions.html` — `PATCH /api/admin/subscriptions/:id`
+
+### Journey 4 — Staff Roles & Permissions
+
+> **Role levels tested:** owner (full access), manager (read/write; no billing/staff/subscription admin), clerk (operational read/write only), readonly (read-only on base features).
+
+#### As owner
+
+- [ ] Load `/staff.html` as owner — Staff list and pending invitations render — `public/staff.html` — `GET /api/staff`
+- [ ] Invite a new staff member (owner) — Invitation email sent; pending invite appears in list; invite URL returned if email fails — `public/staff.html` — `POST /api/staff/invite`
+- [ ] Cancel a pending invitation (owner) — Invitation removed from list — `public/staff.html` — `DELETE /api/staff/invitations/:id`
+- [ ] Change a staff member's role (owner) — Role updated in DB and reflected in list — `public/staff.html` — `PATCH /api/staff/:userId/role`
+- [ ] Remove a staff member (owner) — Staff member removed from merchant — `public/staff.html` — `DELETE /api/staff/:userId`
+- [ ] Attempt to remove own account (owner) — Error: cannot remove self — `public/staff.html` — `DELETE /api/staff/:userId`
+- [ ] Access `/settings.html` billing section as owner — Cancel subscription button visible; plan details visible — `public/settings.html` — `GET /api/subscriptions/merchant-status`
+
+#### As manager
+
+- [ ] Load `/staff.html` as manager — Staff list visible (read access); invite/remove/change-role buttons hidden or disabled — `public/staff.html` — `GET /api/staff`
+- [ ] Attempt `POST /api/staff/invite` as manager directly — 403 Insufficient permissions — no frontend (API direct) — `POST /api/staff/invite`
+- [ ] Access `/settings.html` subscription section as manager — Status shown (read-only); cancel button absent — `public/settings.html` — `GET /api/subscriptions/merchant-status`
+- [ ] Attempt `POST /api/subscriptions/cancel` as manager — 403 Insufficient permissions — no frontend (API direct) — `POST /api/subscriptions/cancel`
+- [ ] Access inventory, catalog, and reorder pages as manager — All pages load and write actions (save, update) function — `public/inventory.html`, `public/reorder.html` — various `GET`/`PATCH` routes
+- [ ] Attempt `POST /api/square/oauth/revoke` as manager — 403 Insufficient permissions — no frontend (API direct) — `POST /api/square/oauth/revoke`
+
+#### As clerk
+
+- [ ] Load `/staff.html` as clerk — 403 or page redirects (no staff:read permission) — `public/staff.html` — `GET /api/staff`
+- [ ] Access cycle count page as clerk — Page loads; scan/complete actions available — `public/cycle-count.html` — `GET /api/cycle-counts/pending`, `POST /api/cycle-counts/:id/complete`
+- [ ] Access delivery page as clerk — Page loads; delivery status update available — `public/delivery.html` — `GET /api/deliveries`, `PATCH /api/deliveries/:id`
+- [ ] Access expiry page as clerk — Page loads; expiry review actions available — `public/expiry.html` — `GET /api/expirations`, `POST /api/expirations`
+- [ ] Attempt to access loyalty page as clerk — 403 or feature-gate blocks access (clerk has no loyalty access) — `public/loyalty.html` — `GET /api/merchant/features` (feature-check.js)
+- [ ] Attempt to access GMC feed page as clerk — 403 or feature-gate blocks access — `public/gmc-feed.html` — `GET /api/merchant/features`
+- [ ] Attempt `POST /api/purchase-orders` as clerk — 403 Insufficient permissions — no frontend (API direct) — `POST /api/purchase-orders`
+
+#### As readonly
+
+- [ ] Load `/dashboard.html` as readonly — Dashboard loads; read-only view with no write actions — `public/dashboard.html` — `GET /api/auth/me`
+- [ ] Load `/inventory.html` as readonly — Inventory list visible; edit/update buttons absent or disabled — `public/inventory.html` — `GET /api/inventory`
+- [ ] Load `/sales-velocity.html` as readonly — Sales velocity data visible — `public/sales-velocity.html` — `GET /api/sales-velocity`
+- [ ] Attempt to POST to any write endpoint as readonly (e.g. `POST /api/purchase-orders`) — 403 Insufficient permissions — no frontend (API direct) — `POST /api/purchase-orders`
+- [ ] Attempt to access staff page as readonly — 403 or redirect (no base write/staff access) — `public/staff.html` — `GET /api/staff`
+
+### Journey 5 — Vendor Management
+
+- [ ] Load `/vendor-dashboard.html` — Vendor list renders with OOS counts per vendor; global OOS count shown — `public/vendor-dashboard.html` — `GET /api/vendor-dashboard`
+- [ ] Expand a vendor row — Vendor detail expands showing OOS items and reorder data — `public/vendor-dashboard.html` — client-side (data already loaded)
+- [ ] Click "Edit Vendor Settings" for a vendor — Inline form opens with schedule type, minimum order, lead time fields — `public/vendor-dashboard.html` — client-side only
+- [ ] Save vendor settings (schedule type, min order, lead time) — Settings saved; vendor row updates; success toast shown — `public/vendor-dashboard.html` — `PATCH /api/vendors/:id/settings`
+- [ ] Save vendor settings with invalid data (e.g. negative minimum) — Validation error shown; no save — `public/vendor-dashboard.html` — `PATCH /api/vendors/:id/settings`
+- [ ] Load `/vendor-catalog.html` — Vendor catalog items render — `public/vendor-catalog.html` — `GET /api/vendor-catalog`
+- [ ] Filter vendor list by status (ACTIVE/INACTIVE) — Filtered vendor list returned — `public/vendor-dashboard.html` — `GET /api/vendors?status=ACTIVE`
+- [ ] Load `/vendor-match-suggestions.html` — Unmatched catalog items with suggested vendor matches shown — `public/vendor-match-suggestions.html` — `GET /api/vendor-match-suggestions`
+- [ ] Accept a vendor match suggestion — Item linked to vendor; suggestion removed from list — `public/vendor-match-suggestions.html` — `POST /api/vendor-match-suggestions/:id/accept`
+- [ ] Reject a vendor match suggestion — Suggestion dismissed — `public/vendor-match-suggestions.html` — `DELETE /api/vendor-match-suggestions/:id`
+- [ ] Load merchant tax list — Taxes for merchant's Square account returned — no dedicated page (used in vendor-catalog forms) — `GET /api/vendor-catalog/merchant-taxes`
+- [ ] Access vendor pages as clerk — 403 or feature-gate blocks (clerk has no vendor access per permissions matrix) — `public/vendor-dashboard.html` — `GET /api/vendor-dashboard`
+
+### Journey 6 — Purchase Orders Manual
+
+- [ ] Load `/purchase-orders.html` — PO list renders; status filters (DRAFT, SUBMITTED, RECEIVED) available — `public/purchase-orders.html` — `GET /api/purchase-orders`
+- [ ] Filter PO list by status — Filtered list returned — `public/purchase-orders.html` — `GET /api/purchase-orders?status=DRAFT`
+- [ ] Filter PO list by vendor — Filtered list returned — `public/purchase-orders.html` — `GET /api/purchase-orders?vendor_id=...`
+- [ ] View a single PO (click row) — PO detail modal opens with items, quantities, and totals — `public/purchase-orders.html` — `GET /api/purchase-orders/:id`
+- [ ] Load `/reorder.html` and select a vendor — Reorder suggestions load for selected vendor — `public/reorder.html` — `GET /api/reorder-suggestions?vendor_id=...`
+- [ ] Add items to manual order from reorder page — Items appear in order basket — `public/reorder.html` — client-side only
+- [ ] Submit order from reorder page (creates DRAFT PO) — PO created with status DRAFT; confirmation shown — `public/reorder.html` — `POST /api/purchase-orders`
+- [ ] Create PO where order total is below vendor minimum — Soft warning returned: `warning: below_minimum_order` with amounts; user prompted to confirm or cancel — `public/reorder.html` — `POST /api/purchase-orders`
+- [ ] Confirm below-minimum PO with `force: true` — PO created despite below-minimum — `public/reorder.html` — `POST /api/purchase-orders` (with `force: true`)
+- [ ] Edit a DRAFT PO (update quantities, notes) — PO updated; totals recalculated — `public/purchase-orders.html` — `PATCH /api/purchase-orders/:id`
+- [ ] Attempt to edit a non-DRAFT PO (SUBMITTED or RECEIVED) — Error: cannot edit a submitted/received PO — `public/purchase-orders.html` — `PATCH /api/purchase-orders/:id`
+- [ ] Submit a DRAFT PO (DRAFT → SUBMITTED) — Status changes to SUBMITTED; edit controls hidden — `public/purchase-orders.html` — `POST /api/purchase-orders/:id/submit`
+- [ ] Receive items on a SUBMITTED PO — Received quantities recorded; PO status updated — `public/purchase-orders.html` — `POST /api/purchase-orders/:id/receive`
+- [ ] Export PO as XLSX — XLSX file downloaded with PO items and quantities — `public/purchase-orders.html` — `GET /api/purchase-orders/:po_number/export-xlsx`
+- [ ] Export PO as CSV — CSV file downloaded — `public/purchase-orders.html` — `GET /api/purchase-orders/:po_number/export-csv`
+- [ ] Delete a DRAFT PO — PO removed; success message with PO number shown — `public/purchase-orders.html` — `DELETE /api/purchase-orders/:id`
+- [ ] Attempt to delete a non-DRAFT PO — Error: cannot delete submitted/received PO — `public/purchase-orders.html` — `DELETE /api/purchase-orders/:id`
+
+### Journey 7 — Purchase Orders Automation
+
+> All steps that read from or write to real Square data are flagged ⚠️. The automation path is triggered by the weekly cron job or by sending `X-Request-Source: automation` header on `POST /api/purchase-orders`.
+
+- [ ] Load `/reorder.html` and select a vendor — Reorder suggestions load using sales velocity data ⚠️ — `public/reorder.html` — `GET /api/reorder-suggestions` ⚠️ (reads real Square sales/inventory data via DB sync)
+- [ ] Trigger automated PO creation via API with `X-Request-Source: automation` header ⚠️ — `req.isAutomated` set to `true`; PO created as DRAFT — no frontend (API/cron direct) — `POST /api/purchase-orders` ⚠️
+- [ ] Automated PO creation where order total is below vendor minimum ⚠️ — 422 returned with `BELOW_VENDOR_MINIMUM` code; no PO created (hard reject for automation, no soft warning) — no frontend — `POST /api/purchase-orders` ⚠️
+- [ ] Load `/min-max-history.html` — Auto min/max adjustment history renders for merchant — `public/min-max-history.html` — `GET /api/min-max/history`
+- [ ] Filter min/max history by date range — Filtered adjustment records returned — `public/min-max-history.html` — `GET /api/min-max/history?startDate=...&endDate=...`
+- [ ] Load `/reorder.html` and view min/max recommendations — AI-driven min/max recommendations rendered per variation ⚠️ — `public/reorder.html` — `GET /api/min-max/recommendations` ⚠️ (reads real inventory from Square sync)
+- [ ] Apply all min/max recommendations — Min/max levels updated in DB; thresholds pushed to Square catalog (fire-and-forget) ⚠️ — `public/reorder.html` — `POST /api/min-max/apply` ⚠️ (writes to real Square catalog via `pushMinStockThresholdsToSquare`)
+- [ ] Pin a variation to prevent auto adjustment — Variation pinned; weekly job will skip it — `public/min-max-history.html` — `POST /api/min-max/pin`
+- [ ] Unpin a previously pinned variation — Variation unpinned; weekly job will include it again — `public/min-max-history.html` — `POST /api/min-max/pin` (with `pinned: false`)
+- [ ] Load `/min-max-suppression.html` — Suppressed variations list renders — `public/min-max-suppression.html` — `GET /api/min-max/suppression`
+- [ ] Suppress a variation from auto min/max — Variation added to suppression list — `public/min-max-suppression.html` — `POST /api/min-max/suppression`
+- [ ] Remove suppression for a variation — Variation removed from suppression list — `public/min-max-suppression.html` — `DELETE /api/min-max/suppression/:id`
+- [ ] Weekly auto min/max cron job runs (simulated via job trigger) ⚠️ — Recommendations generated; thresholds updated in DB; changes pushed to Square catalog; summary email sent — no frontend (cron/`jobs/auto-min-max-job.js`) — internal + `pushMinStockThresholdsToSquare` ⚠️
+- [ ] Get sales velocity data — Sales velocity per item returned based on synced Square order history ⚠️ — `public/sales-velocity.html` — `GET /api/sales-velocity` ⚠️ (reads real sales data synced from Square)
+- [ ] View reorder suggestions with custom supply days — Suggestions recalculated for specified supply window ⚠️ — `public/reorder.html` — `GET /api/reorder-suggestions?supply_days=45` ⚠️
