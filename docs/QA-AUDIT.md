@@ -1708,3 +1708,551 @@ All middleware files in `middleware/`:
 | `request-id.js` | Attaches a UUID `requestId` to every request for log correlation |
 | `request-source.js` | Sets `req.isAutomated = true` when `x-request-source: automation` header is present; distinguishes cron/agent callers from human sessions |
 | `validators/` (directory) | Per-route `express-validator` chains; one file per route module; imported as `validators` in route handlers |
+
+---
+
+## Section 3 — Test Coverage Map
+
+> **Scope:** Cross-references `__tests__/` against `docs/DOMAIN-MAP.md` and the routes documented in Section 2. Test counts reflect `it()` / `test()` call totals per file. "Test" column values in Section 2 tables (`Y` / `N`) are the baseline; discrepancies noted below. Test file counts cover both route-level and service-level files for each domain. Some service test files are shared across domains (noted where applicable).
+
+---
+
+### Group 1 — Auth, Subscriptions, Catalog, Inventory
+
+#### Auth
+
+**Section 2 location:** Group 1 — `routes/auth/session.js`, `routes/auth/password.js`, `routes/auth/users.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/auth.test.js` | 55 |
+| `__tests__/services/auth/account-service.test.js` | 24 |
+| `__tests__/services/auth/password-service.test.js` | 17 |
+| `__tests__/services/auth/session-service.test.js` | 13 |
+| **Total** | **109** |
+
+**Routes with tests:** All 12 routes across `session.js`, `password.js`, and `users.js` are marked Y in Section 2.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None. Login, logout, session introspection, password change/reset/forgot, token verification, and all user management operations (create, update, reset, unlock) have route-level and service-level coverage.
+
+---
+
+#### Subscriptions
+
+**Section 2 location:** Group 1 — `routes/subscriptions/plans.js`, `routes/subscriptions/merchant.js`, `routes/subscriptions/admin.js`, `routes/subscriptions/public.js`, `routes/subscriptions/webhooks.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/subscriptions.test.js` | 57 |
+| `__tests__/routes/subscription-admin-auth.test.js` | 6 |
+| `__tests__/routes/subscription-rate-limit.test.js` | 7 |
+| `__tests__/routes/subscription-status-security.test.js` | 6 |
+| `__tests__/routes/subscription-tenant-isolation.test.js` | 13 |
+| `__tests__/routes/subscriptions-untested-endpoints.test.js` | 23 |
+| `__tests__/routes/oauth-trial.test.js` | 3 |
+| `__tests__/services/subscription-bridge.test.js` | 19 |
+| `__tests__/services/promo-validation.test.js` | 15 |
+| `__tests__/services/subscriptions/subscription-create-service.test.js` | 19 |
+| `__tests__/integration/subscription-lifecycle.test.js` | 20 |
+| **Total** | **188** |
+
+**Routes with tests:** 16 of 17 routes were marked Y in Section 2 at audit time.
+
+**Routes originally flagged N:** `GET /api/webhooks/events` (`routes/subscriptions/webhooks.js`) was marked N (Section 2 Group 1 flag #3). **Reconciliation:** `__tests__/routes/subscriptions-untested-endpoints.test.js` line 330 contains `describe('GET /webhooks/events — query building')`, which covers this endpoint. The gap identified in Section 2 has since been closed; all 17 routes now have tests.
+
+**Untested flows:** None after reconciliation.
+
+---
+
+#### Merchants
+
+**Section 2 location:** Group 1 — `routes/merchants.js`
+
+> Note: `routes/settings.js` and `routes/admin.js` are in the Merchant domain per DOMAIN-MAP.md; admin and settings routes are covered in Group 4.
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/merchants.test.js` | 9 |
+| `__tests__/routes/merchant-features.test.js` | 16 |
+| `__tests__/routes/settings.test.js` | 6 |
+| `__tests__/services/platform-settings.test.js` | 10 |
+| **Total** | **41** |
+
+**Routes with tests:** All 4 routes in `routes/merchants.js` marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None for the core merchant endpoints (list, switch, context, config). `GET /api/merchant/features` is an inline `server.js` handler not documented in Section 2 route tables; it is exercised indirectly via `merchant-features.test.js` feature-gate logic.
+
+---
+
+#### Catalog
+
+**Section 2 location:** Group 2 — `routes/catalog.js`, `routes/catalog-health.js`, `routes/catalog-location-health.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/catalog.test.js` | 56 |
+| `__tests__/routes/catalog-health.test.js` | 4 |
+| `__tests__/routes/catalog-location-health.test.js` | 4 |
+| `__tests__/routes/catalog-write-access.test.js` | 3 |
+| `__tests__/services/catalog/audit-service.test.js` | 11 |
+| `__tests__/services/catalog/expired-pull.test.js` | 10 |
+| `__tests__/services/catalog/inventory-service.test.js` | 54 |
+| `__tests__/services/catalog/item-service.test.js` | 14 |
+| `__tests__/services/catalog/location-health-service.test.js` | 11 |
+| `__tests__/services/catalog/reorder-math.test.js` | 41 |
+| `__tests__/services/catalog/reorder-service.test.js` | 44 |
+| `__tests__/services/catalog/save-expirations-reviewed.test.js` | 7 |
+| `__tests__/services/catalog/variation-service.test.js` | 75 |
+| `__tests__/services/catalog-audit-service.test.js` | 11 |
+| `__tests__/services/catalog-health-service.test.js` | 52 |
+| `__tests__/services/catalog-handler-vendor-race.test.js` | 4 |
+| **Total** | **401** |
+
+> `reorder-math.test.js` and `reorder-service.test.js` are also counted under Reorder in Group 2 (shared service files).
+
+**Routes with tests:** All 20 routes in `catalog.js` and both routes in `catalog-health.js` marked Y. Both routes in `catalog-location-health.js` also marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** `routes/catalog-location-health.js` is **never mounted in `server.js`** (Section 2 CRITICAL flag). Handler unit tests exist (`catalog-location-health.test.js`) but both endpoints are unreachable via HTTP in production — no integration path through the HTTP layer can be exercised.
+
+---
+
+#### Inventory
+
+**Section 2 location:** Groups 3 and 6 — `routes/cycle-counts.js`, `routes/min-max-suppression-routes.js`
+
+> `routes/analytics.js` exposes additional min-max endpoints (`GET /api/min-max/recommendations`, `POST /api/min-max/apply`, `GET /api/min-max/history`, `POST /api/min-max/pin`) — those are counted under Reorder in Group 2 since they share the analytics route file.
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/cycle-counts.test.js` | 27 |
+| `__tests__/services/inventory/auto-min-max-service.test.js` | 88 |
+| `__tests__/services/inventory/auto-min-max-square-sync.test.js` | 11 |
+| `__tests__/services/inventory/cycle-count-service.test.js` | 14 |
+| **Total** | **140** |
+
+**Routes with tests:** All 9 routes in `cycle-counts.js` and all 3 routes in `min-max-suppression-routes.js` marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None.
+
+---
+
+### Group 2 — Purchasing, Counts, Vendors
+
+#### Purchase Orders
+
+**Section 2 location:** Group 3 — `routes/purchase-orders.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/purchase-orders.test.js` | 34 |
+| `__tests__/services/purchase-orders/po-service.test.js` | 39 |
+| `__tests__/services/purchase-orders/po-receive-service.test.js` | 18 |
+| `__tests__/services/purchase-orders/po-export-service.test.js` | 36 |
+| **Total** | **127** |
+
+**Routes with tests:** All 9 routes marked Y in Section 2 Group 3.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None.
+
+---
+
+#### Cycle Counts
+
+Covered in full under **Inventory** in Group 1 (`routes/cycle-counts.js`, `routes/min-max-suppression-routes.js`, `services/inventory/`). Total: **140 tests across 4 files.** All 12 routes marked Y. No gaps.
+
+---
+
+#### Reorder
+
+**Section 2 location:** Group 6 — `routes/analytics.js` (reorder suggestions, sales-velocity, and min-max recommendation/apply/history/pin endpoints). Core reorder services are in `services/catalog/`.
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/analytics.test.js` | 47 |
+| `__tests__/services/catalog/reorder-service.test.js` | 44 |
+| `__tests__/services/catalog/reorder-math.test.js` | 41 |
+| `__tests__/services/reorder/checkbox-defaults-service.test.js` | 26 |
+| `__tests__/jobs/auto-min-max-job.test.js` | 23 |
+| **Total** | **181** |
+
+> `reorder-service.test.js` and `reorder-math.test.js` are also counted under Catalog in Group 1 (shared service files).
+
+**Routes with tests:** All 6 routes in `analytics.js` (`GET /api/sales-velocity`, `GET /api/reorder-suggestions`, `GET /api/min-max/recommendations`, `POST /api/min-max/apply`, `GET /api/min-max/history`, `POST /api/min-max/pin`) marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None.
+
+---
+
+#### Vendors
+
+**Section 2 location:** Group 5 — `routes/vendor-catalog/vendors.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/vendor-dashboard.test.js` | 14 |
+| `__tests__/routes/vendor-catalog-merchant-taxes.test.js` | 5 |
+| `__tests__/services/vendor-dashboard.test.js` | 41 |
+| `__tests__/services/vendor/vendor-query-service.test.js` | 15 |
+| `__tests__/services/ensure-vendors-exist.test.js` | 7 |
+| **Total** | **82** |
+
+**Routes with tests:** All 4 routes in `vendor-catalog/vendors.js` (`GET /api/vendors`, `GET /api/vendor-dashboard`, `PATCH /api/vendors/:id/settings`, `GET /api/vendor-catalog/merchant-taxes`) marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None.
+
+---
+
+#### Vendor Catalog
+
+**Section 2 location:** Groups 5 and 6 — `routes/vendor-catalog/import.js`, `routes/vendor-catalog/lookup.js`, `routes/vendor-catalog/manage.js`, `routes/vendor-match-suggestions.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/vendor-catalog.test.js` | 58 |
+| `__tests__/routes/vendor-catalog-create.test.js` | 15 |
+| `__tests__/routes/vendor-match-suggestions.test.js` | 20 |
+| `__tests__/services/vendor/catalog-service.test.js` | 94 |
+| `__tests__/services/vendor/catalog-create-service.test.js` | 34 |
+| `__tests__/services/vendor/lead-time-service.test.js` | 15 |
+| `__tests__/services/vendor/match-suggestions-service.test.js` | 27 |
+| `__tests__/services/sync-variation-vendor-guard.test.js` | 7 |
+| `__tests__/utils/vendor-catalog.test.js` | 7 |
+| **Total** | **277** |
+
+**Routes with tests:** All 16 routes across `import.js`, `lookup.js`, and `manage.js`, and all 6 routes in `vendor-match-suggestions.js`, marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None.
+
+---
+
+### Group 3 — Loyalty, Seniors, Delivery
+
+#### Loyalty
+
+**Section 2 location:** Group 4 — `routes/loyalty/` (10 sub-modules: `offers.js`, `variations.js`, `customers.js`, `rewards.js`, `square-integration.js`, `processing.js`, `audit.js`, `reports.js`, `settings.js`, `discounts.js`)
+
+Route-level tests:
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/loyalty.test.js` | 48 |
+| `__tests__/routes/loyalty-routes-gap.test.js` | 59 |
+| `__tests__/routes/loyalty-square-integration.test.js` | 27 |
+| **Route subtotal** | **134** |
+
+Service-level tests (`__tests__/services/loyalty-admin/` — 53 files, total 817 tests):
+
+| Notable Files | Tests |
+|---------------|-------|
+| `reward-service.test.js` | 60 |
+| `square-discount-service.test.js` | 53 |
+| `discount-validation-service.test.js` | 40 |
+| `order-history-audit-service.test.js` | 39 |
+| `order-intake.test.js` | 34 |
+| `refund-service.test.js` | 31 |
+| `customer-identification-service.test.js` | 28 |
+| `square-api-client.test.js` | 27 |
+| `customer-cache-service.test.js` | 27 |
+| _(48 additional files)_ | _(481)_ |
+| **Service subtotal** | **817** |
+
+Additional loyalty-adjacent files:
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/services/loyalty-reports.test.js` | 16 |
+| `__tests__/services/reports/brand-redemption-report.test.js` | 41 |
+| `__tests__/utils/loyalty-free-items.test.js` | 21 |
+| `__tests__/utils/loyalty-logger.test.js` | 20 |
+| `__tests__/tools/loyalty-square-orphan-audit.test.js` | 13 |
+| **Subtotal** | **111** |
+
+**Total: 1,062 tests across 61 files.**
+
+**Routes with tests:** All 47 routes across the 10 loyalty sub-modules marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None. Loyalty is the most test-dense domain in the codebase, with dedicated test files covering offers, variations, customers, rewards, Square integration, order processing, backfill, audit, reports, settings, and discount validation.
+
+---
+
+#### Seniors
+
+**Section 2 location:** Group 4 — `routes/seniors.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/seniors.test.js` | 25 |
+| `__tests__/services/seniors/age-calculator.test.js` | 34 |
+| `__tests__/services/seniors-service.test.js` | 13 |
+| `__tests__/jobs/seniors-day-job.test.js` | 17 |
+| **Total** | **89** |
+
+**Routes with tests:** All 6 routes in `seniors.js` (`GET /api/seniors/status`, `POST /api/seniors/setup`, `GET /api/seniors/config`, `PATCH /api/seniors/config`, `GET /api/seniors/members`, `GET /api/seniors/audit-log`) marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None.
+
+---
+
+#### Delivery
+
+**Section 2 location:** Groups 5 and 6 — `routes/delivery/orders.js`, `routes/delivery/pod.js`, `routes/delivery/routes.js`, `routes/delivery/settings.js`, `routes/delivery/sync.js`, `routes/driver-api.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/delivery.test.js` | 39 |
+| `__tests__/routes/delivery-completion.test.js` | 15 |
+| `__tests__/routes/delivery-rate-limiting.test.js` | 1 |
+| `__tests__/routes/driver-api.test.js` | 13 |
+| `__tests__/services/delivery/delivery-fulfillment.test.js` | 8 |
+| `__tests__/services/delivery/delivery-geocoding.test.js` | 8 |
+| `__tests__/services/delivery/delivery-orders.test.js` | 4 |
+| `__tests__/services/delivery/delivery-routes.test.js` | 5 |
+| `__tests__/services/delivery/delivery-service.test.js` | 74 |
+| `__tests__/services/delivery/delivery-settings.test.js` | 3 |
+| `__tests__/services/delivery/delivery-sync.test.js` | 8 |
+| `__tests__/services/delivery/order-lifecycle.test.js` | 58 |
+| `__tests__/services/delivery-dedup.test.js` | 10 |
+| `__tests__/services/delivery-stats.test.js` | 30 |
+| `__tests__/services/delivery-ors-encryption.test.js` | 6 |
+| `__tests__/services/delivery-pod-path-traversal.test.js` | 4 |
+| `__tests__/jobs/delivery-auto-finish-job.test.js` | 13 |
+| `__tests__/jobs/pod-cleanup-job.test.js` | 6 |
+| **Total** | **305** |
+
+**Routes with tests:** All 32 routes across the five delivery sub-modules and `driver-api.js` marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** `delivery-rate-limiting.test.js` contains only 1 test — rate-limit enforcement on delivery write routes has minimal dedicated coverage. This aligns with the Section 2 HIGH flag that all delivery write routes lack `requireWriteAccess`; neither the access control gap nor the rate-limit behaviour has meaningful test depth.
+
+---
+
+### Group 4 — Remaining Domains & Summary
+
+Covers all route files not addressed in Groups 1–3, followed by the overall summary table.
+
+---
+
+#### Square Integration (square-attributes, square-oauth, google-oauth, sync)
+
+**Section 2 location:** Groups 5 and 6 — `routes/square-attributes.js`, `routes/square-oauth.js`, `routes/google-oauth.js`, `routes/sync.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/square-attributes.test.js` | 15 |
+| `__tests__/routes/square-oauth.test.js` | 17 |
+| `__tests__/routes/google-oauth.test.js` | 10 |
+| `__tests__/routes/sync.test.js` | 24 |
+| `__tests__/services/square/api.test.js` | 2 |
+| `__tests__/services/square/inventory-receive-sync.test.js` | 20 |
+| `__tests__/services/square/square-catalog-sync.test.js` | 47 |
+| `__tests__/services/square/square-client.test.js` | 29 |
+| `__tests__/services/square/square-custom-attributes.test.js` | 57 |
+| `__tests__/services/square/square-diagnostics.test.js` | 37 |
+| `__tests__/services/square/square-inventory.test.js` | 46 |
+| `__tests__/services/square/square-location-preflight.test.js` | 29 |
+| `__tests__/services/square/square-locations.test.js` | 7 |
+| `__tests__/services/square/square-pricing.test.js` | 39 |
+| `__tests__/services/square/square-sync-orchestrator.test.js` | 6 |
+| `__tests__/services/square/square-velocity.test.js` | 48 |
+| `__tests__/services/square/square-vendors.test.js` | 27 |
+| `__tests__/services/square/sync-orchestrator.test.js` | 17 |
+| `__tests__/services/square/with-location-repair.test.js` | 9 |
+| `__tests__/services/sync-queue.test.js` | 19 |
+| `__tests__/services/sold-out-sync.test.js` | 9 |
+| `__tests__/services/velocity-fixes.test.js` | 7 |
+| `__tests__/services/velocity-handler-dedup.test.js` | 8 |
+| `__tests__/services/velocity-idempotency.test.js` | 5 |
+| **Total** | **538** |
+
+**Routes with tests:** All 23 routes across the four route files marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None.
+
+---
+
+#### Analytics
+
+Analytics/reorder routes (`routes/analytics.js`) are covered under **Reorder** in Group 2. Total: 181 tests, all 6 routes marked Y. See Group 2.
+
+---
+
+#### Logs
+
+**Section 2 location:** Group 6 — `routes/logs.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/logs.test.js` | 19 |
+| **Total** | **19** |
+
+**Routes with tests:** All 5 routes marked Y.
+
+**Routes with NO tests:** None.
+
+---
+
+#### Webhooks
+
+**Section 2 location:** Group 6 — `routes/webhooks.js`, `routes/webhooks/square.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/webhooks.test.js` | 11 |
+| `__tests__/services/webhook-handlers/catalog-handler.test.js` | 57 |
+| `__tests__/services/webhook-handlers/customer-handler.test.js` | 16 |
+| `__tests__/services/webhook-handlers/inventory-handler.test.js` | 40 |
+| `__tests__/services/webhook-handlers/loyalty-handler.test.js` | 44 |
+| `__tests__/services/webhook-handlers/oauth-handler.test.js` | 4 |
+| `__tests__/services/webhook-handlers/order-delivery.test.js` | 43 |
+| `__tests__/services/webhook-handlers/order-loyalty.test.js` | 23 |
+| `__tests__/services/webhook-handlers/subscription-handler.test.js` | 29 |
+| `__tests__/services/webhook-handlers/order-handler/order-cart.test.js` | 8 |
+| `__tests__/services/webhook-handlers/order-handler/order-normalize.test.js` | 12 |
+| `__tests__/services/webhook-handlers/order-handler/order-velocity.test.js` | 11 |
+| `__tests__/services/webhook-handlers.test.js` | 21 |
+| `__tests__/services/webhook-processor.test.js` | 30 |
+| `__tests__/services/webhook-subscription-bridge.test.js` | 10 |
+| `__tests__/services/order-handler.test.js` | 68 |
+| `__tests__/services/invoice-handlers.test.js` | 17 |
+| `__tests__/services/catchup-dedup.test.js` | 6 |
+| `__tests__/services/order-processing-cache.test.js` | 5 |
+| `__tests__/services/payment-customer-dedup.test.js` | 3 |
+| **Total** | **458** |
+
+**Routes with tests:** All 9 routes (`GET /api/webhooks/subscriptions`, `GET .../audit`, `GET .../event-types`, `POST .../register`, `POST .../ensure`, `PUT .../subscriptions/:id`, `DELETE .../subscriptions/:id`, `POST .../subscriptions/:id/test`, `POST /api/webhooks/square`) marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None.
+
+---
+
+#### Bundles
+
+**Section 2 location:** Group 6 — `routes/bundles.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/bundles.test.js` | 6 |
+| `__tests__/services/bundle-service.test.js` | 27 |
+| `__tests__/services/bundle-calculator.test.js` | 15 |
+| **Total** | **48** |
+
+**Routes with tests:** All 5 routes marked Y.
+
+**Routes with NO tests:** None.
+
+---
+
+#### Expiry Discounts
+
+**Section 2 location:** Group 6 — `routes/expiry-discounts.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/expiry-discounts.test.js` | 34 |
+| `__tests__/services/expiry/discount-service.test.js` | 77 |
+| **Total** | **111** |
+
+**Routes with tests:** All 16 routes marked Y.
+
+**Routes with NO tests:** None.
+
+---
+
+#### GMC
+
+**Section 2 location:** Group 6 — `routes/gmc/feed.js`, `routes/gmc/brands.js`, `routes/gmc/taxonomy.js`, `routes/gmc/settings.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/gmc.test.js` | 45 |
+| `__tests__/services/gmc/brand-service.test.js` | 20 |
+| `__tests__/services/gmc/feed-service.test.js` | 29 |
+| `__tests__/services/gmc/merchant-service.test.js` | 32 |
+| `__tests__/services/gmc/taxonomy-service.test.js` | 16 |
+| **Total** | **142** |
+
+**Routes with tests:** All 33 routes across the four GMC sub-modules marked Y.
+
+**Routes with NO tests:** None.
+
+---
+
+#### Admin, Staff, Cart Activity, AI Autofill, Labels, Settings
+
+**Section 2 location:** Group 6 — `routes/admin.js`, `routes/staff.js`, `routes/cart-activity.js`, `routes/ai-autofill.js`, `routes/labels.js`, `routes/settings.js`
+
+| Domain | Route File | Test Files | Tests |
+|--------|-----------|-----------|-------|
+| Admin | `routes/admin.js` | admin.test.js (17), admin-feature-management.test.js (19), admin-promo-codes.test.js (8), admin-subscription-management.test.js (20), pricing-admin.test.js (18) | 82 |
+| Staff | `routes/staff.js` | staff.test.js (20), services/staff/staff-service.test.js (23) | 43 |
+| Cart Activity | `routes/cart-activity.js` | cart-activity.test.js (12), services/cart/cart-activity-service.test.js (32) | 44 |
+| AI Autofill | `routes/ai-autofill.js` | ai-autofill.test.js (17), services/ai-autofill-service.test.js (34) | 51 |
+| Labels | `routes/labels.js` | labels.test.js (6), services/label/zpl-generator.test.js (16) | 22 |
+| Settings | `routes/settings.js` | settings.test.js (6) | 6 |
+
+All routes in these files marked Y in Section 2. No gaps in any domain.
+
+---
+
+#### Overall Summary Table
+
+| Domain | Test Files | Test Count | Routes (S2) | Route Coverage | Gaps |
+|--------|-----------|------------|-------------|---------------|------|
+| Auth | 4 | 109 | 12 | 100% | None |
+| Subscriptions | 11 | 188 | 17 | 100%† | †`GET /api/webhooks/events` was N in S2; now covered by subscriptions-untested-endpoints.test.js |
+| Merchants | 4 | 41 | 4 | 100% | None |
+| Catalog | 16 | 401 | 24 | 100%‡ | ‡2 routes in `catalog-location-health.js` tested at handler level but unmounted (unreachable via HTTP) |
+| Inventory | 4 | 140 | 12 | 100% | None |
+| Purchase Orders | 4 | 127 | 9 | 100% | None |
+| Reorder/Analytics | 5* | 181* | 6 | 100% | *reorder-service.test.js and reorder-math.test.js shared with Catalog |
+| Vendors | 5 | 82 | 4 | 100% | None |
+| Vendor Catalog | 9 | 277 | 22 | 100% | None |
+| Loyalty | 61 | 1,062 | 47 | 100% | None |
+| Seniors | 4 | 89 | 6 | 100% | None |
+| Delivery | 18 | 305 | 32 | 100% | Rate-limit test depth thin (1 test in delivery-rate-limiting.test.js) |
+| Square Integration | 24 | 538 | 23 | 100% | None |
+| Logs | 1 | 19 | 5 | 100% | None |
+| Webhooks | 20 | 458 | 9 | 100% | None |
+| Bundles | 3 | 48 | 5 | 100% | None |
+| Expiry Discounts | 2 | 111 | 16 | 100% | None |
+| GMC | 5 | 142 | 33 | 100% | None |
+| Admin | 5 | 82 | 13 | 100% | None |
+| Staff | 2 | 43 | 7 | 100% | None |
+| Cart Activity | 2 | 44 | 2 | 100% | None |
+| AI Autofill | 2 | 51 | 6 | 100% | None |
+| Labels | 2 | 22 | 4 | 100% | None |
+| Settings | 1 | 6 | 3 | 100% | None |
+
+**Overall totals (deduplicated across all groups):** 292 test files, 5,688 tests, 351 documented routes.
+
+**Route coverage: 100%** — every route documented in Section 2 has at least one corresponding test. The single exception (`GET /api/webhooks/events`) has been closed by `subscriptions-untested-endpoints.test.js`. The one structural gap is `routes/catalog-location-health.js`, which is tested at the handler level but unreachable via HTTP because the file is not mounted in `server.js`.
+
+**Coverage quality notes:**
+- The `requireWriteAccess` gaps documented in Section 2 (delivery, vendor-catalog, cycle-counts, square-attributes, sync, bundles, expiry-discounts, labels, settings, webhooks, ai-autofill, vendor-match-suggestions) are present in the code but **not validated by dedicated negative-path tests** — existing tests confirm the happy path works but do not assert that read-only users are blocked from write endpoints.
+- Delivery rate-limit enforcement has only 1 dedicated test.
+- `catalog-location-health.js` endpoints are exercised by unit tests but cannot be reached in production.
