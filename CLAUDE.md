@@ -75,6 +75,28 @@ The SDK uses nested resource patterns, NOT flat API naming from Square's docs.
 
 ---
 
+## Documentation Maintenance
+
+After ANY of the following changes, Claude Code MUST update the relevant architecture documents before closing the PR:
+
+| Change | Documents to Update |
+|--------|-------------------|
+| New service file added | DOMAIN-MAP.md (Table 1) |
+| New route file added or mounted in server.js | DOMAIN-MAP.md, QA-AUDIT.md Section 2 |
+| New DB table created | DOMAIN-MAP.md (Tables Owned column) |
+| New cron job added | AUTOMATION-PATTERNS.md |
+| New automation header convention | AUTOMATION-PATTERNS.md |
+| New Square catalog upsert function | CODING-PATTERNS.md |
+| New middleware added | DOMAIN-MAP.md, ARCHITECTURE.md |
+| New auth/permission pattern | ARCHITECTURE.md, CODING-PATTERNS.md |
+| Security gap found | BACKLOG.md |
+| New standard pattern established | CODING-PATTERNS.md |
+| Route removed or renamed | DOMAIN-MAP.md, QA-AUDIT.md |
+
+This rule is NON-NEGOTIABLE. Documentation debt compounds. A PR that adds a new service without updating DOMAIN-MAP.md is incomplete regardless of passing tests.
+
+---
+
 ## Project Structure
 
 ```
@@ -122,6 +144,6 @@ npm test                     # Run tests
 
 **Test Coverage**: 5,464 tests / 268 suites / 0 failures
 **Security**: A+ core (multi-tenant isolation, auth, injection prevention, data integrity)
-**Open Items**: 1 CRITICAL, 6 HIGH, ~33 MEDIUM, ~18 LOW
+**Open Items**: 4 CRITICAL, 11 HIGH, ~33 MEDIUM, ~18 LOW
 
 See [docs/BACKLOG.md](./docs/BACKLOG.md) for the full backlog and priorities.

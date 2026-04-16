@@ -1,5 +1,8 @@
 # Automation Patterns
 
+> **Maintenance:** Update when: new cron job added, new automation header convention established, new self-healing pattern added, x-request-source usage changes.
+> See also: [DOMAIN-MAP.md](./DOMAIN-MAP.md), [CODING-PATTERNS.md](./CODING-PATTERNS.md)
+
 This document describes how to flag automated requests and explains why certain
 endpoints behave differently for automated vs human callers.
 

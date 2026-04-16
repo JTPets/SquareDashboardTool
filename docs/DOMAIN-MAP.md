@@ -1,5 +1,8 @@
 # Domain Boundary Map
 
+> **Maintenance:** Update when: new service file added, new route file added or mounted, new DB table created, domain dependency added. Regenerate Table 1 line counts quarterly.
+> See also: [ARCHITECTURE.md](./ARCHITECTURE.md), [CODING-PATTERNS.md](./CODING-PATTERNS.md), [QA-AUDIT.md](./QA-AUDIT.md)
+
 > Generated: 2026-04-02. Reflects current codebase state.
 > Purpose: Guide modular architecture decisions and identify split candidates.
 

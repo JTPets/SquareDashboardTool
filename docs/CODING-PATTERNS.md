@@ -1,5 +1,8 @@
 # Coding Patterns
 
+> **Maintenance:** Update when: new standard pattern established in code review, existing pattern deprecated, new security requirement added to all routes.
+> See also: [ARCHITECTURE.md](./ARCHITECTURE.md), [AUTOMATION-PATTERNS.md](./AUTOMATION-PATTERNS.md), [CODE-RULES.md](./CODE-RULES.md)
+
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Architecture](./ARCHITECTURE.md) | [Code Rules](./CODE-RULES.md) | [Database Rules](./DATABASE-RULES.md)
 >
 > **Last Updated**: 2026-04-01
