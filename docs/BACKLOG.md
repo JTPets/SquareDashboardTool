@@ -83,12 +83,10 @@
 | BACKLOG-63 | Caption auto-generation for Square Online Store images (Claude API) | M |
 | BACKLOG-75 | Restore deleted items from local DB snapshot | M |
 | BACKLOG-77 | Cart rescue tool — convert abandoned carts to invoices | M |
-| BACKLOG-78 | Log viewer date picker — load previous days' logs | M |
 | BACKLOG-83 | Customer category visualizer — purchase trees by brand/category | M |
 | BACKLOG-84 | Vendor performance scoring — fill rate, timeliness, price stability | M |
 | BACKLOG-85 | Market basket analysis — product affinities for shelf placement | L |
 | BACKLOG-86 | Waste tracking by expiry — log cost at pull-from-shelf | S |
-| BACKLOG-87 | Cycle count by vendor/category — targeted batch generation | S |
 | BACKLOG-92 | Category performance audit — dead stock and shrink management | M |
 | BACKLOG-93 | Emergency expiry flag by UPC scan | M |
 | BACKLOG-38 | Timed discount automation — apply/remove Square discounts on schedule | L |
@@ -108,7 +106,7 @@
 | BACKLOG-8 | Vendor API sync gaps (display + address fields) | S-M |
 | BACKLOG-43 | Min/Max stock per item per location | S |
 | BACKLOG-99 | PO inventory push to Square on receive | M |
-| BACKLOG-126 | E2E browser test framework (Playwright/Cypress) | L |
+| BACKLOG-130 | E2E browser test framework (Playwright/Cypress) | L |
 | BACKLOG-40 | exceljs deprecated transitive deps (no active security issues) | S |
 | BACKLOG-95 | Multi-location expiry/count scoping (pre-franchise) | L |
 | BACKLOG-104 | GMC product schema completeness audit | S |
@@ -152,12 +150,12 @@
 |----------|-------|
 | CRITICAL | 4 |
 | HIGH | 11 |
-| MEDIUM | ~33 |
+| MEDIUM | ~31 |
 | LOW | ~18 |
 | FUTURE | 7 initiatives |
-| **Total** | **~67 open items** |
+| **Total** | **~65 open items** |
 
-**Ship readiness**: Fix B3 + PRICING-UI + SUB-UI-1/2 (4 items, all S-M effort), then ship beta.
+**Ship readiness**: CRITICAL items BACKLOG-122, BACKLOG-127, BACKLOG-128 are all S effort — clear these first. Then fix B3 + PRICING-UI + SUB-UI-1/2 (all S-M effort) to ship beta.
 
 ---
 
