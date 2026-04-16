@@ -23,8 +23,11 @@ jest.mock('../../../config/constants', () => ({
     SQUARE: { MAX_PAGINATION_ITERATIONS: 50 },
     SYNC: { CATALOG_BATCH_SIZE: 100, INTER_BATCH_DELAY_MS: 200 }
 }));
-jest.mock('../../../services/square/square-diagnostics', () => ({
-    enableItemAtAllLocations: jest.fn().mockResolvedValue()
+jest.mock('../../../services/square/with-location-repair', () => ({
+    withLocationRepair: jest.fn().mockImplementation(async ({ fn }) => ({
+        result: await fn(),
+        repairedCount: 0
+    }))
 }));
 
 const {
@@ -41,7 +44,7 @@ const {
 
 const db = require('../../../utils/database');
 const { getMerchantToken, makeSquareRequest, sleep, generateIdempotencyKey } = require('../../../services/square/square-client');
-const { enableItemAtAllLocations } = require('../../../services/square/square-diagnostics');
+const { withLocationRepair } = require('../../../services/square/with-location-repair');
 
 const merchantId = 1;
 
@@ -51,7 +54,10 @@ beforeEach(() => {
     getMerchantToken.mockResolvedValue('test-token');
     generateIdempotencyKey.mockReturnValue('test-idem-key');
     sleep.mockResolvedValue();
-    enableItemAtAllLocations.mockResolvedValue();
+    withLocationRepair.mockImplementation(async ({ fn }) => ({
+        result: await fn(),
+        repairedCount: 0
+    }));
 });
 
 // ---------------------------------------------------------------------------
@@ -95,17 +101,6 @@ function makeCatalogObject(id, type, overrides = {}) {
         obj.present_at_location_ids = overrides.present_at_location_ids;
     }
     return obj;
-}
-
-function makeParentItemObj(id, { presentAtAll = true, presentAtLocationIds = [] } = {}) {
-    return {
-        id,
-        type: 'ITEM',
-        version: 1,
-        present_at_all_locations: presentAtAll,
-        present_at_location_ids: presentAtLocationIds,
-        item_data: { name: 'Parent' }
-    };
 }
 
 // ===========================================================================
@@ -498,89 +493,7 @@ describe('batchUpdateCustomAttributeValues', () => {
         expect(sleep).toHaveBeenCalledWith(200);
     });
 
-    test('detects location mismatch via squareErrors and auto-heals', async () => {
-        const varObj = makeCatalogObject('VAR-1', 'ITEM_VARIATION', {
-            version: 1,
-            item_variation_data: { name: 'Var', item_id: 'PARENT-ITEM' }
-        });
-
-        const locationError = new Error('Location mismatch');
-        locationError.squareErrors = [{ code: 'INVALID_VALUE', field: 'item_id' }];
-
-        makeSquareRequest
-            // First batch-retrieve
-            .mockResolvedValueOnce({ objects: [varObj] })
-            // First batch-upsert fails with location mismatch
-            .mockRejectedValueOnce(locationError)
-            // Retry batch-retrieve (after heal)
-            .mockResolvedValueOnce({ objects: [{ ...varObj, version: 2 }] })
-            // Retry batch-upsert succeeds
-            .mockResolvedValueOnce({ objects: [{ id: 'VAR-1' }] });
-
-        const updates = [
-            { catalogObjectId: 'VAR-1', customAttributeValues: { x: { string_value: 'y' } } }
-        ];
-
-        const result = await batchUpdateCustomAttributeValues(updates, { merchantId });
-
-        expect(enableItemAtAllLocations).toHaveBeenCalledWith('PARENT-ITEM', merchantId);
-        expect(result.updated).toBe(1);
-    });
-
-    test('detects location mismatch via error message and auto-heals', async () => {
-        const varObj = makeCatalogObject('VAR-1', 'ITEM_VARIATION', {
-            version: 1,
-            item_variation_data: { name: 'Var', item_id: 'PARENT-ITEM-2' }
-        });
-
-        const messageError = new Error('object ABC123 of type ITEM is not enabled at unit XYZ, but VAR-1 is enabled at unit XYZ');
-
-        makeSquareRequest
-            .mockResolvedValueOnce({ objects: [varObj] })
-            .mockRejectedValueOnce(messageError)
-            // Retry after heal
-            .mockResolvedValueOnce({ objects: [{ ...varObj, version: 2 }] })
-            .mockResolvedValueOnce({ objects: [{ id: 'VAR-1' }] });
-
-        const updates = [
-            { catalogObjectId: 'VAR-1', customAttributeValues: { x: { string_value: 'y' } } }
-        ];
-
-        const result = await batchUpdateCustomAttributeValues(updates, { merchantId });
-
-        // Should heal via item_variation_data.item_id first
-        expect(enableItemAtAllLocations).toHaveBeenCalledWith('PARENT-ITEM-2', merchantId);
-        expect(result.updated).toBe(1);
-    });
-
-    test('falls back to error message regex when no parent item_id available', async () => {
-        const varObj = makeCatalogObject('VAR-1', 'ITEM_VARIATION', {
-            version: 1,
-            item_variation_data: { name: 'Var' } // no item_id
-        });
-
-        // Message must contain BOTH 'is enabled at unit' AND 'of type ITEM is not'
-        const messageError = new Error('object ABC123 of type ITEM is not present, but variation is enabled at unit U1');
-
-        makeSquareRequest
-            .mockResolvedValueOnce({ objects: [varObj] })
-            .mockRejectedValueOnce(messageError)
-            // Retry after heal via regex
-            .mockResolvedValueOnce({ objects: [{ ...varObj, version: 2 }] })
-            .mockResolvedValueOnce({ objects: [{ id: 'VAR-1' }] });
-
-        const updates = [
-            { catalogObjectId: 'VAR-1', customAttributeValues: { x: { string_value: 'y' } } }
-        ];
-
-        await batchUpdateCustomAttributeValues(updates, { merchantId });
-
-        // item_variation_data.item_id is undefined so first heal path skips.
-        // Falls back to regex extraction from error message.
-        expect(enableItemAtAllLocations).toHaveBeenCalledWith('ABC123', merchantId);
-    });
-
-    test('records failure when non-location error occurs', async () => {
+    test('records failure when upsert throws', async () => {
         const varObj = makeCatalogObject('VAR-1', 'ITEM_VARIATION', { version: 1 });
 
         makeSquareRequest
@@ -596,7 +509,6 @@ describe('batchUpdateCustomAttributeValues', () => {
         // Non-location errors still count as failures but success is derived from failed === 0
         expect(result.failed).toBe(1);
         expect(result.errors).toHaveLength(1);
-        expect(enableItemAtAllLocations).not.toHaveBeenCalled();
     });
 
     test('includes ITEM data field for ITEM-type objects', async () => {
@@ -622,150 +534,112 @@ describe('batchUpdateCustomAttributeValues', () => {
 });
 
 // ===========================================================================
-// batchUpdateCustomAttributeValues — preflight location-mismatch repair
+// batchUpdateCustomAttributeValues — withLocationRepair integration
 // ===========================================================================
 
-describe('batchUpdateCustomAttributeValues — preflight repair', () => {
-    test('preflight heals parent item before upsert when mismatch detected', async () => {
-        // Variation enabled at LOC1; parent ITEM missing LOC1 → mismatch → heal.
-        const varObj = makeCatalogObject('VAR-1', 'ITEM_VARIATION', {
-            version: 1,
-            item_variation_data: { name: 'Var', item_id: 'PARENT-ITEM' },
-            present_at_all_locations: false,
-            present_at_location_ids: ['LOC1']
-        });
-        const parentItem = makeParentItemObj('PARENT-ITEM', {
-            presentAtAll: false,
-            presentAtLocationIds: []  // mismatch: missing LOC1
-        });
+describe('batchUpdateCustomAttributeValues — withLocationRepair integration', () => {
+    test('wraps batch-upsert with withLocationRepair using batch variationIds', async () => {
+        const obj1 = makeCatalogObject('VAR-1', 'ITEM_VARIATION', { version: 1 });
+        const obj2 = makeCatalogObject('VAR-2', 'ITEM_VARIATION', { version: 1 });
 
         makeSquareRequest
-            .mockResolvedValueOnce({ objects: [varObj] })        // 1. initial batch-retrieve
-            .mockResolvedValueOnce({ objects: [parentItem] })    // 2. preflight parent batch-retrieve
-            .mockResolvedValueOnce({ objects: [{ id: 'VAR-1' }] }); // 3. batch-upsert
+            .mockResolvedValueOnce({ objects: [obj1, obj2] })
+            .mockResolvedValueOnce({ objects: [{ id: 'VAR-1' }, { id: 'VAR-2' }] });
 
         const updates = [
-            { catalogObjectId: 'VAR-1', customAttributeValues: { x: { string_value: 'y' } } }
+            { catalogObjectId: 'VAR-1', customAttributeValues: { x: { string_value: 'y' } } },
+            { catalogObjectId: 'VAR-2', customAttributeValues: { x: { string_value: 'z' } } }
         ];
 
         const result = await batchUpdateCustomAttributeValues(updates, { merchantId });
 
-        // Preflight should have healed the parent before upsert.
-        expect(enableItemAtAllLocations).toHaveBeenCalledWith('PARENT-ITEM', merchantId);
-        expect(result.updated).toBe(1);
-        expect(result.repairedParents).toBe(1);
-        expect(result.successVariations).toEqual(['VAR-1']);
-        expect(result.failedVariations).toEqual([]);
-        // Upsert should succeed without the inline retry path being invoked
-        // (only one batch-upsert call, no retry).
-        const upsertCalls = makeSquareRequest.mock.calls.filter(
-            c => c[0] === '/v2/catalog/batch-upsert'
-        );
-        expect(upsertCalls).toHaveLength(1);
+        expect(withLocationRepair).toHaveBeenCalledTimes(1);
+        expect(withLocationRepair).toHaveBeenCalledWith(expect.objectContaining({
+            merchantId,
+            accessToken: 'test-token',
+            variationIds: ['VAR-1', 'VAR-2'],
+            fn: expect.any(Function)
+        }));
+        expect(result.updated).toBe(2);
+        expect(result.repairedParents).toBe(0);
     });
 
-    test('preflight skipped when variations have no location presence info', async () => {
-        // No present_at_location_ids / present_at_all_locations → preflight skipped
-        const varObj = makeCatalogObject('VAR-1', 'ITEM_VARIATION', { version: 1 });
+    test('repair succeeded → repairedParents increments by repairedCount', async () => {
+        const obj1 = makeCatalogObject('VAR-1', 'ITEM_VARIATION', { version: 1 });
 
         makeSquareRequest
-            .mockResolvedValueOnce({ objects: [varObj] })
+            .mockResolvedValueOnce({ objects: [obj1] })
             .mockResolvedValueOnce({ objects: [{ id: 'VAR-1' }] });
 
-        const updates = [
-            { catalogObjectId: 'VAR-1', customAttributeValues: { x: { string_value: 'y' } } }
-        ];
-
-        const result = await batchUpdateCustomAttributeValues(updates, { merchantId });
-
-        // Only 2 calls: batch-retrieve + batch-upsert (no preflight parent fetch)
-        expect(makeSquareRequest).toHaveBeenCalledTimes(2);
-        expect(enableItemAtAllLocations).not.toHaveBeenCalled();
-        expect(result.repairedParents).toBe(0);
-        expect(result.successVariations).toEqual(['VAR-1']);
-    });
-
-    test('preflight repair failure does not abort the upsert', async () => {
-        const varObj = makeCatalogObject('VAR-1', 'ITEM_VARIATION', {
-            version: 1,
-            item_variation_data: { name: 'Var', item_id: 'PARENT-ITEM' },
-            present_at_all_locations: false,
-            present_at_location_ids: ['LOC1']
+        withLocationRepair.mockImplementationOnce(async ({ fn }) => {
+            await fn();
+            return { result: { objects: [{ id: 'VAR-1' }] }, repairedCount: 1 };
         });
-        const parentItem = makeParentItemObj('PARENT-ITEM', {
-            presentAtAll: false,
-            presentAtLocationIds: []
-        });
-
-        // enableItemAtAllLocations throws — repair failure should be non-fatal
-        enableItemAtAllLocations.mockRejectedValueOnce(new Error('Heal failed'));
-
-        makeSquareRequest
-            .mockResolvedValueOnce({ objects: [varObj] })        // batch-retrieve
-            .mockResolvedValueOnce({ objects: [parentItem] })    // preflight parent fetch
-            .mockResolvedValueOnce({ objects: [{ id: 'VAR-1' }] }); // batch-upsert still runs
-
-        const updates = [
-            { catalogObjectId: 'VAR-1', customAttributeValues: { x: { string_value: 'y' } } }
-        ];
-
-        const result = await batchUpdateCustomAttributeValues(updates, { merchantId });
-
-        // Heal attempted and failed; upsert still proceeded and succeeded
-        expect(enableItemAtAllLocations).toHaveBeenCalledWith('PARENT-ITEM', merchantId);
-        expect(result.updated).toBe(1);
-        // repairedParents is 0 because the heal itself failed
-        expect(result.repairedParents).toBe(0);
-        expect(result.successVariations).toEqual(['VAR-1']);
-    });
-
-    test('preflight parent fetch failure is non-fatal and upsert still runs', async () => {
-        const varObj = makeCatalogObject('VAR-1', 'ITEM_VARIATION', {
-            version: 1,
-            item_variation_data: { name: 'Var', item_id: 'PARENT-ITEM' },
-            present_at_all_locations: false,
-            present_at_location_ids: ['LOC1']
-        });
-
-        makeSquareRequest
-            .mockResolvedValueOnce({ objects: [varObj] })        // batch-retrieve
-            .mockRejectedValueOnce(new Error('Parent fetch failed')) // preflight fetch fails
-            .mockResolvedValueOnce({ objects: [{ id: 'VAR-1' }] }); // batch-upsert still runs
-
-        const updates = [
-            { catalogObjectId: 'VAR-1', customAttributeValues: { x: { string_value: 'y' } } }
-        ];
-
-        const result = await batchUpdateCustomAttributeValues(updates, { merchantId });
-
-        expect(result.updated).toBe(1);
-        expect(enableItemAtAllLocations).not.toHaveBeenCalled();
-    });
-
-    test('treats present_at_all_locations=true variation as requiring parent at all locations', async () => {
-        // Variation is at all locations; parent has a specific limited list → mismatch
-        const varObj = makeCatalogObject('VAR-1', 'ITEM_VARIATION', {
-            version: 1,
-            item_variation_data: { name: 'Var', item_id: 'PARENT-ITEM' },
-            present_at_all_locations: true
-        });
-        const parentItem = makeParentItemObj('PARENT-ITEM', {
-            presentAtAll: false,
-            presentAtLocationIds: ['LOC1']  // parent NOT at all locations → mismatch
-        });
-
-        makeSquareRequest
-            .mockResolvedValueOnce({ objects: [varObj] })
-            .mockResolvedValueOnce({ objects: [parentItem] })
-            .mockResolvedValueOnce({ objects: [{ id: 'VAR-1' }] });
 
         const result = await batchUpdateCustomAttributeValues(
-            [{ catalogObjectId: 'VAR-1', customAttributeValues: { a: { string_value: 'b' } } }],
+            [{ catalogObjectId: 'VAR-1', customAttributeValues: { x: { string_value: 'y' } } }],
             { merchantId }
         );
 
-        expect(enableItemAtAllLocations).toHaveBeenCalledWith('PARENT-ITEM', merchantId);
         expect(result.repairedParents).toBe(1);
+        expect(result.updated).toBe(1);
+        expect(result.successVariations).toEqual(['VAR-1']);
+        expect(result.failedVariations).toEqual([]);
+    });
+
+    test('repair failed (manual-review error) → variations go to failedVariations', async () => {
+        const obj1 = makeCatalogObject('VAR-1', 'ITEM_VARIATION', { version: 1 });
+        const obj2 = makeCatalogObject('VAR-2', 'ITEM_VARIATION', { version: 1 });
+
+        makeSquareRequest.mockResolvedValueOnce({ objects: [obj1, obj2] });
+
+        const manualReviewErr = new Error(
+            'Location mismatch repair failed after 1 attempt for parent ITEM1 at location LOC1 — manual review required'
+        );
+        manualReviewErr.repairAttempted = true;
+        withLocationRepair.mockRejectedValueOnce(manualReviewErr);
+
+        const result = await batchUpdateCustomAttributeValues([
+            { catalogObjectId: 'VAR-1', customAttributeValues: { x: { string_value: 'y' } } },
+            { catalogObjectId: 'VAR-2', customAttributeValues: { x: { string_value: 'z' } } }
+        ], { merchantId });
+
+        expect(result.updated).toBe(0);
+        expect(result.successVariations).toEqual([]);
+        const failedIds = result.failedVariations.map(f => f.variationId).sort();
+        expect(failedIds).toEqual(['VAR-1', 'VAR-2']);
+        expect(result.failedVariations.every(f => f.error === manualReviewErr.message)).toBe(true);
+        expect(result.repairedParents).toBe(0);
+    });
+
+    test('accumulates repairedParents across multiple batches', async () => {
+        // Build 150 updates → 2 batches
+        const allUpdates = [];
+        const batch1Objs = [];
+        const batch2Objs = [];
+        for (let i = 0; i < 150; i++) {
+            allUpdates.push({
+                catalogObjectId: `VAR-${i}`,
+                customAttributeValues: { k: { string_value: `v${i}` } }
+            });
+            const obj = makeCatalogObject(`VAR-${i}`, 'ITEM_VARIATION', { version: 1 });
+            if (i < 100) batch1Objs.push(obj); else batch2Objs.push(obj);
+        }
+
+        makeSquareRequest
+            .mockResolvedValueOnce({ objects: batch1Objs })  // batch 1 retrieve
+            .mockResolvedValueOnce({ objects: batch1Objs })  // batch 1 upsert (via fn)
+            .mockResolvedValueOnce({ objects: batch2Objs })  // batch 2 retrieve
+            .mockResolvedValueOnce({ objects: batch2Objs }); // batch 2 upsert (via fn)
+
+        withLocationRepair
+            .mockImplementationOnce(async ({ fn }) => ({ result: await fn(), repairedCount: 2 }))
+            .mockImplementationOnce(async ({ fn }) => ({ result: await fn(), repairedCount: 3 }));
+
+        const result = await batchUpdateCustomAttributeValues(allUpdates, { merchantId });
+
+        expect(result.repairedParents).toBe(5);
+        expect(result.updated).toBe(150);
     });
 });
 
