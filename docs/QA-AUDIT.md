@@ -2621,3 +2621,38 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - [ ] Update user role as admin — Role updated; user list refreshes — `public/settings.html` — `PUT /api/users/:id`
 - [ ] Deactivate a user as admin — `is_active = false`; user loses access — `public/settings.html` — `PUT /api/users/:id` (with `is_active: false`)
 - [ ] Unlock a locked-out user as admin — Account lockout cleared; user can log in again — `public/settings.html` — `POST /api/users/:id/unlock`
+
+### Journey 13 — Cancellation Flow
+
+#### Subscription Cancellation
+
+- [ ] Load `/settings.html` as owner — Cancel subscription button visible in subscription section — `public/settings.html` — `GET /api/subscriptions/merchant-status`
+- [ ] Load `/settings.html` as manager — Cancel button absent from subscription section — `public/settings.html` — `GET /api/subscriptions/merchant-status`
+- [ ] Click "Cancel Subscription" as owner — Confirmation modal appears with reason prompt — `public/settings.html` — client-side only
+- [ ] Dismiss cancellation modal — No action taken; subscription unchanged — `public/settings.html` — client-side only
+- [ ] Confirm cancellation with reason as owner ⚠️ — Subscription canceled; Square subscription canceled if present; merchant deactivated; reason logged; session cleared — `public/settings.html` — `POST /api/subscriptions/cancel` ⚠️ (cancels real Square subscription)
+- [ ] Confirm cancellation without providing a reason — Cancellation proceeds with empty reason field — `public/settings.html` — `POST /api/subscriptions/cancel`
+- [ ] Attempt `POST /api/subscriptions/cancel` as manager — 403 Insufficient permissions — no frontend (API direct) — `POST /api/subscriptions/cancel`
+- [ ] Access any protected page immediately after cancellation — Redirect to `/subscription-expired.html` — `public/subscription-expired.html` — `GET /api/auth/me` (subscription gate middleware)
+- [ ] Load `/subscription-expired.html` post-cancellation — Expired/blocked message shown; "Upgrade" and "Contact Support" links present — `public/subscription-expired.html` — static
+- [ ] Check subscription status via public endpoint post-cancellation — Status returns `expired` with relevant dates — no frontend (API direct) — `GET /api/subscriptions/status?email=...`
+
+#### OAuth Revoke
+
+- [ ] Click "Disconnect Square" / revoke OAuth as owner ⚠️ — Confirmation modal shown before proceeding — `public/settings.html` — client-side only
+- [ ] Confirm OAuth revoke as owner ⚠️ — Token revoked at Square (best-effort); merchant marked inactive (`is_active = false`); session cleared; disconnection event logged — `public/settings.html` — `POST /api/square/oauth/revoke` ⚠️ (revokes real Square OAuth token)
+- [ ] Attempt `POST /api/square/oauth/revoke` as manager — 403 Insufficient permissions — no frontend (API direct) — `POST /api/square/oauth/revoke`
+- [ ] Reload `/settings.html` after successful OAuth revoke — Connection status shows "Disconnected"; reconnect prompt shown — `public/settings.html` — `GET /api/health`
+- [ ] Admin manually refreshes an expired or near-expiry token — Token refreshed at Square; new `expiresAt` returned — `public/settings.html` — `POST /api/square/oauth/refresh`
+
+#### Merchant Deactivation
+
+- [ ] Admin deactivates a merchant from admin panel — `trial_ends_at` set to `NOW()`; `subscription_status` set to `expired`; updated merchant record returned — `public/admin-subscriptions.html` — `POST /api/admin/merchants/:merchantId/deactivate`
+- [ ] Deactivated merchant attempts to log in — Authentication succeeds but all protected pages redirect to `/subscription-expired.html` — `public/subscription-expired.html` — `GET /api/auth/me` (subscription gate)
+- [ ] Attempt admin deactivation on merchant not accessible to admin — 403 Access denied — no frontend (API direct) — `POST /api/admin/merchants/:merchantId/deactivate`
+
+#### Data Retention
+
+- [ ] Verify merchant record retained after cancellation — Merchant row remains in DB with `is_active = false`; no hard delete — no frontend (DB/admin verification) — `POST /api/subscriptions/cancel` (soft deactivation)
+- [ ] Verify OAuth tokens cleared after revoke — `access_token` and `refresh_token` removed from DB; merchant cannot make Square API calls — no frontend (DB/admin verification) — `POST /api/square/oauth/revoke`
+- [ ] Verify session invalidated after cancellation or revoke — Subsequent requests using old session cookie return 401 or redirect to login — no frontend (API direct) — session middleware
