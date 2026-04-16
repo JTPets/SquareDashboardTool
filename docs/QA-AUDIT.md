@@ -2044,3 +2044,215 @@ Additional loyalty-adjacent files:
 **Routes with NO tests:** None.
 
 **Untested flows:** `delivery-rate-limiting.test.js` contains only 1 test — rate-limit enforcement on delivery write routes has minimal dedicated coverage. This aligns with the Section 2 HIGH flag that all delivery write routes lack `requireWriteAccess`; neither the access control gap nor the rate-limit behaviour has meaningful test depth.
+
+---
+
+### Group 4 — Remaining Domains & Summary
+
+Covers all route files not addressed in Groups 1–3, followed by the overall summary table.
+
+---
+
+#### Square Integration (square-attributes, square-oauth, google-oauth, sync)
+
+**Section 2 location:** Groups 5 and 6 — `routes/square-attributes.js`, `routes/square-oauth.js`, `routes/google-oauth.js`, `routes/sync.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/square-attributes.test.js` | 15 |
+| `__tests__/routes/square-oauth.test.js` | 17 |
+| `__tests__/routes/google-oauth.test.js` | 10 |
+| `__tests__/routes/sync.test.js` | 24 |
+| `__tests__/services/square/api.test.js` | 2 |
+| `__tests__/services/square/inventory-receive-sync.test.js` | 20 |
+| `__tests__/services/square/square-catalog-sync.test.js` | 47 |
+| `__tests__/services/square/square-client.test.js` | 29 |
+| `__tests__/services/square/square-custom-attributes.test.js` | 57 |
+| `__tests__/services/square/square-diagnostics.test.js` | 37 |
+| `__tests__/services/square/square-inventory.test.js` | 46 |
+| `__tests__/services/square/square-location-preflight.test.js` | 29 |
+| `__tests__/services/square/square-locations.test.js` | 7 |
+| `__tests__/services/square/square-pricing.test.js` | 39 |
+| `__tests__/services/square/square-sync-orchestrator.test.js` | 6 |
+| `__tests__/services/square/square-velocity.test.js` | 48 |
+| `__tests__/services/square/square-vendors.test.js` | 27 |
+| `__tests__/services/square/sync-orchestrator.test.js` | 17 |
+| `__tests__/services/square/with-location-repair.test.js` | 9 |
+| `__tests__/services/sync-queue.test.js` | 19 |
+| `__tests__/services/sold-out-sync.test.js` | 9 |
+| `__tests__/services/velocity-fixes.test.js` | 7 |
+| `__tests__/services/velocity-handler-dedup.test.js` | 8 |
+| `__tests__/services/velocity-idempotency.test.js` | 5 |
+| **Total** | **538** |
+
+**Routes with tests:** All 23 routes across the four route files marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None.
+
+---
+
+#### Analytics
+
+Analytics/reorder routes (`routes/analytics.js`) are covered under **Reorder** in Group 2. Total: 181 tests, all 6 routes marked Y. See Group 2.
+
+---
+
+#### Logs
+
+**Section 2 location:** Group 6 — `routes/logs.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/logs.test.js` | 19 |
+| **Total** | **19** |
+
+**Routes with tests:** All 5 routes marked Y.
+
+**Routes with NO tests:** None.
+
+---
+
+#### Webhooks
+
+**Section 2 location:** Group 6 — `routes/webhooks.js`, `routes/webhooks/square.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/webhooks.test.js` | 11 |
+| `__tests__/services/webhook-handlers/catalog-handler.test.js` | 57 |
+| `__tests__/services/webhook-handlers/customer-handler.test.js` | 16 |
+| `__tests__/services/webhook-handlers/inventory-handler.test.js` | 40 |
+| `__tests__/services/webhook-handlers/loyalty-handler.test.js` | 44 |
+| `__tests__/services/webhook-handlers/oauth-handler.test.js` | 4 |
+| `__tests__/services/webhook-handlers/order-delivery.test.js` | 43 |
+| `__tests__/services/webhook-handlers/order-loyalty.test.js` | 23 |
+| `__tests__/services/webhook-handlers/subscription-handler.test.js` | 29 |
+| `__tests__/services/webhook-handlers/order-handler/order-cart.test.js` | 8 |
+| `__tests__/services/webhook-handlers/order-handler/order-normalize.test.js` | 12 |
+| `__tests__/services/webhook-handlers/order-handler/order-velocity.test.js` | 11 |
+| `__tests__/services/webhook-handlers.test.js` | 21 |
+| `__tests__/services/webhook-processor.test.js` | 30 |
+| `__tests__/services/webhook-subscription-bridge.test.js` | 10 |
+| `__tests__/services/order-handler.test.js` | 68 |
+| `__tests__/services/invoice-handlers.test.js` | 17 |
+| `__tests__/services/catchup-dedup.test.js` | 6 |
+| `__tests__/services/order-processing-cache.test.js` | 5 |
+| `__tests__/services/payment-customer-dedup.test.js` | 3 |
+| **Total** | **458** |
+
+**Routes with tests:** All 9 routes (`GET /api/webhooks/subscriptions`, `GET .../audit`, `GET .../event-types`, `POST .../register`, `POST .../ensure`, `PUT .../subscriptions/:id`, `DELETE .../subscriptions/:id`, `POST .../subscriptions/:id/test`, `POST /api/webhooks/square`) marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None.
+
+---
+
+#### Bundles
+
+**Section 2 location:** Group 6 — `routes/bundles.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/bundles.test.js` | 6 |
+| `__tests__/services/bundle-service.test.js` | 27 |
+| `__tests__/services/bundle-calculator.test.js` | 15 |
+| **Total** | **48** |
+
+**Routes with tests:** All 5 routes marked Y.
+
+**Routes with NO tests:** None.
+
+---
+
+#### Expiry Discounts
+
+**Section 2 location:** Group 6 — `routes/expiry-discounts.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/expiry-discounts.test.js` | 34 |
+| `__tests__/services/expiry/discount-service.test.js` | 77 |
+| **Total** | **111** |
+
+**Routes with tests:** All 16 routes marked Y.
+
+**Routes with NO tests:** None.
+
+---
+
+#### GMC
+
+**Section 2 location:** Group 6 — `routes/gmc/feed.js`, `routes/gmc/brands.js`, `routes/gmc/taxonomy.js`, `routes/gmc/settings.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/gmc.test.js` | 45 |
+| `__tests__/services/gmc/brand-service.test.js` | 20 |
+| `__tests__/services/gmc/feed-service.test.js` | 29 |
+| `__tests__/services/gmc/merchant-service.test.js` | 32 |
+| `__tests__/services/gmc/taxonomy-service.test.js` | 16 |
+| **Total** | **142** |
+
+**Routes with tests:** All 33 routes across the four GMC sub-modules marked Y.
+
+**Routes with NO tests:** None.
+
+---
+
+#### Admin, Staff, Cart Activity, AI Autofill, Labels, Settings
+
+**Section 2 location:** Group 6 — `routes/admin.js`, `routes/staff.js`, `routes/cart-activity.js`, `routes/ai-autofill.js`, `routes/labels.js`, `routes/settings.js`
+
+| Domain | Route File | Test Files | Tests |
+|--------|-----------|-----------|-------|
+| Admin | `routes/admin.js` | admin.test.js (17), admin-feature-management.test.js (19), admin-promo-codes.test.js (8), admin-subscription-management.test.js (20), pricing-admin.test.js (18) | 82 |
+| Staff | `routes/staff.js` | staff.test.js (20), services/staff/staff-service.test.js (23) | 43 |
+| Cart Activity | `routes/cart-activity.js` | cart-activity.test.js (12), services/cart/cart-activity-service.test.js (32) | 44 |
+| AI Autofill | `routes/ai-autofill.js` | ai-autofill.test.js (17), services/ai-autofill-service.test.js (34) | 51 |
+| Labels | `routes/labels.js` | labels.test.js (6), services/label/zpl-generator.test.js (16) | 22 |
+| Settings | `routes/settings.js` | settings.test.js (6) | 6 |
+
+All routes in these files marked Y in Section 2. No gaps in any domain.
+
+---
+
+#### Overall Summary Table
+
+| Domain | Test Files | Test Count | Routes (S2) | Route Coverage | Gaps |
+|--------|-----------|------------|-------------|---------------|------|
+| Auth | 4 | 109 | 12 | 100% | None |
+| Subscriptions | 11 | 188 | 17 | 100%† | †`GET /api/webhooks/events` was N in S2; now covered by subscriptions-untested-endpoints.test.js |
+| Merchants | 4 | 41 | 4 | 100% | None |
+| Catalog | 16 | 401 | 24 | 100%‡ | ‡2 routes in `catalog-location-health.js` tested at handler level but unmounted (unreachable via HTTP) |
+| Inventory | 4 | 140 | 12 | 100% | None |
+| Purchase Orders | 4 | 127 | 9 | 100% | None |
+| Reorder/Analytics | 5* | 181* | 6 | 100% | *reorder-service.test.js and reorder-math.test.js shared with Catalog |
+| Vendors | 5 | 82 | 4 | 100% | None |
+| Vendor Catalog | 9 | 277 | 22 | 100% | None |
+| Loyalty | 61 | 1,062 | 47 | 100% | None |
+| Seniors | 4 | 89 | 6 | 100% | None |
+| Delivery | 18 | 305 | 32 | 100% | Rate-limit test depth thin (1 test in delivery-rate-limiting.test.js) |
+| Square Integration | 24 | 538 | 23 | 100% | None |
+| Logs | 1 | 19 | 5 | 100% | None |
+| Webhooks | 20 | 458 | 9 | 100% | None |
+| Bundles | 3 | 48 | 5 | 100% | None |
+| Expiry Discounts | 2 | 111 | 16 | 100% | None |
+| GMC | 5 | 142 | 33 | 100% | None |
+| Admin | 5 | 82 | 13 | 100% | None |
+| Staff | 2 | 43 | 7 | 100% | None |
+| Cart Activity | 2 | 44 | 2 | 100% | None |
+| AI Autofill | 2 | 51 | 6 | 100% | None |
+| Labels | 2 | 22 | 4 | 100% | None |
+| Settings | 1 | 6 | 3 | 100% | None |
+
+**Overall totals (deduplicated across all groups):** 292 test files, 5,688 tests, 351 documented routes.
+
+**Route coverage: 100%** — every route documented in Section 2 has at least one corresponding test. The single exception (`GET /api/webhooks/events`) has been closed by `subscriptions-untested-endpoints.test.js`. The one structural gap is `routes/catalog-location-health.js`, which is tested at the handler level but unreachable via HTTP because the file is not mounted in `server.js`.
+
+**Coverage quality notes:**
+- The `requireWriteAccess` gaps documented in Section 2 (delivery, vendor-catalog, cycle-counts, square-attributes, sync, bundles, expiry-discounts, labels, settings, webhooks, ai-autofill, vendor-match-suggestions) are present in the code but **not validated by dedicated negative-path tests** — existing tests confirm the happy path works but do not assert that read-only users are blocked from write endpoints.
+- Delivery rate-limit enforcement has only 1 dedicated test.
+- `catalog-location-health.js` endpoints are exercised by unit tests but cannot be reached in production.
