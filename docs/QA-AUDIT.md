@@ -1708,3 +1708,136 @@ All middleware files in `middleware/`:
 | `request-id.js` | Attaches a UUID `requestId` to every request for log correlation |
 | `request-source.js` | Sets `req.isAutomated = true` when `x-request-source: automation` header is present; distinguishes cron/agent callers from human sessions |
 | `validators/` (directory) | Per-route `express-validator` chains; one file per route module; imported as `validators` in route handlers |
+
+---
+
+## Section 3 — Test Coverage Map
+
+> **Scope:** Cross-references `__tests__/` against `docs/DOMAIN-MAP.md` and the routes documented in Section 2. Test counts reflect `it()` / `test()` call totals per file. "Test" column values in Section 2 tables (`Y` / `N`) are the baseline; discrepancies noted below. Test file counts cover both route-level and service-level files for each domain. Some service test files are shared across domains (noted where applicable).
+
+---
+
+### Group 1 — Auth, Subscriptions, Catalog, Inventory
+
+#### Auth
+
+**Section 2 location:** Group 1 — `routes/auth/session.js`, `routes/auth/password.js`, `routes/auth/users.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/auth.test.js` | 55 |
+| `__tests__/services/auth/account-service.test.js` | 24 |
+| `__tests__/services/auth/password-service.test.js` | 17 |
+| `__tests__/services/auth/session-service.test.js` | 13 |
+| **Total** | **109** |
+
+**Routes with tests:** All 12 routes across `session.js`, `password.js`, and `users.js` are marked Y in Section 2.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None. Login, logout, session introspection, password change/reset/forgot, token verification, and all user management operations (create, update, reset, unlock) have route-level and service-level coverage.
+
+---
+
+#### Subscriptions
+
+**Section 2 location:** Group 1 — `routes/subscriptions/plans.js`, `routes/subscriptions/merchant.js`, `routes/subscriptions/admin.js`, `routes/subscriptions/public.js`, `routes/subscriptions/webhooks.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/subscriptions.test.js` | 57 |
+| `__tests__/routes/subscription-admin-auth.test.js` | 6 |
+| `__tests__/routes/subscription-rate-limit.test.js` | 7 |
+| `__tests__/routes/subscription-status-security.test.js` | 6 |
+| `__tests__/routes/subscription-tenant-isolation.test.js` | 13 |
+| `__tests__/routes/subscriptions-untested-endpoints.test.js` | 23 |
+| `__tests__/routes/oauth-trial.test.js` | 3 |
+| `__tests__/services/subscription-bridge.test.js` | 19 |
+| `__tests__/services/promo-validation.test.js` | 15 |
+| `__tests__/services/subscriptions/subscription-create-service.test.js` | 19 |
+| `__tests__/integration/subscription-lifecycle.test.js` | 20 |
+| **Total** | **188** |
+
+**Routes with tests:** 16 of 17 routes were marked Y in Section 2 at audit time.
+
+**Routes originally flagged N:** `GET /api/webhooks/events` (`routes/subscriptions/webhooks.js`) was marked N (Section 2 Group 1 flag #3). **Reconciliation:** `__tests__/routes/subscriptions-untested-endpoints.test.js` line 330 contains `describe('GET /webhooks/events — query building')`, which covers this endpoint. The gap identified in Section 2 has since been closed; all 17 routes now have tests.
+
+**Untested flows:** None after reconciliation.
+
+---
+
+#### Merchants
+
+**Section 2 location:** Group 1 — `routes/merchants.js`
+
+> Note: `routes/settings.js` and `routes/admin.js` are in the Merchant domain per DOMAIN-MAP.md; admin and settings routes are covered in Group 4.
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/merchants.test.js` | 9 |
+| `__tests__/routes/merchant-features.test.js` | 16 |
+| `__tests__/routes/settings.test.js` | 6 |
+| `__tests__/services/platform-settings.test.js` | 10 |
+| **Total** | **41** |
+
+**Routes with tests:** All 4 routes in `routes/merchants.js` marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None for the core merchant endpoints (list, switch, context, config). `GET /api/merchant/features` is an inline `server.js` handler not documented in Section 2 route tables; it is exercised indirectly via `merchant-features.test.js` feature-gate logic.
+
+---
+
+#### Catalog
+
+**Section 2 location:** Group 2 — `routes/catalog.js`, `routes/catalog-health.js`, `routes/catalog-location-health.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/catalog.test.js` | 56 |
+| `__tests__/routes/catalog-health.test.js` | 4 |
+| `__tests__/routes/catalog-location-health.test.js` | 4 |
+| `__tests__/routes/catalog-write-access.test.js` | 3 |
+| `__tests__/services/catalog/audit-service.test.js` | 11 |
+| `__tests__/services/catalog/expired-pull.test.js` | 10 |
+| `__tests__/services/catalog/inventory-service.test.js` | 54 |
+| `__tests__/services/catalog/item-service.test.js` | 14 |
+| `__tests__/services/catalog/location-health-service.test.js` | 11 |
+| `__tests__/services/catalog/reorder-math.test.js` | 41 |
+| `__tests__/services/catalog/reorder-service.test.js` | 44 |
+| `__tests__/services/catalog/save-expirations-reviewed.test.js` | 7 |
+| `__tests__/services/catalog/variation-service.test.js` | 75 |
+| `__tests__/services/catalog-audit-service.test.js` | 11 |
+| `__tests__/services/catalog-health-service.test.js` | 52 |
+| `__tests__/services/catalog-handler-vendor-race.test.js` | 4 |
+| **Total** | **401** |
+
+> `reorder-math.test.js` and `reorder-service.test.js` are also counted under Reorder in Group 2 (shared service files).
+
+**Routes with tests:** All 20 routes in `catalog.js` and both routes in `catalog-health.js` marked Y. Both routes in `catalog-location-health.js` also marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** `routes/catalog-location-health.js` is **never mounted in `server.js`** (Section 2 CRITICAL flag). Handler unit tests exist (`catalog-location-health.test.js`) but both endpoints are unreachable via HTTP in production — no integration path through the HTTP layer can be exercised.
+
+---
+
+#### Inventory
+
+**Section 2 location:** Groups 3 and 6 — `routes/cycle-counts.js`, `routes/min-max-suppression-routes.js`
+
+> `routes/analytics.js` exposes additional min-max endpoints (`GET /api/min-max/recommendations`, `POST /api/min-max/apply`, `GET /api/min-max/history`, `POST /api/min-max/pin`) — those are counted under Reorder in Group 2 since they share the analytics route file.
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/cycle-counts.test.js` | 27 |
+| `__tests__/services/inventory/auto-min-max-service.test.js` | 88 |
+| `__tests__/services/inventory/auto-min-max-square-sync.test.js` | 11 |
+| `__tests__/services/inventory/cycle-count-service.test.js` | 14 |
+| **Total** | **140** |
+
+**Routes with tests:** All 9 routes in `cycle-counts.js` and all 3 routes in `min-max-suppression-routes.js` marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None.
