@@ -1348,3 +1348,363 @@ _(All routes inherit `requireAuth`, `requireMerchant` from parent router.)_
 | 9 | MEDIUM | `POST /api/vendor-catalog/confirm-links`, `POST .../archive`, `POST .../unarchive` | Missing `requireWriteAccess` |
 | 10 | LOW | `GET /api/vendor-catalog/field-types` | Missing `requireMerchant` — low risk (read-only metadata) but inconsistent with project patterns |
 | 11 | INFO | — | `routes/vendors.js` referenced in task scope does not exist; vendor endpoints are in `routes/vendor-catalog/vendors.js` |
+
+---
+
+### Group 6 — Admin, Webhooks & Middleware Summary
+
+Files scanned: `routes/logs.js`, `routes/analytics.js`, `routes/square-attributes.js`, `routes/webhooks.js`, `routes/webhooks/square.js`, plus all remaining uncovered route files: `routes/admin.js`, `routes/ai-autofill.js`, `routes/bundles.js`, `routes/cart-activity.js`, `routes/catalog-location-health.js`, `routes/driver-api.js`, `routes/expiry-discounts.js`, `routes/gmc/` (4 sub-modules), `routes/google-oauth.js`, `routes/labels.js`, `routes/min-max-suppression-routes.js`, `routes/settings.js`, `routes/square-oauth.js`, `routes/staff.js`, `routes/sync.js`, `routes/vendor-match-suggestions.js`.
+
+---
+
+#### `routes/logs.js` — mount: `/api` with `gateApi('/logs', requirePermission('base', 'admin'))`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/logs` | `requireAdmin`, `validators.list` | `readLogContent` (fs read) | Y | — |
+| GET | `/api/logs/errors` | `requireAdmin`, `validators.errors` | `readLogContent` (error log) | Y | — |
+| GET | `/api/logs/dates` | `requireAdmin`, `validators.dates` | `listAvailableDates` (fs readdir) | Y | — |
+| GET | `/api/logs/download` | `requireAdmin`, `validators.download` | `res.download` (today's log file) | Y | — |
+| GET | `/api/logs/stats` | `requireAdmin`, `validators.stats` | inline (parse today's log counts) | Y | — |
+
+> Note: `requireAdmin` includes its own session check (equivalent to `requireAuth` + admin role check); no explicit `requireAuth` needed.
+
+---
+
+#### `routes/analytics.js` — mount: `/api` with `gateApi('/analytics', requireFeature('reorder'), requirePermission('reorder', 'read'))` and similar gates on `/min-max/*`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/sales-velocity` | `requireAuth`, `requireMerchant`, `validators.getVelocity` | inline DB query | Y | — |
+| GET | `/api/reorder-suggestions` | `requireAuth`, `requireMerchant`, `validators.getReorderSuggestions` | `getReorderSuggestions` + `calculateCheckboxDefaults` | Y | — |
+| GET | `/api/min-max/recommendations` | `requireAuth`, `requireMerchant`, `validators.getRecommendations` | `autoMinMax.generateRecommendations` | Y | — |
+| POST | `/api/min-max/apply` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.applyRecommendations` | `autoMinMax.applyAllRecommendations` | Y | — |
+| GET | `/api/min-max/history` | `requireAuth`, `requireMerchant`, `validators.getHistory` | `autoMinMax.getHistory` | Y | — |
+| POST | `/api/min-max/pin` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.pinVariation` | `autoMinMax.pinVariation` | Y | — |
+
+---
+
+#### `routes/square-attributes.js` — mount: `/api` with `gateApi('/square-attributes', requirePermission('base', 'read'))`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/square/custom-attributes` | `requireAuth`, `requireMerchant` | `squareApi.listCustomAttributeDefinitions` | Y | — |
+| POST | `/api/square/custom-attributes/init` | `requireAuth`, `requireMerchant`, `validators.init` | `squareApi.initializeCustomAttributes` | Y | ⚠️ Missing `requireWriteAccess` — creates Square attribute definitions |
+| POST | `/api/square/custom-attributes/definition` | `requireAuth`, `requireMerchant`, `validators.createDefinition` | `squareApi.upsertCustomAttributeDefinition` | Y | ⚠️ Missing `requireWriteAccess` |
+| DELETE | `/api/square/custom-attributes/definition/:key` | `requireAuth`, `requireMerchant`, `validators.deleteDefinition` | `squareApi.deleteCustomAttributeDefinition` | Y | ⚠️ Missing `requireWriteAccess` — deletes definition AND all values |
+| PUT | `/api/square/custom-attributes/:objectId` | `requireAuth`, `requireMerchant`, `validators.updateAttributes` | `squareApi.updateCustomAttributeValues` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/square/custom-attributes/push/case-pack` | `requireAuth`, `requireMerchant`, `validators.pushCasePack` | `squareApi.pushCasePackToSquare` | Y | ⚠️ Missing `requireWriteAccess` — bulk Square push |
+| POST | `/api/square/custom-attributes/push/brand` | `requireAuth`, `requireMerchant`, `validators.pushBrand` | `squareApi.pushBrandsToSquare` | Y | ⚠️ Missing `requireWriteAccess` — bulk Square push |
+| POST | `/api/square/custom-attributes/push/expiry` | `requireAuth`, `requireMerchant`, `validators.pushExpiry` | `squareApi.pushExpiryDatesToSquare` | Y | ⚠️ Missing `requireWriteAccess` — bulk Square push |
+| POST | `/api/square/custom-attributes/push/all` | `requireAuth`, `requireMerchant`, `validators.pushAll` | `squareApi.pushCasePackToSquare` + `pushBrandsToSquare` + `pushExpiryDatesToSquare` | Y | ⚠️ Missing `requireWriteAccess` — bulk push of all attributes |
+
+---
+
+#### `routes/webhooks.js` — mount: `/api` (and `/api/v1`); `routes/webhooks/square.js` — mount: `/api/webhooks`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/webhooks/subscriptions` | `requireAuth`, `requireMerchant` | `squareWebhooks.listWebhookSubscriptions` | Y | — |
+| GET | `/api/webhooks/subscriptions/audit` | `requireAuth`, `requireMerchant` | `squareWebhooks.auditWebhookConfiguration` | Y | — |
+| GET | `/api/webhooks/event-types` | `requireAuth` _(no `requireMerchant`)_ | `squareWebhooks.WEBHOOK_EVENT_TYPES` (inline) | Y | ⚠️ Missing `requireMerchant` — low-risk metadata but inconsistent |
+| POST | `/api/webhooks/register` | `requireAuth`, `requireMerchant`, `validators.register` | `squareWebhooks.createWebhookSubscription` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/webhooks/ensure` | `requireAuth`, `requireMerchant`, `validators.ensure` | `squareWebhooks.ensureWebhookSubscription` | Y | ⚠️ Missing `requireWriteAccess` |
+| PUT | `/api/webhooks/subscriptions/:subscriptionId` | `requireAuth`, `requireMerchant`, `validators.update` | `squareWebhooks.updateWebhookSubscription` | Y | ⚠️ Missing `requireWriteAccess` |
+| DELETE | `/api/webhooks/subscriptions/:subscriptionId` | `requireAuth`, `requireMerchant`, `validators.deleteSubscription` | `squareWebhooks.deleteWebhookSubscription` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/webhooks/subscriptions/:subscriptionId/test` | `requireAuth`, `requireMerchant`, `validators.test` | `squareWebhooks.testWebhookSubscription` | Y | — |
+| POST | `/api/webhooks/square` | `webhookRateLimit` _(public — no auth)_ | `webhookProcessor.processWebhook` | Y | — |
+
+---
+
+#### `routes/admin.js` — mount: `/api/admin`; `gateApi('/admin', requirePermission('staff', 'admin'))` applied in server.js
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/admin/merchants` | `requireAuth`, `requireAdmin`, `validators.listMerchants` | inline DB | Y | — |
+| POST | `/api/admin/merchants/:merchantId/extend-trial` | `requireAuth`, `requireAdmin`, `requireSuperAdmin`, `requireMerchantAccess`, `validators.extendTrial` | inline DB | Y | — |
+| POST | `/api/admin/merchants/:merchantId/deactivate` | `requireAuth`, `requireAdmin`, `requireMerchantAccess`, `validators.deactivateMerchant` | inline DB | Y | — |
+| GET | `/api/admin/settings` | `requireAuth`, `requireAdmin`, `validators.listSettings` | `platformSettings.getAllSettings` | Y | — |
+| PUT | `/api/admin/settings/:key` | `requireAuth`, `requireAdmin`, `validators.updateSetting` | `platformSettings.setSetting` | Y | — |
+| POST | `/api/admin/test-email` | `requireAuth`, `requireAdmin`, `validators.testEmail` | `emailNotifier.testEmail` | Y | — |
+| POST | `/api/admin/promo-codes` | `requireAuth`, `requireAdmin`, `validators.createPromoCode` | inline DB | Y | — |
+| GET | `/api/admin/promo-codes` | `requireAuth`, `requireAdmin`, `requireSuperAdmin`, `validators.listPromoCodes` | inline DB | Y | — |
+| POST | `/api/admin/promo-codes/:id/deactivate` | `requireAuth`, `requireAdmin`, `requireSuperAdmin`, `validators.deactivatePromoCode` | inline DB | Y | — |
+| GET | `/api/admin/merchants/:merchantId/payments` | `requireAuth`, `requireAdmin`, `requireSuperAdmin`, `validators.listMerchantPayments` | inline DB | Y | — |
+| GET | `/api/admin/merchants/:merchantId/features` | `requireAuth`, `requireAdmin`, `requireSuperAdmin`, `validators.getMerchantFeatures` | inline DB + `featureRegistry.getPaidModules` | Y | — |
+| PUT | `/api/admin/merchants/:merchantId/features/:featureKey` | `requireAuth`, `requireAdmin`, `requireSuperAdmin`, `validators.updateMerchantFeature` | inline DB | Y | — |
+| POST | `/api/admin/merchants/:merchantId/activate` | `requireAuth`, `requireAdmin`, `requireSuperAdmin`, `validators.activateMerchant` | inline DB | Y | — |
+
+---
+
+#### `routes/ai-autofill.js` — mount: `/api/ai-autofill` with `requireFeature('ai_tools')`, `requirePermission('ai_tools', 'read')`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/ai-autofill/api-key` | `requireAuth`, `requireMerchant`, `aiRateLimit` | `encryptToken` + DB upsert | Y | — |
+| GET | `/api/ai-autofill/api-key/status` | `requireAuth`, `requireMerchant`, `aiRateLimit` | inline DB | Y | — |
+| DELETE | `/api/ai-autofill/api-key` | `requireAuth`, `requireMerchant`, `aiRateLimit` | inline DB delete | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/ai-autofill/status` | `requireAuth`, `requireMerchant`, `aiRateLimit`, `validators.getStatus` | `aiAutofillService` (item readiness grouping) | Y | — |
+| POST | `/api/ai-autofill/generate` | `requireAuth`, `requireMerchant`, `aiRateLimit`, `validators.generate` | `aiAutofillService.generateContent` | Y | — |
+| POST | `/api/ai-autofill/apply` | `requireAuth`, `requireMerchant`, `aiRateLimit`, `validators.apply` | `batchUpdateCatalogContent` | Y | ⚠️ Missing `requireWriteAccess` — applies AI content to Square catalog |
+
+---
+
+#### `routes/bundles.js` — mount: `/api/bundles`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/bundles` | `requireAuth`, `requireMerchant`, `validators.getBundles` | `bundleService.listBundles` | Y | — |
+| GET | `/api/bundles/availability` | `requireAuth`, `requireMerchant`, `validators.getAvailability` | `bundleService.calculateAvailability` | Y | — |
+| POST | `/api/bundles` | `requireAuth`, `requireMerchant`, `validators.createBundle` | `bundleService.createBundle` | Y | ⚠️ Missing `requireWriteAccess` |
+| PUT | `/api/bundles/:id` | `requireAuth`, `requireMerchant`, `validators.updateBundle` | `bundleService.updateBundle` | Y | ⚠️ Missing `requireWriteAccess` |
+| DELETE | `/api/bundles/:id` | `requireAuth`, `requireMerchant`, `validators.deleteBundle` | `bundleService.deleteBundle` (soft-delete) | Y | ⚠️ Missing `requireWriteAccess` |
+
+---
+
+#### `routes/cart-activity.js` — mount: `/api/cart-activity` with `requireFeature('loyalty')`, `requirePermission('loyalty', 'read')`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/cart-activity` | `requireAuth`, `requireMerchant`, `validators.list` | `cartActivityService.getList` | Y | — |
+| GET | `/api/cart-activity/stats` | `requireAuth`, `requireMerchant`, `validators.stats` | `cartActivityService.getStats` | Y | — |
+
+---
+
+#### `routes/catalog-location-health.js` — **NOT MOUNTED**
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/admin/catalog-location-health` | `requireAuth`, `requireAdmin`, `validators.getHealth` | inline DB | Y | 🚨 **Route file exists but is not mounted in `server.js`** — endpoints are unreachable |
+| POST | `/api/admin/catalog-location-health/check` | `requireAuth`, `requireAdmin`, `validators.runCheck` | inline DB + health-check job | Y | 🚨 Same — not mounted |
+
+---
+
+#### `routes/driver-api.js` — mount: `/api`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/delivery/route/:id/share` | `deliveryRateLimit`, `requireAuth`, `requireMerchant`, `validators.shareRoute` | token generation + DB | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/delivery/route/:id/token` | `requireAuth`, `requireMerchant`, `validators.getRouteToken` | inline DB | Y | — |
+| DELETE | `/api/delivery/route/:id/token` | `deliveryRateLimit`, `requireAuth`, `requireMerchant`, `validators.revokeRouteToken` | inline DB delete | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/driver/:token` | `deliveryRateLimit`, `validators.getDriverRoute` _(public — no auth)_ | inline DB (token lookup) | Y | — |
+| POST | `/api/driver/:token/orders/:orderId/complete` | `deliveryRateLimit`, `validators.completeOrder` _(public — no auth)_ | `deliveryApi.completeOrder` | Y | — |
+| POST | `/api/driver/:token/orders/:orderId/skip` | `deliveryRateLimit`, `validators.skipOrder` _(public — no auth)_ | `deliveryApi.skipOrder` | Y | — |
+| POST | `/api/driver/:token/orders/:orderId/pod` | `deliveryStrictRateLimit`, `podUpload`, `validateUploadedImage` _(public — no auth)_ | `deliveryApi.savePodPhoto` | Y | — |
+| POST | `/api/driver/:token/finish` | `deliveryRateLimit`, `validators.finishRoute` _(public — no auth)_ | `deliveryApi.finishRoute` | Y | — |
+
+> Driver token endpoints (`/api/driver/:token/*`) are intentionally public — accessed via shared URL by the delivery driver without a login session; the token acts as a scoped credential.
+
+---
+
+#### `routes/expiry-discounts.js` — mount: `/api` with `gateApi('/expiry-discounts', requireFeature('expiry'), requirePermission('expiry', 'read'))`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/expiry-discounts/status` | `requireAuth`, `requireMerchant` | inline DB | Y | — |
+| GET | `/api/expiry-discounts/tiers` | `requireAuth`, `requireMerchant` | inline DB | Y | — |
+| PATCH | `/api/expiry-discounts/tiers/:id` | `requireAuth`, `requireMerchant`, `validators.updateTier` | inline DB | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/expiry-discounts/variations` | `requireAuth`, `requireMerchant`, `validators.getVariations` | inline DB | Y | — |
+| POST | `/api/expiry-discounts/evaluate` | `requireAuth`, `requireMerchant`, `validators.evaluate` | `expiryDiscountService.evaluate` | Y | — |
+| POST | `/api/expiry-discounts/apply` | `requireAuth`, `requireMerchant`, `validators.apply` | `expiryDiscountService.applyDiscounts` | Y | ⚠️ Missing `requireWriteAccess` — applies discounts to Square catalog |
+| POST | `/api/expiry-discounts/run` | `requireAuth`, `requireMerchant`, `validators.run` | `expiryDiscountService.runFull` | Y | ⚠️ Missing `requireWriteAccess` — full Square discount run |
+| POST | `/api/expiry-discounts/init-square` | `requireAuth`, `requireMerchant` | `expiryDiscountService.initSquare` | Y | ⚠️ Missing `requireWriteAccess` — creates Square discount objects |
+| GET | `/api/expiry-discounts/audit-log` | `requireAuth`, `requireMerchant`, `validators.getAuditLog` | inline DB | Y | — |
+| GET | `/api/expiry-discounts/settings` | `requireAuth`, `requireMerchant` | inline DB | Y | — |
+| PATCH | `/api/expiry-discounts/settings` | `requireAuth`, `requireMerchant`, `validators.updateSettings` | inline DB | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/expiry-discounts/validate` | `requireAuth`, `requireMerchant` | `expiryDiscountService.validate` | Y | — |
+| POST | `/api/expiry-discounts/validate-and-fix` | `requireAuth`, `requireMerchant`, `requireWriteAccess` | `expiryDiscountService.validateAndFix` | Y | — |
+| GET | `/api/expiry-discounts/flagged` | `requireAuth`, `requireMerchant` | inline DB | Y | — |
+| POST | `/api/expiry-discounts/flagged/resolve` | `requireAuth`, `requireMerchant`, `requireWriteAccess` | inline DB | Y | — |
+| PATCH | `/api/expiry-discounts/variations/:variationId/quantity` | `requireAuth`, `requireMerchant`, `requireWriteAccess` | inline DB | Y | — |
+
+---
+
+#### `routes/gmc/` — mount: `/api/gmc` with `requireFeature('gmc')`, `requirePermission('gmc', 'read')` (feed.tsv and local-inventory-feed.tsv are public)
+
+**routes/gmc/feed.js:**
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/gmc/feed` | `requireAuth`, `requireMerchant`, `validators.getFeed` | `gmcFeedService.getFeed` | Y | — |
+| GET | `/api/gmc/feed.tsv` | _(public — no auth; token-based access)_ | `gmcFeedService.getPublicFeed` | Y | — |
+| GET | `/api/gmc/feed-url` | `requireAuth`, `requireMerchant` | inline token lookup | Y | — |
+| POST | `/api/gmc/regenerate-token` | `sensitiveOperationRateLimit`, `requireAuth`, `requireMerchant`, `requireWriteAccess` | inline token regeneration | Y | — |
+| GET | `/api/gmc/local-inventory-feed-url` | `requireAuth`, `requireMerchant` | inline | Y | — |
+| GET | `/api/gmc/local-inventory-feed` | `requireAuth`, `requireMerchant`, `validators.getLocalInventoryFeed` | `gmcFeedService.getLocalInventoryFeed` | Y | — |
+| GET | `/api/gmc/local-inventory-feed.tsv` | _(public — no auth; token-based access)_ | `gmcFeedService.getPublicLocalInventoryFeed` | Y | — |
+
+**routes/gmc/brands.js:**
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/gmc/brands` | `requireAuth`, `requireMerchant` | `brandService.listBrands` | Y | — |
+| POST | `/api/gmc/brands/import` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.importBrands` | `brandService.importBrands` | Y | — |
+| POST | `/api/gmc/brands` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.createBrand` | `brandService.createBrand` | Y | — |
+| PUT | `/api/gmc/items/:itemId/brand` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.assignItemBrand` | `brandService.assignItemBrand` | Y | — |
+| POST | `/api/gmc/brands/auto-detect` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.autoDetectBrands` | `brandService.autoDetectBrands` | Y | — |
+| POST | `/api/gmc/brands/bulk-assign` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.bulkAssignBrands` | `brandService.bulkAssignBrands` | Y | — |
+
+**routes/gmc/taxonomy.js:**
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/gmc/taxonomy` | `requireAuth`, `validators.listTaxonomy` _(no `requireMerchant`)_ | inline DB | Y | ⚠️ Missing `requireMerchant` — taxonomy is global but pattern inconsistency |
+| POST | `/api/gmc/taxonomy/import` | `requireAdmin`, `validators.importTaxonomy` | inline CSV import | Y | — |
+| GET | `/api/gmc/taxonomy/fetch-google` | `requireAdmin` | external fetch from Google taxonomy URL | Y | — |
+| PUT | `/api/gmc/categories/:categoryId/taxonomy` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.mapCategoryTaxonomy` | inline DB | Y | — |
+| DELETE | `/api/gmc/categories/:categoryId/taxonomy` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.deleteCategoryTaxonomy` | inline DB | Y | — |
+| GET | `/api/gmc/category-mappings` | `requireAuth`, `requireMerchant` | inline DB | Y | — |
+| PUT | `/api/gmc/category-taxonomy` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.mapCategoryTaxonomyByName` | inline DB | Y | — |
+| DELETE | `/api/gmc/category-taxonomy` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.deleteCategoryTaxonomyByName` | inline DB | Y | — |
+
+**routes/gmc/settings.js:**
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/gmc/settings` | `requireAuth`, `requireMerchant` | `gmcSettingsService.getSettings` | Y | — |
+| PUT | `/api/gmc/settings` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.updateSettings` | `gmcSettingsService.updateSettings` | Y | — |
+| GET | `/api/gmc/location-settings` | `requireAuth`, `requireMerchant` | inline DB | Y | — |
+| PUT | `/api/gmc/location-settings/:locationId` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.updateLocationSettings` | inline DB | Y | — |
+| GET | `/api/gmc/api-settings` | `requireAuth`, `requireMerchant` | inline DB | Y | — |
+| PUT | `/api/gmc/api-settings` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.updateApiSettings` | inline DB | Y | — |
+| POST | `/api/gmc/api/test-connection` | `requireAuth`, `requireMerchant` | `gmcService.testConnection` | Y | — |
+| GET | `/api/gmc/api/data-source-info` | `requireAuth`, `requireMerchant` | `gmcService.getDataSourceInfo` | Y | — |
+| POST | `/api/gmc/api/sync-products` | `requireAuth`, `requireMerchant`, `requireWriteAccess` | `gmcService.syncProducts` | Y | — |
+| GET | `/api/gmc/api/sync-status` | `requireAuth`, `requireMerchant` | `gmcService.getSyncStatus` | Y | — |
+| GET | `/api/gmc/api/sync-history` | `requireAuth`, `requireMerchant`, `validators.getSyncHistory` | `gmcService.getSyncHistory` | Y | — |
+| POST | `/api/gmc/api/register-developer` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.registerDeveloper` | `gmcService.registerDeveloper` | Y | — |
+
+---
+
+#### `routes/google-oauth.js` — mount: `/api` with `gateApi('/google', requireFeature('gmc'), requirePermission('gmc', 'read'))`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/google/status` | `requireAuth`, `requireMerchant`, `validators.status` | inline DB token check | Y | — |
+| GET | `/api/google/auth` | `requireAuth`, `requireMerchant`, `validators.auth` | Google OAuth URL generation | Y | — |
+| GET | `/api/google/callback` | `validators.callback` _(public — OAuth redirect)_ | token exchange + DB storage | Y | — |
+| POST | `/api/google/disconnect` | `requireAuth`, `requireMerchant`, `validators.disconnect` | inline DB token delete | Y | ⚠️ Missing `requireWriteAccess` |
+
+---
+
+#### `routes/labels.js` — mount: `/api` with `gateApi('/labels', requireFeature('reorder'), requirePermission('reorder', 'read'))`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/labels/generate` | `requireAuth`, `requireMerchant`, `validators.generateLabels` | `labelService.generateLabels` (PDF) | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/labels/generate-with-prices` | `requireAuth`, `requireMerchant`, `validators.generateWithPrices` | `labelService.generateLabelsWithPrices` (PDF) | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/labels/templates` | `requireAuth`, `requireMerchant`, `validators.getTemplates` | `labelService.getTemplates` | Y | — |
+| PUT | `/api/labels/templates/:id/default` | `requireAuth`, `requireMerchant`, `validators.setDefault` | `labelService.setDefaultTemplate` | Y | ⚠️ Missing `requireWriteAccess` |
+
+---
+
+#### `routes/min-max-suppression-routes.js` — mount: `/api` with `gateApi` on `/min-max/suppressed`, `/min-max/audit-log`, `/min-max/toggle-pin`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/min-max/suppressed` | `requireAuth`, `requireMerchant`, `validators.getSuppressed` | `autoMinMax.getSuppressedVariations` | Y | — |
+| GET | `/api/min-max/audit-log` | `requireAuth`, `requireMerchant`, `validators.getAuditLog` | `autoMinMax.getAuditLog` | Y | — |
+| POST | `/api/min-max/toggle-pin` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.togglePin` | `autoMinMax.togglePin` | Y | — |
+
+---
+
+#### `routes/settings.js` — mount: `/api` with `gateApi('/settings', requirePermission('base', 'admin'))`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/settings/merchant` | `requireAuth`, `requireMerchant`, `validators.get` | `merchantSettingsService.getSettings` | Y | — |
+| PUT | `/api/settings/merchant` | `requireAuth`, `requireMerchant`, `validators.update` | `merchantSettingsService.updateSettings` | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/settings/merchant/defaults` | `requireAuth`, `validators.defaults` _(no `requireMerchant`)_ | `merchantSettingsService.getDefaults` | Y | ⚠️ Missing `requireMerchant` |
+
+---
+
+#### `routes/square-oauth.js` — mount: `/api/square/oauth`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/square/oauth/connect` | `requireAuth` | Square OAuth URL generation | Y | — |
+| GET | `/api/square/oauth/callback` | _(public — OAuth redirect)_ | token exchange + DB storage | Y | — |
+| POST | `/api/square/oauth/revoke` | `requireAuth`, `loadMerchantContext`, `requireMerchant`, `requireMerchantRole('owner')` | token revocation | Y | — |
+| POST | `/api/square/oauth/refresh` | `requireAuth`, `requireAdmin` | token refresh (admin triggered) | Y | — |
+
+---
+
+#### `routes/staff.js` — mount: `/api/staff` with `gateApi('/staff', requirePermission('staff', 'read'))`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/staff` | `requireAuth`, `requireMerchant`, `requirePermission('staff', 'read')` | `staffService.listStaff` | Y | — |
+| POST | `/api/staff/invite` | `requireAuth`, `requireMerchant`, `requirePermission('staff', 'admin')`, `validators.inviteStaff` | `staffService.inviteStaff` | Y | — |
+| GET | `/api/staff/validate-token` | `validators.validateTokenQuery` _(public)_ | `staffService.validateToken` | Y | — |
+| POST | `/api/staff/accept` | `validators.acceptInvitation` _(public)_ | `staffService.acceptInvitation` | Y | — |
+| DELETE | `/api/staff/invitations/:id` | `requireAuth`, `requireMerchant`, `requirePermission('staff', 'admin')`, `validators.cancelInvitation` | `staffService.cancelInvitation` | Y | — |
+| DELETE | `/api/staff/:userId` | `requireAuth`, `requireMerchant`, `requirePermission('staff', 'admin')`, `validators.removeStaff` | `staffService.removeStaff` | Y | — |
+| PATCH | `/api/staff/:userId/role` | `requireAuth`, `requireMerchant`, `requirePermission('staff', 'admin')`, `validators.changeRole` | `staffService.changeRole` | Y | — |
+
+---
+
+#### `routes/sync.js` — mount: `/api`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/sync` | `requireAuth`, `requireMerchant`, `validators.sync` | `syncService.runFullSync` | Y | ⚠️ Missing `requireWriteAccess` — triggers full Square catalog sync |
+| POST | `/api/sync-sales` | `requireAuth`, `requireMerchant`, `validators.syncSales` | `syncService.syncSales` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/sync-smart` | `requireAuth`, `requireMerchant`, `validators.syncSmart` | `syncService.runSmartSync` | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/sync-history` | `requireAuth`, `requireMerchant`, `validators.syncHistory` | `syncService.getSyncHistory` | Y | — |
+| GET | `/api/sync-intervals` | `requireAuth`, `validators.syncIntervals` _(no `requireMerchant`)_ | `syncService.getSyncIntervals` | Y | ⚠️ Missing `requireMerchant` |
+| GET | `/api/sync-status` | `requireAuth`, `requireMerchant`, `validators.syncStatus` | `syncService.getSyncStatus` | Y | — |
+
+---
+
+#### `routes/vendor-match-suggestions.js` — mount: `/api/vendor-match-suggestions`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/vendor-match-suggestions/count` | `requireAuth`, `requireMerchant` | `vendorMatchService.getCount` | Y | — |
+| GET | `/api/vendor-match-suggestions` | `requireAuth`, `requireMerchant`, `validators.listSuggestions` | `vendorMatchService.listSuggestions` | Y | — |
+| POST | `/api/vendor-match-suggestions/bulk-approve` | `requireAuth`, `requireMerchant`, `validators.bulkApprove` | `vendorMatchService.bulkApprove` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/vendor-match-suggestions/backfill` | `requireAuth`, `requireMerchant` | `vendorMatchService.backfill` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/vendor-match-suggestions/:id/approve` | `requireAuth`, `requireMerchant`, `validators.approveOrReject` | `vendorMatchService.approve` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/vendor-match-suggestions/:id/reject` | `requireAuth`, `requireMerchant`, `validators.approveOrReject` | `vendorMatchService.reject` | Y | ⚠️ Missing `requireWriteAccess` |
+
+---
+
+**Group 6 flag summary:**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | CRITICAL | `routes/catalog-location-health.js` | File exists and is tested but is **never mounted** in `server.js` — both endpoints are unreachable |
+| 2 | HIGH | All POST/PUT/DELETE in `routes/square-attributes.js` | No `requireWriteAccess` on any write endpoint — init, create/delete definitions, update values, and bulk push operations are all accessible to read-only users |
+| 3 | MEDIUM | `POST /api/sync`, `POST /api/sync-sales`, `POST /api/sync-smart` | Missing `requireWriteAccess` — read-only users can trigger full Square catalog syncs |
+| 4 | MEDIUM | `POST /api/webhooks/register`, `POST /api/webhooks/ensure`, `PUT /api/webhooks/subscriptions/:id`, `DELETE /api/webhooks/subscriptions/:id` | Missing `requireWriteAccess` |
+| 5 | MEDIUM | `POST /api/vendor-match-suggestions/bulk-approve`, `/backfill`, `/:id/approve`, `/:id/reject` | Missing `requireWriteAccess` |
+| 6 | MEDIUM | `POST /api/expiry-discounts/apply`, `/run`, `/init-square`, `PATCH .../tiers/:id`, `PATCH .../settings` | Missing `requireWriteAccess` |
+| 7 | MEDIUM | `POST /api/bundles`, `PUT /api/bundles/:id`, `DELETE /api/bundles/:id` | Missing `requireWriteAccess` |
+| 8 | MEDIUM | `PUT /api/settings/merchant` | Missing `requireWriteAccess` |
+| 9 | MEDIUM | `POST /api/ai-autofill/apply`, `DELETE /api/ai-autofill/api-key` | Missing `requireWriteAccess` |
+| 10 | MEDIUM | `POST /api/labels/generate`, `/generate-with-prices`, `PUT .../templates/:id/default` | Missing `requireWriteAccess` |
+| 11 | LOW | `GET /api/webhooks/event-types` | Missing `requireMerchant` — read-only metadata, low risk |
+| 12 | LOW | `GET /api/gmc/taxonomy` | Missing `requireMerchant` — global taxonomy data, low risk |
+| 13 | LOW | `GET /api/settings/merchant/defaults`, `GET /api/sync-intervals` | Missing `requireMerchant` |
+| 14 | LOW | `POST /api/google/disconnect` | Missing `requireWriteAccess` |
+
+---
+
+## Middleware Summary
+
+All middleware files in `middleware/`:
+
+| File | Purpose |
+|------|---------|
+| `auth.js` | Session authentication (`requireAuth`), role checks (`requireAdmin`), write-access enforcement (`requireWriteAccess`), auth event logging |
+| `merchant.js` | Loads merchant context from session into `req.merchantContext` (`loadMerchantContext`), enforces merchant presence (`requireMerchant`), role-within-merchant checks (`requireMerchantRole`) |
+| `feature-gate.js` | `requireFeature(key)` — blocks access if merchant does not have the named paid module enabled |
+| `require-permission.js` | `requirePermission(module, action)` — enforces per-module RBAC (read/write/admin) from `merchant_permissions` or role-derived defaults |
+| `require-active-subscription.js` | Write-locks expired/suspended merchants; GET requests pass through |
+| `require-super-admin.js` | Guards platform-level destructive actions; checks `SUPER_ADMIN_EMAILS` env var |
+| `merchant-access.js` | `requireMerchantAccess` — verifies admin user has a `user_merchants` row for the `:merchantId` param (Audit 2.6.1) |
+| `async-handler.js` | Wraps async route handlers so thrown errors are forwarded to Express error handler |
+| `security.js` | Configures rate limiters (`loginRateLimit`, `deliveryRateLimit`, `deliveryStrictRateLimit`, `webhookRateLimit`, `aiRateLimit`, `sensitiveOperationRateLimit`, etc.), security headers (helmet), CORS |
+| `request-id.js` | Attaches a UUID `requestId` to every request for log correlation |
+| `request-source.js` | Sets `req.isAutomated = true` when `x-request-source: automation` header is present; distinguishes cron/agent callers from human sessions |
+| `validators/` (directory) | Per-route `express-validator` chains; one file per route module; imported as `validators` in route handlers |
