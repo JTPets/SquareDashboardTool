@@ -2753,3 +2753,204 @@ The `PATCH /api/admin/subscriptions/:id` path documented in Section 4 Journey 3 
 | Orphaned / unmounted backend routes | 1 CRITICAL + 3 INFO |
 | Section 4 checklist path errors | ~30 incorrect paths across 4 journeys |
 | Possible unimplemented admin route | 1 (`PATCH /api/admin/subscriptions/:id`) |
+
+---
+
+### Group 2 — Security Gaps
+
+> All items below are drawn directly from Section 2 flag summaries (Groups 1–6). No new analysis was performed. Items are organized by vulnerability class, then by severity within each class.
+
+---
+
+#### 2.A — Multi-tenant isolation violation
+
+| # | Severity | Route(s) | File | Issue |
+|---|----------|----------|------|-------|
+| 1 | **CRITICAL** | `GET /api/admin/catalog-health`, `POST /api/admin/catalog-health/check` | `routes/catalog-health.js` | Hard-coded `DEBUG_MERCHANT_ID = 3` — health check always runs against merchant 3 regardless of the authenticated admin caller. Any admin user effectively sees and operates on merchant 3's data only. Violates the multi-tenant isolation contract enforced everywhere else in the codebase. |
+
+---
+
+#### 2.B — Missing rate limiting on abuse-prone endpoints
+
+| # | Severity | Route | File | Issue |
+|---|----------|-------|------|-------|
+| 1 | **HIGH** | `POST /api/auth/forgot-password` | `routes/auth/password.js` | `passwordResetRateLimit` is declared in the same file but not applied to this handler. An attacker can trigger unlimited password-reset emails per IP — account enumeration vector and email spam risk. |
+| 2 | MEDIUM | `POST /api/loyalty/backfill` | `routes/loyalty/processing.js` | No rate limit. Triggers an unbounded Square order fetch that fans out across the merchant's full order history. Can exhaust Square API quota and server CPU. |
+| 3 | MEDIUM | `POST /api/loyalty/catchup` | `routes/loyalty/processing.js` | No rate limit. Reverse-lookup catchup fans out across all customers and their Square order histories. Same Square API exhaustion risk. |
+| 4 | LOW | `POST /api/loyalty/refresh-customers` | `routes/loyalty/processing.js` | No rate limit. Fetches Square customer data for all customers with missing phone numbers — bounded by customer count but unbounded by frequency. |
+
+---
+
+#### 2.C — Missing `requireWriteAccess` on write/destructive endpoints
+
+Read-only users (role: `readonly`) can currently invoke all of the following routes. `requireWriteAccess` is declared in `middleware/auth.js` and enforced correctly elsewhere (e.g., all loyalty write routes, GMC writes, most catalog mutations) — these are omissions, not design decisions.
+
+**Delivery — HIGH (entire write surface unprotected)**
+
+All delivery write routes inherit `requireAuth` + `requireMerchant` from `routes/delivery/index.js` but `requireWriteAccess` was never added at the sub-router level. Rate limiting substitutes, but rate limiting is not an access control mechanism.
+
+| Route | Effect if exploited |
+|-------|---------------------|
+| `POST /api/delivery/orders` | Read-only user creates delivery orders |
+| `PATCH /api/delivery/orders/:id` | Modifies any order address, phone, or status |
+| `DELETE /api/delivery/orders/:id` | Permanently deletes orders |
+| `POST /api/delivery/orders/:id/skip` | Skips orders in active route |
+| `POST /api/delivery/orders/:id/complete` | Marks orders delivered; updates Square fulfillment ⚠️ |
+| `PATCH /api/delivery/orders/:id/notes` | Overwrites internal notes |
+| `PATCH /api/delivery/orders/:id/customer-note` | Overwrites note synced to Square customer ⚠️ |
+| `POST /api/delivery/orders/:id/pod` | Uploads proof-of-delivery photo |
+| `POST /api/delivery/route/generate` | Generates (overwrites) active delivery route |
+| `POST /api/delivery/route/finish` | Closes the active route |
+| `POST /api/delivery/geocode` | Triggers external geocoding API calls |
+| `PUT /api/delivery/settings` | Overwrites delivery settings (with geocoding) |
+| `POST /api/delivery/sync` | Triggers full Square order sync ⚠️ |
+| `POST /api/delivery/backfill-customers` | Fetches unknown customers from Square ⚠️ |
+| `POST /api/delivery/route/:id/share` | Generates and publishes a driver share token |
+| `DELETE /api/delivery/route/:id/token` | Revokes a driver share token |
+
+**Purchase Orders**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | **HIGH** | `DELETE /api/purchase-orders/:id` | Read-only user can permanently delete purchase orders |
+| 2 | MEDIUM | `POST /api/purchase-orders` | Read-only user can create POs |
+| 3 | MEDIUM | `PATCH /api/purchase-orders/:id` | Read-only user can edit POs |
+| 4 | MEDIUM | `POST /api/purchase-orders/:id/submit` | Read-only user can submit (commit) POs |
+| 5 | MEDIUM | `POST /api/purchase-orders/:id/receive` | Read-only user can record received inventory |
+
+**Cycle Counts**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | **HIGH** | `POST /api/cycle-counts/reset` | No `requireWriteAccess` AND no admin/superAdmin gate. Can irrecoverably wipe all cycle count history. Only `requireAuth` + `requireMerchant` stand between any authenticated merchant user and full data destruction. |
+| 2 | MEDIUM | `POST /api/cycle-counts/:id/complete` | Read-only user can record cycle count completions |
+| 3 | MEDIUM | `POST /api/cycle-counts/:id/sync-to-square` | Read-only user can push inventory adjustments to Square ⚠️ |
+| 4 | MEDIUM | `POST /api/cycle-counts/send-now` | Read-only user can inject items into priority count queue |
+| 5 | MEDIUM | `POST /api/cycle-counts/email-report` | Read-only user can trigger report emails |
+| 6 | MEDIUM | `POST /api/cycle-counts/generate-batch` | Read-only user can force-generate count batches |
+
+**Square Custom Attributes — HIGH (entire write surface unprotected)**
+
+All 7 write endpoints in `routes/square-attributes.js` lack `requireWriteAccess`:
+
+| Route | Effect if exploited |
+|-------|---------------------|
+| `POST /api/square/custom-attributes/init` | Creates Square attribute definitions ⚠️ |
+| `POST /api/square/custom-attributes/definition` | Upserts custom attribute definitions ⚠️ |
+| `DELETE /api/square/custom-attributes/definition/:key` | Deletes definition AND all stored values ⚠️ |
+| `PUT /api/square/custom-attributes/:objectId` | Overwrites custom attribute values on catalog objects ⚠️ |
+| `POST /api/square/custom-attributes/push/case-pack` | Bulk-pushes case-pack data to Square ⚠️ |
+| `POST /api/square/custom-attributes/push/brand` | Bulk-pushes brand data to Square ⚠️ |
+| `POST /api/square/custom-attributes/push/expiry` | Bulk-pushes expiry dates to Square ⚠️ |
+| `POST /api/square/custom-attributes/push/all` | Bulk-pushes all attribute types simultaneously ⚠️ |
+
+**Vendor Catalog**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | **HIGH** | `POST /api/vendor-catalog/push-price-changes` | Bulk Square catalog price updates — no write gate |
+| 2 | **HIGH** | `POST /api/vendor-catalog/create-items` | Bulk Square catalog item creation — no write gate |
+| 3 | MEDIUM | `POST /api/vendor-catalog/import` | Catalog import without write gate |
+| 4 | MEDIUM | `POST /api/vendor-catalog/import-mapped` | Mapped import without write gate |
+| 5 | MEDIUM | `POST /api/vendor-catalog/deduplicate` | Permanently removes DB rows — no write gate |
+| 6 | MEDIUM | `DELETE /api/vendor-catalog/batches/:batchId` | Permanent batch deletion — no write gate |
+| 7 | MEDIUM | `POST /api/vendor-catalog/confirm-links` | Confirms vendor-variation links — no write gate |
+| 8 | MEDIUM | `POST /api/vendor-catalog/batches/:batchId/archive` | Archives batches — no write gate |
+| 9 | MEDIUM | `POST /api/vendor-catalog/batches/:batchId/unarchive` | Unarchives batches — no write gate |
+| 10 | MEDIUM | `PATCH /api/vendors/:id/settings` | Updates vendor schedule/min-order/lead-time — no write gate |
+
+**Sync Routes**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | MEDIUM | `POST /api/sync` | Triggers full Square catalog sync — no write gate |
+| 2 | MEDIUM | `POST /api/sync-sales` | Triggers sales sync — no write gate |
+| 3 | MEDIUM | `POST /api/sync-smart` | Triggers smart sync — no write gate |
+
+**Webhook Management**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | MEDIUM | `POST /api/webhooks/register` | Creates Square webhook subscription — no write gate |
+| 2 | MEDIUM | `POST /api/webhooks/ensure` | Ensures/creates webhook subscription — no write gate |
+| 3 | MEDIUM | `PUT /api/webhooks/subscriptions/:subscriptionId` | Updates webhook configuration — no write gate |
+| 4 | MEDIUM | `DELETE /api/webhooks/subscriptions/:subscriptionId` | Deletes webhook subscription — no write gate |
+
+**Vendor Match Suggestions**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | MEDIUM | `POST /api/vendor-match-suggestions/bulk-approve` | Bulk-approves vendor links — no write gate |
+| 2 | MEDIUM | `POST /api/vendor-match-suggestions/backfill` | Triggers match backfill — no write gate |
+| 3 | MEDIUM | `POST /api/vendor-match-suggestions/:id/approve` | Approves individual match — no write gate |
+| 4 | MEDIUM | `POST /api/vendor-match-suggestions/:id/reject` | Rejects individual match — no write gate |
+
+**Expiry Discounts**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | MEDIUM | `POST /api/expiry-discounts/apply` | Applies discounts to Square catalog ⚠️ — no write gate |
+| 2 | MEDIUM | `POST /api/expiry-discounts/run` | Full discount run (evaluate + apply) ⚠️ — no write gate |
+| 3 | MEDIUM | `POST /api/expiry-discounts/init-square` | Creates Square discount objects ⚠️ — no write gate |
+| 4 | MEDIUM | `PATCH /api/expiry-discounts/tiers/:id` | Modifies discount tier config — no write gate |
+| 5 | MEDIUM | `PATCH /api/expiry-discounts/settings` | Modifies expiry settings — no write gate |
+
+**Bundles, Settings, AI Autofill, Labels, Google OAuth**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | MEDIUM | `POST /api/bundles` | Creates bundle — no write gate |
+| 2 | MEDIUM | `PUT /api/bundles/:id` | Updates bundle — no write gate |
+| 3 | MEDIUM | `DELETE /api/bundles/:id` | Soft-deletes bundle — no write gate |
+| 4 | MEDIUM | `PUT /api/settings/merchant` | Overwrites merchant operational settings — no write gate |
+| 5 | MEDIUM | `POST /api/ai-autofill/apply` | Applies AI content to Square catalog ⚠️ — no write gate |
+| 6 | MEDIUM | `DELETE /api/ai-autofill/api-key` | Deletes stored AI API key — no write gate |
+| 7 | MEDIUM | `POST /api/labels/generate` | Generates PDF labels — no write gate |
+| 8 | MEDIUM | `POST /api/labels/generate-with-prices` | Generates price-labelled PDF — no write gate |
+| 9 | MEDIUM | `PUT /api/labels/templates/:id/default` | Sets default label template — no write gate |
+| 10 | LOW | `POST /api/google/disconnect` | Disconnects Google OAuth — no write gate |
+
+---
+
+#### 2.D — Missing `requireMerchant` (consistency / defence-in-depth)
+
+These endpoints are low-risk (read-only metadata) but inconsistent with the project pattern that all authenticated merchant-scoped requests carry `requireMerchant`.
+
+| # | Severity | Route | File | Issue |
+|---|----------|-------|------|-------|
+| 1 | LOW | `GET /api/vendor-catalog/field-types` | `routes/vendor-catalog/import.js` | `requireAuth` only; no `requireMerchant` |
+| 2 | LOW | `GET /api/webhooks/event-types` | `routes/webhooks.js` | `requireAuth` only; no `requireMerchant` |
+| 3 | LOW | `GET /api/gmc/taxonomy` | `routes/gmc/taxonomy.js` | `requireAuth` only; no `requireMerchant` (global data) |
+| 4 | LOW | `GET /api/settings/merchant/defaults` | `routes/settings.js` | `requireAuth` only; no `requireMerchant` |
+| 5 | LOW | `GET /api/sync-intervals` | `routes/sync.js` | `requireAuth` only; no `requireMerchant` |
+
+---
+
+#### 2.E — Missing elevated-role guard on destructive bulk operations
+
+| # | Severity | Route | File | Issue |
+|---|----------|-------|------|-------|
+| 1 | MEDIUM | `POST /api/catalog-audit/fix-locations` | `routes/catalog.js` | Bulk destructive Square catalog write. `requireWriteAccess` is the only gate — no admin or superAdmin role required for a bulk catalog mutation. |
+| 2 | MEDIUM | `POST /api/catalog-audit/fix-inventory-alerts` | `routes/catalog.js` | Same issue — bulk Square write with no elevated-role check. |
+
+---
+
+#### 2.F — Implicit-only authentication (defence-in-depth)
+
+| # | Severity | Route | File | Issue |
+|---|----------|-------|------|-------|
+| 1 | LOW | `POST /api/subscriptions/refund` | `routes/subscriptions/admin.js` | No explicit `requireAuth` in the route chain. Relies solely on the global `apiAuthMiddleware` applied in `server.js`. Should have explicit `requireAuth` as defence-in-depth. |
+
+---
+
+#### Group 2 summary
+
+| Class | CRITICAL | HIGH | MEDIUM | LOW | Total issues |
+|-------|----------|------|--------|-----|-------------|
+| Multi-tenant isolation | 1 | — | — | — | 1 |
+| Missing rate limiting | — | 1 | 2 | 1 | 4 |
+| Missing requireWriteAccess | — | 4 groups (~30 routes) | ~33 routes | 1 | ~38 unique routes |
+| Missing requireMerchant | — | — | — | 5 | 5 |
+| Missing elevated-role gate | — | — | 2 | — | 2 |
+| Implicit-only auth | — | — | — | 1 | 1 |
+| **Total** | **1** | **~8** | **~37** | **8** | **~54** |
