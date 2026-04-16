@@ -641,3 +641,162 @@ All driver.html endpoints are public (token-based) and mounted at `/api/driver/.
 ---
 
 **Group 4 summary:** 6 pages, ~90 clickable elements. All API endpoints referenced by these pages exist on the server. No broken links or missing endpoints detected.
+
+---
+
+### Group 5 — Admin & Settings
+
+Pages covered: `public/dashboard.html`, `public/admin-subscriptions.html`, `public/merchants.html`, `public/staff.html`, `public/settings.html`, `public/logs.html`.
+
+(These are the final pages under `public/` that were not scanned in Groups 1–4.)
+
+---
+
+#### `public/dashboard.html` — Main dashboard
+
+| # | Clickable element | Action / endpoint | Endpoint exists? |
+|---|---|---|---|
+| 1 | `<a href="/">` logo | Static page load | ✅ |
+| 2 | `<a href="merchants.html">` (manage accounts) | Static page load | ✅ |
+| 3 | `<button data-action="logout">` | `POST /api/auth/logout` | ✅ `routes/auth/session.js:25` |
+| 4 | `<a href="/subscribe.html">` | Static page load | ✅ |
+| 5 | Navigation tile links (`vendor-dashboard.html`, `reorder.html`, `purchase-orders.html`, `expiry-audit.html`, `expiry.html`, `inventory.html`, `sales-velocity.html`, `min-max-history.html`, `cycle-count.html`, `cycle-count-history.html`, `vendor-catalog.html`, `catalog-audit.html`, `gmc-feed.html`, `catalog-workflow.html`, `delivery.html`, `delivery-route.html`, `delivery-settings.html`, `loyalty.html`, `cart-activity.html`, `staff.html`) | Static page loads | ✅ All exist in `public/` |
+| 6 | `<div data-action="navigate">` stat tiles (×2) | Client navigate | ✅ |
+| 7 | API reference links `<a href="/api/…" target="_blank">` (≈20 GET links) | `GET /api/...` | ✅ All verified in Groups 2–5 route scans |
+| 8 | `<a data-action="showApiInfo">` informational links (≈15) | Client info modal (no HTTP) | N/A |
+| 9 | `<a data-action="toggleApiList">` / `showHealthModal` / `hideHealthModal` | Client UI toggles | N/A |
+| 10 | `<button data-action="connectSquare">` | `GET /api/square/oauth/connect?redirect=...` | ✅ `routes/square-oauth.js:89` (mounted at `/api/square/oauth`) |
+| 11 | Page load — health | `GET /api/health` | ✅ |
+| 12 | Page load — config | `GET /api/config` | ✅ `routes/merchants.js:86` |
+| 13 | Page load — parallel (inventory/expirations/reorder/cycle-counts) | `GET /api/inventory`, `GET /api/expirations`, `GET /api/reorder-suggestions?supply_days=...`, `GET /api/cycle-counts/pending` | ✅ |
+| 14 | Sync status poll | `GET /api/sync-status` | ✅ `routes/sync.js:86` |
+| 15 | Manual sync | `POST /api/sync-smart` | ✅ `routes/sync.js:56` |
+| 16 | Current user fetch | `GET /api/auth/me` | ✅ `routes/auth/session.js:34` |
+| 17 | Merchants list | `GET /api/merchants` | ✅ `routes/merchants.js:33` |
+
+---
+
+#### `public/admin-subscriptions.html` — Admin subscription & pricing management
+
+| # | Clickable element | Action / endpoint | Endpoint exists? |
+|---|---|---|---|
+| 1 | `<a href="/settings.html">` | Static page load | ✅ |
+| 2 | `<button data-action="loadStats">` | `GET /api/subscriptions/admin/list` + `GET /api/subscriptions/admin/plans` | ✅ `routes/subscriptions/admin.js:61`, `:72` |
+| 3 | `<button data-action="setupPlans">` | `POST /api/subscriptions/admin/setup-plans` | ✅ `routes/subscriptions/admin.js:78` |
+| 4 | `<button data-action="loadPricing">` | `GET /api/admin/pricing` | ✅ `routes/subscriptions/admin.js:102` |
+| 5 | Pricing save — modules | `PUT /api/admin/pricing/modules/:key` | ✅ `routes/subscriptions/admin.js:114` |
+| 6 | Pricing save — plans | `PUT /api/admin/pricing/plans/:key` | ✅ `routes/subscriptions/admin.js:137` |
+| 7 | `<select data-action="onPromoTypeChange">` | Client toggle (no HTTP) | N/A |
+| 8 | `<button data-action="createPromoCode">` | `POST /api/admin/promo-codes` | ✅ `routes/admin.js:177` |
+| 9 | Promo list load | `GET /api/admin/promo-codes` | ✅ `routes/admin.js:228` |
+| 10 | Promo deactivate (dynamic) | `POST /api/admin/promo-codes/:id/deactivate` | ✅ `routes/admin.js:252` |
+| 11 | `<button data-action="reloadSubscribers">` / search / filter | `GET /api/subscriptions/admin/list?...` | ✅ |
+| 12 | `<button data-action="prevPage">` / `nextPage` | Client pagination | N/A |
+| 13 | `<button data-action="hideFeaturesModal">` / `hideExtendTrialModal` / `hideActivateModal` / `hideBillingModal` | Client close (no HTTP) | N/A |
+| 14 | `<button data-action="confirmExtendTrial">` | `POST /api/admin/merchants/:id/extend-trial` | ✅ `routes/admin.js:59` |
+| 15 | `<button data-action="confirmActivate">` | `POST /api/admin/merchants/:id/activate` | ✅ `routes/admin.js:388` |
+| 16 | Billing modal load | `GET /api/admin/merchants/:id/payments` | ✅ `routes/admin.js:287` |
+| 17 | Features modal load | `GET /api/admin/merchants/:id/features` | ✅ `routes/admin.js:321` |
+| 18 | Feature toggle | `PUT /api/admin/merchants/:id/features/:featureKey` | ✅ `routes/admin.js:356` |
+
+---
+
+#### `public/merchants.html` — Multi-merchant switcher
+
+| # | Clickable element | Action / endpoint | Endpoint exists? |
+|---|---|---|---|
+| 1 | `<a href="/">` logo | Static page load | ✅ |
+| 2 | `<a href="settings.html">` / `dashboard.html` / `support.html` | Static page loads | ✅ |
+| 3 | `<button data-action="connectSquare">` | `GET /api/square/oauth/connect?...` | ✅ |
+| 4 | `<button data-action="copyReferralLink">` | Copies to clipboard (no HTTP) | N/A |
+| 5 | `<button data-action="closeDisconnectModal">` | Client close (no HTTP) | N/A |
+| 6 | `<button data-action="confirmDisconnect">` | `POST /api/square/oauth/revoke` | ✅ `routes/square-oauth.js:414` |
+| 7 | Page load — merchants list | `GET /api/merchants` | ✅ `routes/merchants.js:33` |
+| 8 | Switch merchant (dynamic) | `POST /api/merchants/switch` | ✅ `routes/merchants.js:47` |
+
+---
+
+#### `public/staff.html` — Staff & invitations
+
+| # | Clickable element | Action / endpoint | Endpoint exists? |
+|---|---|---|---|
+| 1 | `<a href="/dashboard.html">` | Static page load | ✅ |
+| 2 | `<button data-action="showInviteModal">` / `hideInviteModal` | Client UI (no HTTP) | N/A |
+| 3 | `<button data-action="copyInviteUrl">` | Copies invite URL (no HTTP) | N/A |
+| 4 | `<button data-action="submitInvite">` | `POST /api/staff/invite` | ✅ `routes/staff.js:48` (mounted at `/api/staff`) |
+| 5 | `<button data-action="hideRemoveModal">` | Client close (no HTTP) | N/A |
+| 6 | `<button data-action="confirmRemove">` | `DELETE /api/staff/:userId` | ✅ `routes/staff.js:142` |
+| 7 | Page load — staff list | `GET /api/staff` | ✅ `routes/staff.js:38` |
+| 8 | Role change (dynamic) | `PATCH /api/staff/:userId/role` | ✅ `routes/staff.js:162` |
+| 9 | Cancel invitation (dynamic) | `DELETE /api/staff/invitations/:id` | ✅ `routes/staff.js:123` |
+| 10 | Current user fetch | `GET /api/auth/me` | ✅ |
+
+---
+
+#### `public/settings.html` — Account / business rules / integrations
+
+| # | Clickable element | Action / endpoint | Endpoint exists? |
+|---|---|---|---|
+| 1 | `<a href="/dashboard.html">` | Static page load | ✅ |
+| 2 | `<button data-action="testSquareConnection">` | `GET /api/health` (checks Square status field) | ✅ |
+| 3 | `<button data-action="testDatabaseConnection">` | `GET /api/health` | ✅ |
+| 4 | `<button data-action="testEmailConnection">` | `POST /api/test-email` | ✅ `server.js:728` |
+| 5 | `<button data-action="resetMerchantSettingsToDefaults">` | `GET /api/settings/merchant/defaults` | ✅ `routes/settings.js:96` |
+| 6 | `<button data-action="saveMerchantSettings">` | `PUT /api/settings/merchant` | ✅ `routes/settings.js:47` |
+| 7 | `<button data-action="showChangePasswordModal">` / `hide...` | Client UI (no HTTP) | N/A |
+| 8 | `<button data-action="changePassword">` | `POST /api/auth/change-password` | ✅ `routes/auth/password.js:13` |
+| 9 | `<button data-action="logoutUser">` | `POST /api/auth/logout` | ✅ |
+| 10 | `<button data-action="showCreateUserModal">` / `hide...` | Client UI | N/A |
+| 11 | `<button data-action="createUser">` | `POST /api/auth/users` | ✅ `routes/auth/users.js:20` |
+| 12 | Unlock user (dynamic) | `POST /api/auth/users/:id/unlock` | ✅ `routes/auth/users.js:83` |
+| 13 | Reset user password (dynamic) | `POST /api/auth/users/:id/reset-password` | ✅ `routes/auth/users.js:60` |
+| 14 | Update user (dynamic) | `PUT /api/auth/users/:id` | ✅ `routes/auth/users.js:42` |
+| 15 | `<a href="/admin-subscriptions.html">` / `/merchants.html` / `/logs.html` | Static page loads | ✅ |
+| 16 | `<a href="/subscribe.html">` / `/upgrade.html` | Static page loads | ✅ |
+| 17 | `<button data-action="showCancelSubscriptionModal">` / `hide...` | Client UI (no HTTP) | N/A |
+| 18 | `<button data-action="confirmCancelSubscription">` | `POST /api/subscriptions/cancel` | ✅ `routes/subscriptions/merchant.js:78` |
+| 19 | `<button data-action="discardChanges">` / `saveChanges` (dirty-state bar) | Client (save uses `PUT /api/settings/merchant`) | ✅ |
+| 20 | Page load — locations | `GET /api/locations` | ✅ |
+| 21 | Page load — Google status | `GET /api/google/status` | ✅ `routes/google-oauth.js:41` |
+| 22 | Google disconnect | `POST /api/google/disconnect` | ✅ `routes/google-oauth.js:121` |
+| 23 | Page load — config | `GET /api/config` | ✅ |
+| 24 | Sync intervals | `GET /api/sync-intervals` | ✅ `routes/sync.js:70` |
+| 25 | Current user | `GET /api/auth/me` | ✅ |
+| 26 | Subscription plans (admin view) | `GET /api/subscriptions/admin/plans` | ✅ |
+| 27 | User list | `GET /api/auth/users` | ✅ `routes/auth/users.js:12` |
+| 28 | Merchant settings load | `GET /api/settings/merchant` | ✅ `routes/settings.js:31` |
+| 29 | Merchant status + features | `GET /api/subscriptions/merchant-status`, `GET /api/merchant/features` | ✅ `routes/subscriptions/merchant.js:72`, `server.js:470` |
+
+---
+
+#### `public/logs.html` — System logs & location health
+
+| # | Clickable element | Action / endpoint | Endpoint exists? |
+|---|---|---|---|
+| 1 | `<a href="/dashboard.html">` | Static page load | ✅ |
+| 2 | Tabs `data-action="switchTab"` (logs / location-health) | Client tab (no HTTP) | N/A |
+| 3 | `<button data-action="refreshLogs">` | `GET /api/logs?limit=` + `GET /api/logs/errors?...` + `GET /api/logs/stats` | ✅ `routes/logs.js:123`, `:154`, `:199` |
+| 4 | `<a href="/api/logs/download" download>` | `GET /api/logs/download` | ✅ `routes/logs.js:187` |
+| 5 | `<button data-action="testEmail">` | `POST /api/test-email` | ✅ |
+| 6 | `<button data-action="runHealthCheck">` | `POST /api/admin/catalog-health/check` | ✅ `routes/catalog-health.js:49` |
+| 7 | `<button data-action="refreshLocationHealth">` | `GET /api/admin/catalog-health` | ✅ `routes/catalog-health.js:33` |
+| 8 | Page load — dates | `GET /api/logs/dates` | ✅ `routes/logs.js:177` |
+
+---
+
+**Group 5 summary:** 6 pages, ~110 clickable elements (dashboard alone has ~70 navigational/API reference links). All API endpoints referenced by these pages exist on the server. No broken links or missing endpoints detected.
+
+---
+
+## Section 1 — Final Inventory Summary
+
+| Group | Pages | Clickable elements (approx.) | Missing endpoints |
+|---|---|---|---|
+| 1. Auth & Landing | 8 | ~65 | 0 |
+| 2. Vendor & Inventory | 14 | ~110 | 0 |
+| 3. Orders & Purchasing | 7 | ~90 | 0 |
+| 4. Loyalty & Delivery | 6 | ~90 | 0 |
+| 5. Admin & Settings | 6 | ~110 | 0 |
+| **Total** | **41** | **~465** | **0** |
+
+All 41 HTML pages under `public/` were scanned. Every page-initiated API call was cross-referenced against the mounted Express routes in `server.js` and the route files in `routes/`. No broken internal links or missing endpoints were found during the Section 1 scan.
