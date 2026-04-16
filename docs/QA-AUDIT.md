@@ -2411,3 +2411,248 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - [ ] Weekly auto min/max cron job runs (simulated via job trigger) ⚠️ — Recommendations generated; thresholds updated in DB; changes pushed to Square catalog; summary email sent — no frontend (cron/`jobs/auto-min-max-job.js`) — internal + `pushMinStockThresholdsToSquare` ⚠️
 - [ ] Get sales velocity data — Sales velocity per item returned based on synced Square order history ⚠️ — `public/sales-velocity.html` — `GET /api/sales-velocity` ⚠️ (reads real sales data synced from Square)
 - [ ] View reorder suggestions with custom supply days — Suggestions recalculated for specified supply window ⚠️ — `public/reorder.html` — `GET /api/reorder-suggestions?supply_days=45` ⚠️
+
+### Journey 8 — Reorder Suggestions
+
+- [ ] Load `/reorder.html` with no vendor selected — All reorder suggestions across all vendors load, sorted URGENT → LOW priority ⚠️ — `public/reorder.html` — `GET /api/reorder-suggestions` ⚠️ (reads Square-synced inventory data)
+- [ ] Filter suggestions by vendor — Suggestion list narrows to selected vendor's items only ⚠️ — `public/reorder.html` — `GET /api/reorder-suggestions?vendor_id=...` ⚠️
+- [ ] Filter suggestions by location — Suggestions recalculate based on stock at selected location ⚠️ — `public/reorder.html` — `GET /api/reorder-suggestions?location_id=...` ⚠️
+- [ ] View URGENT priority items (on-hand = 0) — Items with zero stock appear at top with URGENT badge — `public/reorder.html` — client-side only (data already loaded)
+- [ ] View HIGH priority items — Items with stock below minimum but non-zero shown below URGENT group — `public/reorder.html` — client-side only
+- [ ] View MEDIUM and LOW priority items — Items approaching minimum threshold grouped below HIGH — `public/reorder.html` — client-side only
+- [ ] Load suggestions when no items are below threshold — Empty state message shown; no suggestion rows rendered ⚠️ — `public/reorder.html` — `GET /api/reorder-suggestions` ⚠️
+- [ ] View sales velocity for a variation (91-day window) ⚠️ — Daily average units sold per location shown — `public/reorder.html` — `GET /api/sales-velocity?variation_id=...&period_days=91` ⚠️
+- [ ] Switch velocity period to 182 days ⚠️ — Velocity recalculates; suggested reorder quantity updates — `public/reorder.html` — `GET /api/sales-velocity?period_days=182` ⚠️
+- [ ] Switch velocity period to 365 days ⚠️ — Velocity recalculates for full-year window ⚠️ — `public/reorder.html` — `GET /api/sales-velocity?period_days=365` ⚠️
+- [ ] Load `/sales-velocity.html` — Sales velocity report for all items renders with period selector ⚠️ — `public/sales-velocity.html` — `GET /api/sales-velocity` ⚠️
+- [ ] Filter `/sales-velocity.html` by variation — Single-variation velocity breakdown shown ⚠️ — `public/sales-velocity.html` — `GET /api/sales-velocity?variation_id=...` ⚠️
+- [ ] Load `/inventory.html` and view low-stock items — Items at or below minimum stock threshold highlighted ⚠️ — `public/inventory.html` — `GET /api/low-stock` ⚠️ (reads Square-synced inventory)
+- [ ] Access `/reorder.html` as readonly user — Suggestions visible; add-to-order and order-submit buttons absent — `public/reorder.html` — `GET /api/reorder-suggestions` ⚠️
+- [ ] Access `/reorder.html` as clerk — 403 or feature-gate blocks access (clerk has no reorder/vendor access) — `public/reorder.html` — `GET /api/merchant/features`
+
+### Journey 9 — Inventory Management
+
+#### Cycle Counts
+
+- [ ] Load `/cycle-count.html` — Pending cycle count items render; priority queue items listed first — `public/cycle-count.html` — `GET /api/cycle-counts/pending`
+- [ ] Complete a cycle count where actual matches expected — Count recorded as accurate; no variance flagged — `public/cycle-count.html` — `POST /api/cycle-counts/:id/complete`
+- [ ] Complete a cycle count where actual differs from expected — Count recorded; variance calculated and flagged in history — `public/cycle-count.html` — `POST /api/cycle-counts/:id/complete`
+- [ ] Sync a count result to Square ⚠️ — Inventory level adjusted at Square; adjustment details and variance returned — `public/cycle-count.html` — `POST /api/cycle-counts/:id/sync-to-square` ⚠️ (calls Square inventory API)
+- [ ] Add item to priority queue (send now) — Item inserted into priority queue for next cycle batch — `public/cycle-count.html` — `POST /api/cycle-counts/send-now`
+- [ ] View cycle count stats — Session stats, coverage percentage, and accuracy rate shown — `public/cycle-count.html` — `GET /api/cycle-counts/stats`
+- [ ] View cycle count stats for custom day range — Stats recalculate for specified period — `public/cycle-count.html` — `GET /api/cycle-counts/stats?days=60`
+- [ ] View cycle count history — History with variance analysis rendered — `public/cycle-count.html` — `GET /api/cycle-counts/history`
+- [ ] Filter cycle count history by date range — Records filtered to specified start/end dates — `public/cycle-count.html` — `GET /api/cycle-counts/history?start_date=...&end_date=...`
+- [ ] Filter cycle count history by specific date — Single-day count records shown — `public/cycle-count.html` — `GET /api/cycle-counts/history?date=...`
+- [ ] Email cycle count report — Report email sent; success toast shown — `public/cycle-count.html` — `POST /api/cycle-counts/email-report`
+- [ ] Manually generate batch — Batch generated; pending list refreshes — `public/cycle-count.html` — `POST /api/cycle-counts/generate-batch`
+- [ ] Reset cycle count data (preserve history) — Active counts cleared; historical records retained — `public/cycle-count.html` — `POST /api/cycle-counts/reset` (with `preserve_history: true`)
+- [ ] Reset cycle count data (discard history) — All cycle count data cleared — `public/cycle-count.html` — `POST /api/cycle-counts/reset` (with `preserve_history: false`)
+- [ ] Access cycle count page as clerk — Page loads; scan/complete actions available — `public/cycle-count.html` — `GET /api/cycle-counts/pending`
+
+#### Manual Adjustments & Min/Max Settings
+
+- [ ] Load `/inventory.html` — Inventory list renders with current stock levels per variation ⚠️ — `public/inventory.html` — `GET /api/inventory` ⚠️
+- [ ] Filter inventory by location — List narrows to selected location's stock levels ⚠️ — `public/inventory.html` — `GET /api/inventory?location_id=...` ⚠️
+- [ ] Filter inventory to low-stock items only — Only items at or below minimum shown ⚠️ — `public/inventory.html` — `GET /api/inventory?low_stock=true` ⚠️
+- [ ] Set min stock for a variation ⚠️ — Min stock saved in DB and synced to Square catalog; confirmation shown — `public/inventory.html` — `PATCH /api/variations/:id/min-stock` ⚠️ (writes to Square)
+- [ ] Set min stock for a variation at a specific location ⚠️ — Location-scoped threshold updated and pushed to Square — `public/inventory.html` — `PATCH /api/variations/:id/min-stock` (with `location_id`) ⚠️
+- [ ] Set vendor cost for a variation ⚠️ — Cost updated in DB and synced to Square as vendor cost — `public/inventory.html` — `PATCH /api/variations/:id/cost` ⚠️
+
+#### Expiry Tracking
+
+- [ ] Load `/expiry.html` — Expiry discount status summary and tier configuration shown — `public/expiry.html` — `GET /api/expiry-discounts/status`, `GET /api/expiry-discounts/tiers`
+- [ ] View discount tier list — All tier configurations with days-before-expiry thresholds and discount percentages shown — `public/expiry.html` — `GET /api/expiry-discounts/tiers`
+- [ ] Edit a discount tier threshold or percentage — Tier updated; new config saved; confirmation shown — `public/expiry.html` — `PATCH /api/expiry-discounts/tiers/:id`
+- [ ] Save invalid tier (e.g. discount > 100%) — Validation error returned; tier not saved — `public/expiry.html` — `PATCH /api/expiry-discounts/tiers/:id`
+- [ ] View variations with expiry discounts — Variation list with current discount status and tier codes shown — `public/expiry.html` — `GET /api/expiry-discounts/variations`
+- [ ] Filter variations by tier code — Filtered variation list returned — `public/expiry.html` — `GET /api/expiry-discounts/variations?tier_code=...`
+- [ ] Filter variations needing a discount pull — Only variations requiring pull shown — `public/expiry.html` — `GET /api/expiry-discounts/variations?needs_pull=true`
+- [ ] View expiry discount settings — System-level settings for the expiry discount engine shown — `public/expiry.html` — `GET /api/expiry-discounts/settings`
+- [ ] Update expiry settings — Settings saved; confirmation shown — `public/expiry.html` — `PATCH /api/expiry-discounts/settings`
+- [ ] Run expiry evaluation dry run ⚠️ — Evaluation results previewed; no changes applied to Square — `public/expiry.html` — `POST /api/expiry-discounts/evaluate` (with `dry_run: true`) ⚠️
+- [ ] Apply expiry discounts to Square ⚠️ — Discounts pushed to Square catalog; result summary shown — `public/expiry.html` — `POST /api/expiry-discounts/apply` ⚠️ (writes discounts to Square catalog)
+- [ ] Run full expiry workflow (evaluate + apply) ⚠️ — Discounts evaluated and applied; notification email sent — `public/expiry.html` — `POST /api/expiry-discounts/run` ⚠️
+- [ ] Run full expiry workflow dry run ⚠️ — Workflow simulated end-to-end; no Square writes; report shown — `public/expiry.html` — `POST /api/expiry-discounts/run` (with `dry_run: true`) ⚠️
+- [ ] View expiry audit log — Audit log of all discount changes shown with timestamps — `public/expiry.html` — `GET /api/expiry-discounts/audit-log`
+- [ ] Filter expiry audit log by variation — Audit entries for specific variation returned — `public/expiry.html` — `GET /api/expiry-discounts/audit-log?variation_id=...`
+- [ ] Access expiry page as clerk — Page loads; expiry review actions available — `public/expiry.html` — `GET /api/expiry-discounts/status`
+
+#### Sync Operations
+
+- [ ] Initialize Square discount objects ⚠️ — Discount catalog objects created in Square for expiry tiers — `public/expiry.html` — `POST /api/expiry-discounts/init-square` ⚠️ (creates objects in Square catalog)
+- [ ] Pull expiry data from Square ⚠️ — Inventory adjusted based on pull request; Square data reflected locally — `public/expiry.html` — `POST /api/expirations/pull` ⚠️ (adjusts Square inventory)
+
+### Journey 10 — Delivery System
+
+#### Order Management
+
+- [ ] Load `/delivery.html` — Delivery orders list renders with status filters and pagination — `public/delivery.html` — `GET /api/orders`
+- [ ] Filter orders by status (e.g. PENDING, DELIVERED) — Filtered order list returned — `public/delivery.html` — `GET /api/orders?status=PENDING`
+- [ ] Filter orders by date range — Orders within specified date window returned — `public/delivery.html` — `GET /api/orders?dateFrom=...&dateTo=...`
+- [ ] Filter orders by route — Orders assigned to specific route shown — `public/delivery.html` — `GET /api/orders?routeId=...`
+- [ ] View paginated order list — Pagination controls work; correct total count shown — `public/delivery.html` — `GET /api/orders?limit=...&offset=...`
+- [ ] Create a manual delivery order — Order created with geocoding triggered; new row appears in list — `public/delivery.html` — `POST /api/orders`
+- [ ] Create order with invalid address (geocoding fails) — Order created; geocode error flagged on row — `public/delivery.html` — `POST /api/orders`
+- [ ] View single order detail — Detail panel opens with address, phone, notes, and status — `public/delivery.html` — `GET /api/orders/:id`
+- [ ] Edit order notes and phone — Notes and phone updated; success toast shown — `public/delivery.html` — `PATCH /api/orders/:id`
+- [ ] Edit order address — Address updated and re-geocoded automatically — `public/delivery.html` — `PATCH /api/orders/:id`
+- [ ] Delete a manual order not yet delivered — Order removed from list; success message shown — `public/delivery.html` — `DELETE /api/orders/:id`
+- [ ] Attempt to delete an already-delivered order — Error: cannot delete delivered order — `public/delivery.html` — `DELETE /api/orders/:id`
+- [ ] View customer profile for an order — Customer history and details panel shown — `public/delivery.html` — `GET /api/orders/:id/customer`
+- [ ] View customer delivery statistics — Delivery count, last delivery, and history stats shown — `public/delivery.html` — `GET /api/orders/:id/customer-stats`
+- [ ] Update internal order notes — Notes saved; no Square sync triggered — `public/delivery.html` — `PATCH /api/orders/:id/notes`
+- [ ] Update customer note ⚠️ — Note saved locally and synced to Square customer record — `public/delivery.html` — `PATCH /api/orders/:id/customer-note` ⚠️ (writes to Square customer)
+- [ ] Skip an order in the active route — Order marked as skipped; route continues to next stop — `public/delivery.html` — `POST /api/orders/:id/skip`
+- [ ] Complete a delivery ⚠️ — Order marked delivered; Square fulfillment updated; `square_synced: true` returned — `public/delivery.html` — `POST /api/orders/:id/complete` ⚠️ (updates Square order fulfillment)
+- [ ] Complete a delivery when Square sync fails ⚠️ — Order marked delivered locally; `square_sync_error` flag set; no delivery blocked — `public/delivery.html` — `POST /api/orders/:id/complete` ⚠️
+- [ ] Load `/delivery-history.html` — Completed delivery history renders with filters — `public/delivery-history.html` — `GET /api/orders?includeCompleted=true`
+
+#### Route Management
+
+- [ ] Load `/delivery-route.html` — Route page loads; active route (if any) shown with stops in order — `public/delivery-route.html` — `GET /api/route/active`
+- [ ] Generate optimized delivery route — Route generated with optimal stop order; map renders — `public/delivery-route.html` — `POST /api/route/generate`
+- [ ] Generate route for specific order IDs only — Route generated using only supplied orders — `public/delivery-route.html` — `POST /api/route/generate` (with `orderIds`)
+- [ ] Generate route excluding specific orders — Route excludes specified order IDs — `public/delivery-route.html` — `POST /api/route/generate` (with `excludeOrderIds`)
+- [ ] Generate route with custom start/end coordinates — Route uses provided depot coordinates — `public/delivery-route.html` — `POST /api/route/generate` (with `startLat`, `startLng`, `endLat`, `endLng`)
+- [ ] Force regenerate an existing route — Existing route overwritten with new optimization — `public/delivery-route.html` — `POST /api/route/generate` (with `force: true`)
+- [ ] View active route for a specific date — Route for the given date loaded — `public/delivery-route.html` — `GET /api/route/active?routeDate=...`
+- [ ] View a specific route by ID — Route detail with all stops and statuses shown — `public/delivery-route.html` — `GET /api/route/:id`
+- [ ] Finish the active route — Route marked complete; summary shown — `public/delivery-route.html` — `POST /api/route/finish`
+- [ ] Finish a specific route by ID — Named route closed out — `public/delivery-route.html` — `POST /api/route/finish` (with `routeId`)
+- [ ] Geocode pending orders (batch) — Ungeocoded addresses resolved; coordinates stored — `public/delivery-route.html` — `POST /api/geocode`
+- [ ] Load `/driver.html` — Driver view loads with active route stops in sequence — `public/driver.html` — `GET /api/route/active`
+
+#### Delivery Settings
+
+- [ ] Load `/delivery-settings.html` — Settings form renders with saved start/end address and defaults — `public/delivery-settings.html` — `GET /api/settings`
+- [ ] Save delivery settings with valid start/end addresses — Settings saved; addresses geocoded; audit log entry created — `public/delivery-settings.html` — `PUT /api/settings`
+- [ ] Save delivery settings with unresolvable address — Geocoding error returned; settings not saved — `public/delivery-settings.html` — `PUT /api/settings`
+- [ ] Access delivery pages as clerk — Page loads; delivery status update available — `public/delivery.html` — `GET /api/orders`
+
+### Journey 11 — Loyalty System
+
+#### Enroll & Earn
+
+- [ ] Load `/loyalty.html` — Loyalty dashboard renders; program stats and rewards list shown — `public/loyalty.html` — `GET /api/loyalty/stats`, `GET /api/loyalty/rewards`
+- [ ] Manually process a single order for loyalty (earn) ⚠️ — Order fetched from Square; loyalty points/reward credited if qualifying purchase — `public/loyalty.html` — `POST /api/loyalty/process-order/:orderId` ⚠️ (fetches real Square order)
+- [ ] Process an order that does not qualify for loyalty ⚠️ — No reward created; audit log entry records ineligible order — `public/loyalty.html` — `POST /api/loyalty/process-order/:orderId` ⚠️
+- [ ] Process an order already processed (duplicate) ⚠️ — Idempotent result; no duplicate reward created — `public/loyalty.html` — `POST /api/loyalty/process-order/:orderId` ⚠️
+- [ ] Add manual loyalty entry — Manual purchase entry recorded; loyalty calculated from supplied quantity and variation — `public/loyalty.html` — `POST /api/loyalty/manual-entry`
+- [ ] Process expired loyalty window entries — Expired windows closed; earned rewards finalized — `public/loyalty.html` — `POST /api/loyalty/process-expired`
+
+#### Redeem
+
+- [ ] View rewards list — All rewards with status (PENDING, EARNED, REDEEMED) shown — `public/loyalty.html` — `GET /api/loyalty/rewards`
+- [ ] Filter rewards by status — Filtered rewards list returned — `public/loyalty.html` — `GET /api/loyalty/rewards?status=EARNED`
+- [ ] Filter rewards by offer — Rewards for specific offer shown — `public/loyalty.html` — `GET /api/loyalty/rewards?offerId=...`
+- [ ] Filter rewards by customer — Rewards for specific Square customer shown — `public/loyalty.html` — `GET /api/loyalty/rewards?customerId=...`
+- [ ] Redeem a loyalty reward ⚠️ — Reward marked redeemed; redemption recorded with order ID and value; full-value-only rule enforced — `public/loyalty.html` — `POST /api/loyalty/rewards/:rewardId/redeem` ⚠️ (processes redemption in Square)
+- [ ] Attempt partial redemption of a reward ⚠️ — Error returned; business rule enforces full redemption only — `public/loyalty.html` — `POST /api/loyalty/rewards/:rewardId/redeem` ⚠️
+- [ ] Redeem reward with invalid Square order ID ⚠️ — Error returned; reward status unchanged — `public/loyalty.html` — `POST /api/loyalty/rewards/:rewardId/redeem` ⚠️
+- [ ] View redemption history — Redemption log with timestamps and values shown — `public/loyalty.html` — `GET /api/loyalty/redemptions`
+- [ ] Filter redemption history by date range — Filtered redemptions returned — `public/loyalty.html` — `GET /api/loyalty/redemptions?startDate=...&endDate=...`
+
+#### Refund & Vendor Credit
+
+- [ ] Update vendor credit status for a redeemed reward — Vendor credit status updated (e.g. PENDING → PAID); notes saved — `public/loyalty.html` — `PATCH /api/loyalty/rewards/:rewardId/vendor-credit`
+- [ ] Refresh customer data for rewards ⚠️ — Customer details re-fetched from Square; reward records updated with latest info — `public/loyalty.html` — `POST /api/loyalty/refresh-customers` ⚠️ (fetches from Square Customers API)
+
+#### Audit
+
+- [ ] View loyalty audit log — Audit entries rendered with action, customer, and timestamp — `public/loyalty.html` — `GET /api/loyalty/audit`
+- [ ] Filter audit log by action type — Entries for specific action (e.g. EARN, REDEEM) returned — `public/loyalty.html` — `GET /api/loyalty/audit?action=EARN`
+- [ ] Filter audit log by Square customer ID — All audit entries for specific customer shown — `public/loyalty.html` — `GET /api/loyalty/audit?squareCustomerId=...`
+- [ ] Filter audit log by offer — Entries scoped to specific loyalty offer shown — `public/loyalty.html` — `GET /api/loyalty/audit?offerId=...`
+- [ ] View loyalty statistics — Active rewards count, total redemptions, and program totals shown — `public/loyalty.html` — `GET /api/loyalty/stats`
+- [ ] View audit findings (orphaned rewards) — Unresolved audit findings listed by issue type — `public/loyalty.html` — `GET /api/loyalty/audit-findings`
+- [ ] Filter audit findings by issue type — Findings filtered to specified issue type — `public/loyalty.html` — `GET /api/loyalty/audit-findings?issueType=...`
+- [ ] Filter audit findings to unresolved only — Only open findings returned — `public/loyalty.html` — `GET /api/loyalty/audit-findings?resolved=false`
+- [ ] Resolve an audit finding — Finding marked resolved; removed from open findings list — `public/loyalty.html` — `POST /api/loyalty/audit-findings/resolve/:id`
+- [ ] Audit for missed redemptions (dry run) ⚠️ — Missed redemptions detected in recent orders; no changes applied — `public/loyalty.html` — `POST /api/loyalty/audit-missed-redemptions?dryRun=true` ⚠️ (scans real Square orders)
+- [ ] Audit for missed redemptions (apply) ⚠️ — Missed redemptions processed and recorded in loyalty log — `public/loyalty.html` — `POST /api/loyalty/audit-missed-redemptions` ⚠️
+
+#### Backfill
+
+- [ ] Run loyalty backfill for recent orders ⚠️ — Recent Square orders scanned; missing loyalty earn entries created — `public/loyalty.html` — `POST /api/loyalty/backfill` ⚠️ (fetches Square orders)
+- [ ] Run loyalty backfill for extended period ⚠️ — Backfill window extended via `days` parameter — `public/loyalty.html` — `POST /api/loyalty/backfill` (with `days`) ⚠️
+- [ ] Run loyalty catchup for all known customers ⚠️ — Reverse-lookup catchup runs; gaps in loyalty history filled — `public/loyalty.html` — `POST /api/loyalty/catchup` ⚠️ (fetches Square order history per customer)
+- [ ] Run loyalty catchup scoped to specific customer IDs ⚠️ — Catchup limited to supplied customer list — `public/loyalty.html` — `POST /api/loyalty/catchup` (with `customerIds`) ⚠️
+- [ ] Attempt to access loyalty page as clerk — 403 or feature-gate blocks access — `public/loyalty.html` — `GET /api/merchant/features`
+
+### Journey 12 — Settings & Account Management
+
+#### Profile & Merchant Settings
+
+- [ ] Load `/settings.html` — Settings page renders; merchant settings, Square connection status, and subscription info all shown — `public/settings.html` — `GET /api/settings/merchant`, `GET /api/config`, `GET /api/health`
+- [ ] View merchant operational settings — Reorder rules, cycle count config, and supply day defaults shown — `public/settings.html` — `GET /api/settings/merchant`
+- [ ] View default settings from environment — Platform-level defaults for supply days and thresholds shown — `public/settings.html` — `GET /api/settings/merchant/defaults`
+- [ ] Update merchant settings (valid values) — Settings saved; success toast shown — `public/settings.html` — `PUT /api/settings/merchant`
+- [ ] Update merchant settings with invalid value (e.g. negative reorder days) — Validation error returned; settings not saved — `public/settings.html` — `PUT /api/settings/merchant`
+- [ ] Update notification preferences (email reports on/off) — Email notification preferences saved as part of merchant settings — `public/settings.html` — `PUT /api/settings/merchant`
+- [ ] View frontend configuration — Supply days, reorder thresholds, Square connect URL, and email config status shown — `public/settings.html` — `GET /api/config`
+
+#### Password Management
+
+- [ ] Change own password with correct current password — Password updated; success message shown — `public/settings.html` — `POST /api/change-password`
+- [ ] Change own password with incorrect current password — Error: current password is incorrect; no change — `public/settings.html` — `POST /api/change-password`
+- [ ] Change own password with weak new password — Validation error; password not changed — `public/settings.html` — `POST /api/change-password`
+- [ ] Request password reset email (forgot password) — Reset email sent; success response regardless of whether email exists (enumeration prevention) — `public/login.html` — `POST /api/forgot-password`
+- [ ] Reset password via token link — Password updated; redirect to `/login.html?setup=complete` — `public/set-password.html` — `POST /api/reset-password`
+- [ ] Reset password with expired token — Error: token invalid or expired; reset form shows error — `public/set-password.html` — `GET /api/verify-reset-token`
+- [ ] Admin resets another user's password — New password set (or generated); success message returned — `public/settings.html` — `POST /api/users/:id/reset-password`
+
+#### Locations & Square Connection Status
+
+- [ ] View Square connection status — "Connected" / "Disconnected" shown with token validity status — `public/settings.html` — `GET /api/health`
+- [ ] Test Square connection ⚠️ — Success toast with Square API response and locations count returned — `public/settings.html` — `GET /api/health` ⚠️ (makes real Square API call)
+- [ ] View merchant's Square locations ⚠️ — Locations list with active/inactive status rendered — `public/settings.html` — `GET /api/locations` ⚠️ (reads real Square locations)
+- [ ] View merchant context (active merchant + connect URL) — Active merchant details and Square OAuth connect URL shown — `public/settings.html` — `GET /api/merchants/context`
+- [ ] View all merchants for user — All merchants the user has access to listed with active context — `public/settings.html` — `GET /api/merchants`
+- [ ] Switch active merchant — Active merchant context updated; UI reloads for new merchant — `public/settings.html` — `POST /api/merchants/switch`
+- [ ] Switch to a merchant user does not belong to — 403 Insufficient permissions — no frontend (API direct) — `POST /api/merchants/switch`
+
+#### User Administration
+
+- [ ] Load user list as admin — All users for active merchant listed with roles and status — `public/settings.html` — `GET /api/users`
+- [ ] Attempt to load user list as non-admin — 403 Insufficient permissions — no frontend (API direct) — `GET /api/users`
+- [ ] Create new user as admin — User created and linked to active merchant; confirmation shown — `public/settings.html` — `POST /api/users`
+- [ ] Create user with duplicate email — Error: email already in use — `public/settings.html` — `POST /api/users`
+- [ ] Update user role as admin — Role updated; user list refreshes — `public/settings.html` — `PUT /api/users/:id`
+- [ ] Deactivate a user as admin — `is_active = false`; user loses access — `public/settings.html` — `PUT /api/users/:id` (with `is_active: false`)
+- [ ] Unlock a locked-out user as admin — Account lockout cleared; user can log in again — `public/settings.html` — `POST /api/users/:id/unlock`
+
+### Journey 13 — Cancellation Flow
+
+#### Subscription Cancellation
+
+- [ ] Load `/settings.html` as owner — Cancel subscription button visible in subscription section — `public/settings.html` — `GET /api/subscriptions/merchant-status`
+- [ ] Load `/settings.html` as manager — Cancel button absent from subscription section — `public/settings.html` — `GET /api/subscriptions/merchant-status`
+- [ ] Click "Cancel Subscription" as owner — Confirmation modal appears with reason prompt — `public/settings.html` — client-side only
+- [ ] Dismiss cancellation modal — No action taken; subscription unchanged — `public/settings.html` — client-side only
+- [ ] Confirm cancellation with reason as owner ⚠️ — Subscription canceled; Square subscription canceled if present; merchant deactivated; reason logged; session cleared — `public/settings.html` — `POST /api/subscriptions/cancel` ⚠️ (cancels real Square subscription)
+- [ ] Confirm cancellation without providing a reason — Cancellation proceeds with empty reason field — `public/settings.html` — `POST /api/subscriptions/cancel`
+- [ ] Attempt `POST /api/subscriptions/cancel` as manager — 403 Insufficient permissions — no frontend (API direct) — `POST /api/subscriptions/cancel`
+- [ ] Access any protected page immediately after cancellation — Redirect to `/subscription-expired.html` — `public/subscription-expired.html` — `GET /api/auth/me` (subscription gate middleware)
+- [ ] Load `/subscription-expired.html` post-cancellation — Expired/blocked message shown; "Upgrade" and "Contact Support" links present — `public/subscription-expired.html` — static
+- [ ] Check subscription status via public endpoint post-cancellation — Status returns `expired` with relevant dates — no frontend (API direct) — `GET /api/subscriptions/status?email=...`
+
+#### OAuth Revoke
+
+- [ ] Click "Disconnect Square" / revoke OAuth as owner ⚠️ — Confirmation modal shown before proceeding — `public/settings.html` — client-side only
+- [ ] Confirm OAuth revoke as owner ⚠️ — Token revoked at Square (best-effort); merchant marked inactive (`is_active = false`); session cleared; disconnection event logged — `public/settings.html` — `POST /api/square/oauth/revoke` ⚠️ (revokes real Square OAuth token)
+- [ ] Attempt `POST /api/square/oauth/revoke` as manager — 403 Insufficient permissions — no frontend (API direct) — `POST /api/square/oauth/revoke`
+- [ ] Reload `/settings.html` after successful OAuth revoke — Connection status shows "Disconnected"; reconnect prompt shown — `public/settings.html` — `GET /api/health`
+- [ ] Admin manually refreshes an expired or near-expiry token — Token refreshed at Square; new `expiresAt` returned — `public/settings.html` — `POST /api/square/oauth/refresh`
+
+#### Merchant Deactivation
+
+- [ ] Admin deactivates a merchant from admin panel — `trial_ends_at` set to `NOW()`; `subscription_status` set to `expired`; updated merchant record returned — `public/admin-subscriptions.html` — `POST /api/admin/merchants/:merchantId/deactivate`
+- [ ] Deactivated merchant attempts to log in — Authentication succeeds but all protected pages redirect to `/subscription-expired.html` — `public/subscription-expired.html` — `GET /api/auth/me` (subscription gate)
+- [ ] Attempt admin deactivation on merchant not accessible to admin — 403 Access denied — no frontend (API direct) — `POST /api/admin/merchants/:merchantId/deactivate`
+
+#### Data Retention
+
+- [ ] Verify merchant record retained after cancellation — Merchant row remains in DB with `is_active = false`; no hard delete — no frontend (DB/admin verification) — `POST /api/subscriptions/cancel` (soft deactivation)
+- [ ] Verify OAuth tokens cleared after revoke — `access_token` and `refresh_token` removed from DB; merchant cannot make Square API calls — no frontend (DB/admin verification) — `POST /api/square/oauth/revoke`
+- [ ] Verify session invalidated after cancellation or revoke — Subsequent requests using old session cookie return 401 or redirect to login — no frontend (API direct) — session middleware
