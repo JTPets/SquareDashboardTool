@@ -28,10 +28,14 @@ jest.mock('../../../utils/idempotency', () => ({
 
 jest.mock('../../../config/constants', () => ({
     SQUARE: { API_VERSION: '2024-01-01' },
-    RETRY: { MAX_ATTEMPTS: 3, BASE_DELAY_MS: 1000, MAX_DELAY_MS: 30000 },
+    RETRY: { MAX_ATTEMPTS: 3, BASE_DELAY_MS: 0, MAX_DELAY_MS: 30000 },
 }));
 
 jest.mock('node-fetch', () => jest.fn());
+
+// Force a fresh require of square-client so it loads with the mocked constants
+// above rather than a cached instance from a previous test file in the same worker.
+jest.resetModules();
 
 const db = require('../../../utils/database');
 const { decryptToken, isEncryptedToken, encryptToken } = require('../../../utils/token-encryption');
@@ -179,7 +183,7 @@ describe('Square Client Service', () => {
                     ok: false,
                     status: 429,
                     json: () => Promise.resolve({ errors: [] }),
-                    headers: { get: () => '1' },
+                    headers: { get: () => '0' },
                 })
                 .mockResolvedValueOnce({
                     ok: true,
@@ -377,13 +381,13 @@ describe('Square Client Service', () => {
                     ok: false,
                     status: 429,
                     json: () => Promise.resolve({ errors: [] }),
-                    headers: { get: () => '1' },
+                    headers: { get: () => '0' },
                 })
                 .mockResolvedValueOnce({
                     ok: false,
                     status: 429,
                     json: () => Promise.resolve({ errors: [] }),
-                    headers: { get: () => '1' },
+                    headers: { get: () => '0' },
                 })
                 .mockResolvedValueOnce({
                     ok: true,
@@ -414,7 +418,7 @@ describe('Square Client Service', () => {
         test('exports expected constants', () => {
             expect(squareClient.SQUARE_BASE_URL).toBe('https://connect.squareup.com');
             expect(squareClient.MAX_RETRIES).toBe(3);
-            expect(squareClient.RETRY_DELAY_MS).toBe(1000);
+            expect(squareClient.RETRY_DELAY_MS).toBe(0);
         });
 
         test('exports generateIdempotencyKey', () => {
