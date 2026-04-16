@@ -10,7 +10,7 @@
  *   6. modifier_orphan
  *
  * missing_tax removed — redundant with catalog audit "No Tax IDs" card.
- * Also covers: merchant guard, resolution, idempotency, legacy cleanup, getHealthHistory, getOpenIssues,
+ * Also covers: resolution, idempotency, legacy cleanup, getHealthHistory, getOpenIssues,
  * and constraint string-match guard to prevent DB constraint violations.
  */
 
@@ -91,16 +91,6 @@ beforeEach(() => {
     runFullHealthCheck = service.runFullHealthCheck;
     getHealthHistory = service.getHealthHistory;
     getOpenIssues = service.getOpenIssues;
-});
-
-// ============================================================================
-// Merchant guard
-// ============================================================================
-describe('merchant guard', () => {
-    test('throws if merchantId is not 3', async () => {
-        await expect(runFullHealthCheck(1)).rejects.toThrow('debug-only, merchant 3 only');
-        await expect(runFullHealthCheck(99)).rejects.toThrow('debug-only, merchant 3 only');
-    });
 });
 
 // ============================================================================

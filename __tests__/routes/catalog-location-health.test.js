@@ -27,6 +27,15 @@ jest.mock('../../middleware/auth', () => ({
     },
 }));
 
+jest.mock('../../middleware/merchant', () => ({
+    requireMerchant: (req, res, next) => {
+        if (!req.merchantContext) {
+            return res.status(403).json({ error: 'No merchant connected' });
+        }
+        next();
+    },
+}));
+
 const request = require('supertest');
 const express = require('express');
 const session = require('express-session');
@@ -38,6 +47,9 @@ function createTestApp(userRole = 'admin') {
     app.use(session({ secret: 'test-secret', resave: false, saveUninitialized: true }));
     app.use((req, res, next) => {
         req.session.user = { id: 1, email: 'test@example.com', role: userRole };
+        if (userRole === 'admin') {
+            req.merchantContext = { id: 1, businessName: 'Test Store' };
+        }
         next();
     });
     app.use('/api/admin/catalog-location-health', require('../../routes/catalog-location-health'));
@@ -66,9 +78,8 @@ describe('Catalog Location Health Routes', () => {
             expect(res.body.success).toBe(true);
             expect(res.body.history).toEqual(mockHistory);
             expect(res.body.openMismatches).toEqual(mockMismatches);
-            // Hard-coded to merchant_id = 3
-            expect(getMismatchHistory).toHaveBeenCalledWith(3);
-            expect(getOpenMismatches).toHaveBeenCalledWith(3);
+            expect(getMismatchHistory).toHaveBeenCalledWith(1);
+            expect(getOpenMismatches).toHaveBeenCalledWith(1);
         });
 
         it('should require admin role', async () => {
@@ -97,7 +108,7 @@ describe('Catalog Location Health Routes', () => {
             expect(res.body.success).toBe(true);
             expect(res.body.totalItems).toBe(50);
             expect(res.body.mismatches).toBe(2);
-            expect(checkAndRecordHealth).toHaveBeenCalledWith(3);
+            expect(checkAndRecordHealth).toHaveBeenCalledWith(1);
         });
 
         it('should require admin role', async () => {

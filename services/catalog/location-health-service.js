@@ -1,9 +1,9 @@
 /**
  * Catalog Location Health Service
  *
- * Debug tool for tracking Square catalog location mismatches where a variation's
+ * Service for tracking Square catalog location mismatches where a variation's
  * present_at_all_locations / present_at_all_future_locations flags differ from
- * its parent ITEM. Scoped to merchant_id = 3 only.
+ * its parent ITEM. Multi-tenant — runs for any authenticated merchant.
  *
  * This table is a permanent audit trail — rows are never pruned or deleted.
  *
@@ -19,8 +19,6 @@ const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { getMerchantToken, makeSquareRequest } = require('../square/square-client');
 const { SQUARE: { MAX_PAGINATION_ITERATIONS } } = require('../../config/constants');
-
-const DEBUG_MERCHANT_ID = 3;
 
 /**
  * Fetch all ITEM objects with their variations from Square Catalog API (paginated)
@@ -101,14 +99,10 @@ function detectMismatches(item, variation) {
 /**
  * Check all catalog items for location mismatches and record in health table
  *
- * @param {number} merchantId - Must be DEBUG_MERCHANT_ID (3)
+ * @param {number} merchantId - The merchant ID
  * @returns {Promise<Object>} { checked, newMismatches, resolved, existingOpen }
  */
 async function checkAndRecordHealth(merchantId) {
-    if (merchantId !== DEBUG_MERCHANT_ID) {
-        throw new Error('Location health tracking is debug-only, merchant 3 only');
-    }
-
     logger.info('Starting catalog location health check', { merchantId });
 
     const catalogItems = await fetchCatalogItems(merchantId);
