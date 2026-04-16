@@ -2256,3 +2256,31 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - The `requireWriteAccess` gaps documented in Section 2 (delivery, vendor-catalog, cycle-counts, square-attributes, sync, bundles, expiry-discounts, labels, settings, webhooks, ai-autofill, vendor-match-suggestions) are present in the code but **not validated by dedicated negative-path tests** — existing tests confirm the happy path works but do not assert that read-only users are blocked from write endpoints.
 - Delivery rate-limit enforcement has only 1 dedicated test.
 - `catalog-location-health.js` endpoints are exercised by unit tests but cannot be reached in production.
+
+---
+
+## Section 4 — QA Checklist
+
+> **Format:** Each item is: `- [ ] Action — Expected result — Frontend file — Backend route`
+> **⚠️** marks any step that touches real Square data or fires real payment/PO operations.
+
+---
+
+### Journey 1 — Sign-up & Onboarding
+
+- [ ] Navigate to `/` (marketing landing page) — Page loads; nav shows "Log In" and "Get Started" links — `public/index.html` — static (no API)
+- [ ] Click "Get Started" hero button — Redirected to `/subscribe.html` — `public/index.html` — static
+- [ ] Load `/subscribe.html` — Plans render (monthly/annual); Square payment form mounts — `public/subscribe.html` — `GET /api/subscriptions/plans`, `GET /api/square/payment-config`
+- [ ] Click "Select Monthly" plan toggle — Monthly plan highlighted; price updates in UI — `public/subscribe.html` — client-side only
+- [ ] Click "Select Annual" plan toggle — Annual plan highlighted; price updates in UI — `public/subscribe.html` — client-side only
+- [ ] Enter a promo code and click "Apply" — Valid code: discount shown; invalid code: inline error — `public/subscribe.html` — `POST /api/subscriptions/promo/validate`
+- [ ] Click "Terms of Service" link — Terms modal opens — `public/subscribe.html` — client-side only
+- [ ] Click "I Understand and Accept" in modal — Modal closes; terms checkbox checked — `public/subscribe.html` — client-side only
+- [ ] Submit signup form with valid email, business name, and payment details ⚠️ — Account created; password setup email sent; `passwordSetupUrl` returned — `public/subscribe.html` — `POST /api/subscriptions/create` ⚠️ (charges real Square payment)
+- [ ] Submit signup form with an already-registered email — Error: "An account with this email already exists" — `public/subscribe.html` — `POST /api/subscriptions/create`
+- [ ] Submit signup form without accepting terms — Client-side validation prevents submission — `public/subscribe.html` — client-side only
+- [ ] Follow password setup link (`/set-password.html?token=...`) — Token validated; password form displayed — `public/set-password.html` — `GET /api/auth/verify-reset-token`
+- [ ] Submit new password — Password saved; redirect to `/login.html?setup=complete` — `public/set-password.html` — `POST /api/auth/reset-password`
+- [ ] Load `/login.html?setup=complete` — "Setup complete" banner shown — `public/login.html` — client-side only
+- [ ] Log in with new credentials — Authenticated; redirect to `/dashboard.html` — `public/login.html` — `POST /api/auth/login`
+- [ ] Load `/dashboard.html` after login — Dashboard renders for authenticated user — `public/dashboard.html` — `GET /api/auth/me`
