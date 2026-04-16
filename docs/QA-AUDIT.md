@@ -929,3 +929,67 @@ Mount points: `routes/auth/*` → `/api/auth`; `routes/subscriptions/*` → `/ap
 | 1 | HIGH | `POST /api/auth/forgot-password` | Missing rate limit — `passwordResetRateLimit` declared in file but not applied; unlimited password-reset emails can be triggered per IP |
 | 2 | LOW | `POST /api/subscriptions/refund` | No explicit `requireAuth` in route chain; relies on global apiAuthMiddleware — recommend adding for clarity and defense-in-depth |
 | 3 | LOW | `GET /api/webhooks/events` | No test coverage for this admin endpoint |
+
+---
+
+### Group 2 — Catalog & Inventory
+
+Files scanned: `routes/catalog.js`, `routes/catalog-health.js`.
+
+> **Scope note:** `routes/inventory.js` does not exist. The `/api/inventory` and `/api/low-stock` endpoints are defined in `routes/catalog.js` and are included below.
+
+Mount points: `routes/catalog.js` → `/api`; `routes/catalog-health.js` → `/api/admin/catalog-health`.
+
+Additional global gates from `server.js` `gateApi()` calls:
+- `/expirations` → `requireFeature('expiry')`, `requirePermission('expiry', 'read')`
+- `/deleted-items` → `requireFeature('loyalty')`, `requirePermission('loyalty', 'read')`
+- `/catalog-audit` → `requirePermission('base', 'read')`
+
+---
+
+#### `routes/catalog.js`
+
+| Method | Path | Middleware chain (route-level + feature gate) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/locations` | `requireAuth`, `requireMerchant` | `catalogService.getLocations` | Y | — |
+| GET | `/api/categories` | `requireAuth`, `requireMerchant`, `validators.getCategories` | `catalogService.getCategories` | Y | — |
+| GET | `/api/items` | `requireAuth`, `requireMerchant`, `validators.getItems` | `catalogService.getItems` | Y | — |
+| GET | `/api/variations` | `requireAuth`, `requireMerchant`, `validators.getVariations` | `catalogService.getVariations` | Y | — |
+| GET | `/api/variations-with-costs` | `requireAuth`, `requireMerchant`, `validators.getVariationsWithCosts` | `catalogService.getVariationsWithCosts` | Y | — |
+| PATCH | `/api/variations/:id/extended` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.updateVariationExtended` | `catalogService.updateExtendedFields` | Y | — |
+| PATCH | `/api/variations/:id/min-stock` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.updateMinStock` | `catalogService.updateMinStock` | Y | — |
+| PATCH | `/api/variations/:id/cost` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.updateCost` | `catalogService.updateCost` | Y | — |
+| POST | `/api/variations/bulk-update-extended` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.bulkUpdateExtended` | `catalogService.bulkUpdateExtendedFields` | Y | — |
+| GET | `/api/expirations` | `requireAuth`, `requireMerchant`, `validators.getExpirations` + feat:expiry, perm:expiry/read | `catalogService.getExpirations` | Y | — |
+| POST | `/api/expirations` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.saveExpirations` + feat:expiry, perm:expiry/read | `catalogService.saveExpirations` | Y | — |
+| POST | `/api/expirations/pull` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.pullExpired` + feat:expiry, perm:expiry/read | `catalogService.handleExpiredPull` | Y | — |
+| POST | `/api/expirations/review` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.reviewExpirations` + feat:expiry, perm:expiry/read | `catalogService.markExpirationsReviewed` | Y | — |
+| GET | `/api/inventory` | `requireAuth`, `requireMerchant`, `validators.getInventory` | `catalogService.getInventory` | Y | — |
+| GET | `/api/low-stock` | `requireAuth`, `requireMerchant`, `validators.getLowStock` | `catalogService.getLowStock` | Y | — |
+| GET | `/api/deleted-items` | `requireAuth`, `requireMerchant`, `validators.getDeletedItems` + feat:loyalty, perm:loyalty/read | `catalogService.getDeletedItems` | Y | — |
+| GET | `/api/catalog-audit` | `requireAuth`, `requireMerchant`, `validators.getCatalogAudit` + perm:base/read | `catalogService.getCatalogAudit` | Y | — |
+| POST | `/api/catalog-audit/enable-item-at-locations` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.enableItemAtLocations` + perm:base/read | `catalogService.enableItemAtAllLocations` | Y | — |
+| POST | `/api/catalog-audit/fix-locations` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.fixLocations` + perm:base/read | `catalogService.fixLocationMismatches` | Y | ⚠️ Bulk destructive Square catalog write; no admin/superAdmin gate beyond `requireWriteAccess` |
+| POST | `/api/catalog-audit/fix-inventory-alerts` | `requireAuth`, `requireWriteAccess`, `requireMerchant`, `validators.fixInventoryAlerts` + perm:base/read | `catalogService.fixInventoryAlerts` | Y | ⚠️ Same — bulk Square write with no elevated-role guard |
+
+---
+
+#### `routes/catalog-health.js`
+
+Mounted at `/api/admin/catalog-health`.
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/admin/catalog-health` | `requireAuth`, `requireAdmin`, `validators.getHealth` | `getHealthHistory`, `getOpenIssues` | Y | ⚠️ Hard-coded `DEBUG_MERCHANT_ID = 3` — always runs against merchant 3 regardless of caller; breaks multi-tenant design |
+| POST | `/api/admin/catalog-health/check` | `requireAuth`, `requireAdmin`, `validators.runCheck` | `runFullHealthCheck` | Y | ⚠️ Same hard-coded `DEBUG_MERCHANT_ID = 3` issue |
+
+---
+
+**Group 2 flag summary:**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | HIGH | `GET /api/admin/catalog-health`, `POST /api/admin/catalog-health/check` | Hard-coded `DEBUG_MERCHANT_ID = 3` — health check always targets merchant 3 regardless of authenticated caller; violates multi-tenant isolation |
+| 2 | MEDIUM | `POST /api/catalog-audit/fix-locations` | Bulk destructive Square catalog operation; only `requireWriteAccess` guards it — no admin or superAdmin role required |
+| 3 | MEDIUM | `POST /api/catalog-audit/fix-inventory-alerts` | Same — bulk Square write with no elevated-role gate |
+| 4 | INFO | — | `routes/inventory.js` referenced in task scope does not exist; `/api/inventory` and `/api/low-stock` are in `routes/catalog.js` |
