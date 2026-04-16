@@ -2579,3 +2579,45 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - [ ] Run loyalty catchup for all known customers ⚠️ — Reverse-lookup catchup runs; gaps in loyalty history filled — `public/loyalty.html` — `POST /api/loyalty/catchup` ⚠️ (fetches Square order history per customer)
 - [ ] Run loyalty catchup scoped to specific customer IDs ⚠️ — Catchup limited to supplied customer list — `public/loyalty.html` — `POST /api/loyalty/catchup` (with `customerIds`) ⚠️
 - [ ] Attempt to access loyalty page as clerk — 403 or feature-gate blocks access — `public/loyalty.html` — `GET /api/merchant/features`
+
+### Journey 12 — Settings & Account Management
+
+#### Profile & Merchant Settings
+
+- [ ] Load `/settings.html` — Settings page renders; merchant settings, Square connection status, and subscription info all shown — `public/settings.html` — `GET /api/settings/merchant`, `GET /api/config`, `GET /api/health`
+- [ ] View merchant operational settings — Reorder rules, cycle count config, and supply day defaults shown — `public/settings.html` — `GET /api/settings/merchant`
+- [ ] View default settings from environment — Platform-level defaults for supply days and thresholds shown — `public/settings.html` — `GET /api/settings/merchant/defaults`
+- [ ] Update merchant settings (valid values) — Settings saved; success toast shown — `public/settings.html` — `PUT /api/settings/merchant`
+- [ ] Update merchant settings with invalid value (e.g. negative reorder days) — Validation error returned; settings not saved — `public/settings.html` — `PUT /api/settings/merchant`
+- [ ] Update notification preferences (email reports on/off) — Email notification preferences saved as part of merchant settings — `public/settings.html` — `PUT /api/settings/merchant`
+- [ ] View frontend configuration — Supply days, reorder thresholds, Square connect URL, and email config status shown — `public/settings.html` — `GET /api/config`
+
+#### Password Management
+
+- [ ] Change own password with correct current password — Password updated; success message shown — `public/settings.html` — `POST /api/change-password`
+- [ ] Change own password with incorrect current password — Error: current password is incorrect; no change — `public/settings.html` — `POST /api/change-password`
+- [ ] Change own password with weak new password — Validation error; password not changed — `public/settings.html` — `POST /api/change-password`
+- [ ] Request password reset email (forgot password) — Reset email sent; success response regardless of whether email exists (enumeration prevention) — `public/login.html` — `POST /api/forgot-password`
+- [ ] Reset password via token link — Password updated; redirect to `/login.html?setup=complete` — `public/set-password.html` — `POST /api/reset-password`
+- [ ] Reset password with expired token — Error: token invalid or expired; reset form shows error — `public/set-password.html` — `GET /api/verify-reset-token`
+- [ ] Admin resets another user's password — New password set (or generated); success message returned — `public/settings.html` — `POST /api/users/:id/reset-password`
+
+#### Locations & Square Connection Status
+
+- [ ] View Square connection status — "Connected" / "Disconnected" shown with token validity status — `public/settings.html` — `GET /api/health`
+- [ ] Test Square connection ⚠️ — Success toast with Square API response and locations count returned — `public/settings.html` — `GET /api/health` ⚠️ (makes real Square API call)
+- [ ] View merchant's Square locations ⚠️ — Locations list with active/inactive status rendered — `public/settings.html` — `GET /api/locations` ⚠️ (reads real Square locations)
+- [ ] View merchant context (active merchant + connect URL) — Active merchant details and Square OAuth connect URL shown — `public/settings.html` — `GET /api/merchants/context`
+- [ ] View all merchants for user — All merchants the user has access to listed with active context — `public/settings.html` — `GET /api/merchants`
+- [ ] Switch active merchant — Active merchant context updated; UI reloads for new merchant — `public/settings.html` — `POST /api/merchants/switch`
+- [ ] Switch to a merchant user does not belong to — 403 Insufficient permissions — no frontend (API direct) — `POST /api/merchants/switch`
+
+#### User Administration
+
+- [ ] Load user list as admin — All users for active merchant listed with roles and status — `public/settings.html` — `GET /api/users`
+- [ ] Attempt to load user list as non-admin — 403 Insufficient permissions — no frontend (API direct) — `GET /api/users`
+- [ ] Create new user as admin — User created and linked to active merchant; confirmation shown — `public/settings.html` — `POST /api/users`
+- [ ] Create user with duplicate email — Error: email already in use — `public/settings.html` — `POST /api/users`
+- [ ] Update user role as admin — Role updated; user list refreshes — `public/settings.html` — `PUT /api/users/:id`
+- [ ] Deactivate a user as admin — `is_active = false`; user loses access — `public/settings.html` — `PUT /api/users/:id` (with `is_active: false`)
+- [ ] Unlock a locked-out user as admin — Account lockout cleared; user can log in again — `public/settings.html` — `POST /api/users/:id/unlock`
