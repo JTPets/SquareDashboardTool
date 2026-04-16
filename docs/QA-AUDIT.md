@@ -2954,3 +2954,82 @@ These endpoints are low-risk (read-only metadata) but inconsistent with the proj
 | Missing elevated-role gate | — | — | 2 | — | 2 |
 | Implicit-only auth | — | — | — | 1 | 1 |
 | **Total** | **1** | **~8** | **~37** | **8** | **~54** |
+
+---
+
+### Group 3 — Test Coverage Gaps
+
+> All items below are drawn directly from Section 3. No new test scanning was performed. Section 3 established 100% route coverage across all 351 documented routes; the gaps below are quality and depth issues, not quantity issues.
+
+---
+
+#### 3.1 — Features with zero test coverage
+
+**Finding: None.**
+
+Section 3 confirmed that every feature domain has test coverage at both the route level and the service level. The Overall Summary Table (Section 3 Group 4) shows 100% route coverage across all 24 domains, 292 test files, and 5,688 tests.
+
+---
+
+#### 3.2 — Routes from Section 2 with no corresponding test
+
+**Finding: Structurally none — with one architectural exception.**
+
+Every route documented in Section 2 has at least one test. The single exception originally flagged (`GET /api/webhooks/events`, Section 2 Group 1 flag #3, marked N) was reconciled in Section 3: `__tests__/routes/subscriptions-untested-endpoints.test.js:330` covers it.
+
+**Architectural exception (not a missing test, but an unreachable route):**
+
+| Severity | Route(s) | Test file | Issue |
+|----------|----------|-----------|-------|
+| CRITICAL | `GET /api/admin/catalog-location-health`, `POST /api/admin/catalog-location-health/check` | `__tests__/routes/catalog-location-health.test.js` | Handler-level unit tests exist and pass. However, `routes/catalog-location-health.js` is not mounted in `server.js`, so these tests exercise the handler functions directly — they do not cover the HTTP dispatch path, middleware chain (requireAuth, requireAdmin), or validator execution. Integration tests via HTTP are impossible until the file is mounted. |
+
+---
+
+#### 3.3 — Negative-path auth tests missing
+
+This is the most significant test coverage gap in the codebase. The `requireWriteAccess` access-control gaps documented in Section 2 Group 2.C affect approximately 38 routes across 12 route files. **Not a single one of those routes has a dedicated negative-path test asserting that a `readonly` user receives a 403.**
+
+Existing tests confirm the happy path (authenticated write-role user succeeds). They do not assert that a read-only user is blocked.
+
+**Affected domains and test files with no negative-path `requireWriteAccess` coverage:**
+
+| Domain | Route file | Write routes without negative-path test | Test file |
+|--------|-----------|----------------------------------------|-----------|
+| Delivery | `routes/delivery/orders.js`, `pod.js`, `routes.js`, `settings.js`, `sync.js`, `routes/driver-api.js` | 16 write endpoints | `delivery.test.js`, `delivery-completion.test.js` |
+| Purchase Orders | `routes/purchase-orders.js` | 5 write endpoints | `purchase-orders.test.js` |
+| Cycle Counts | `routes/cycle-counts.js` | 6 write endpoints | `cycle-counts.test.js` |
+| Square Attributes | `routes/square-attributes.js` | 8 write endpoints | `square-attributes.test.js` |
+| Vendor Catalog | `routes/vendor-catalog/import.js`, `manage.js`, `vendors.js` | 10 write endpoints | `vendor-catalog.test.js`, `vendor-catalog-create.test.js` |
+| Vendor Match Suggestions | `routes/vendor-match-suggestions.js` | 4 write endpoints | `vendor-match-suggestions.test.js` |
+| Sync | `routes/sync.js` | 3 write endpoints | `sync.test.js` |
+| Webhooks | `routes/webhooks.js` | 4 write endpoints | _(webhook tests focus on inbound Square processing)_ |
+| Expiry Discounts | `routes/expiry-discounts.js` | 5 write endpoints | `expiry-discounts.test.js` |
+| Bundles | `routes/bundles.js` | 3 write endpoints | `bundles.test.js` |
+| Settings | `routes/settings.js` | 1 write endpoint | `settings.test.js` |
+| AI Autofill | `routes/ai-autofill.js` | 2 write endpoints | `ai-autofill.test.js` |
+| Labels | `routes/labels.js` | 3 write endpoints | `labels.test.js` |
+
+**Write-access test file that does exist** — `__tests__/routes/catalog-write-access.test.js` (3 tests) covers `PATCH /api/variations/:id/*` routes. This is the correct pattern; it needs to be replicated across the domains above.
+
+**Additional negative-path gaps (non-requireWriteAccess):**
+
+| # | Severity | Gap | Relevant Section 2 flag |
+|---|----------|-----|-------------------------|
+| 1 | MEDIUM | No test asserts that a read-only user is blocked from any of the 16 delivery write endpoints | S2 Group 5 flag #1 |
+| 2 | MEDIUM | No test asserts that triggering `POST /api/auth/forgot-password` in rapid succession is rate-limited (the rate limit is not applied, so no such test can pass until 2.B flag #1 is fixed) | S2 Group 1 flag #1 |
+| 3 | MEDIUM | No test asserts that `GET /api/admin/catalog-health` returns merchant-scoped data for the calling admin's merchant (the hard-coded DEBUG_MERCHANT_ID = 3 makes any such test trivially pass against merchant 3 only) | S2 Group 2 flag #1 |
+| 4 | LOW | `delivery-rate-limiting.test.js` contains only 1 test; rate-limit enforcement across all delivery write routes is not systematically validated | S3 Group 3 delivery notes |
+| 5 | LOW | No test validates that `POST /api/loyalty/backfill`, `/catchup`, or `/refresh-customers` are blocked when called in rapid succession (no rate limit exists to enforce) | S2 Group 4 flags |
+
+---
+
+#### Group 3 summary
+
+| Category | Gap count | Severity |
+|----------|-----------|----------|
+| Features with zero coverage | 0 | — |
+| Routes with no test at all | 0 (1 structurally unmountable) | CRITICAL (architectural) |
+| Routes missing negative-path auth test (`requireWriteAccess`) | ~38 routes across 13 domains | HIGH |
+| Rate-limit enforcement tests missing | 4 endpoints (forgot-password, loyalty backfill/catchup/refresh) | MEDIUM |
+| Rate-limit depth thin | Delivery (1 test covers 16 write routes) | LOW |
+| Catalog-location-health HTTP integration | 2 routes (unmounted — untestable via HTTP until fixed) | CRITICAL (blocked by Group 1.2 fix) |
