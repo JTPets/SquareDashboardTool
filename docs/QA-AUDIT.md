@@ -2429,3 +2429,56 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - [ ] Load `/inventory.html` and view low-stock items — Items at or below minimum stock threshold highlighted ⚠️ — `public/inventory.html` — `GET /api/low-stock` ⚠️ (reads Square-synced inventory)
 - [ ] Access `/reorder.html` as readonly user — Suggestions visible; add-to-order and order-submit buttons absent — `public/reorder.html` — `GET /api/reorder-suggestions` ⚠️
 - [ ] Access `/reorder.html` as clerk — 403 or feature-gate blocks access (clerk has no reorder/vendor access) — `public/reorder.html` — `GET /api/merchant/features`
+
+### Journey 9 — Inventory Management
+
+#### Cycle Counts
+
+- [ ] Load `/cycle-count.html` — Pending cycle count items render; priority queue items listed first — `public/cycle-count.html` — `GET /api/cycle-counts/pending`
+- [ ] Complete a cycle count where actual matches expected — Count recorded as accurate; no variance flagged — `public/cycle-count.html` — `POST /api/cycle-counts/:id/complete`
+- [ ] Complete a cycle count where actual differs from expected — Count recorded; variance calculated and flagged in history — `public/cycle-count.html` — `POST /api/cycle-counts/:id/complete`
+- [ ] Sync a count result to Square ⚠️ — Inventory level adjusted at Square; adjustment details and variance returned — `public/cycle-count.html` — `POST /api/cycle-counts/:id/sync-to-square` ⚠️ (calls Square inventory API)
+- [ ] Add item to priority queue (send now) — Item inserted into priority queue for next cycle batch — `public/cycle-count.html` — `POST /api/cycle-counts/send-now`
+- [ ] View cycle count stats — Session stats, coverage percentage, and accuracy rate shown — `public/cycle-count.html` — `GET /api/cycle-counts/stats`
+- [ ] View cycle count stats for custom day range — Stats recalculate for specified period — `public/cycle-count.html` — `GET /api/cycle-counts/stats?days=60`
+- [ ] View cycle count history — History with variance analysis rendered — `public/cycle-count.html` — `GET /api/cycle-counts/history`
+- [ ] Filter cycle count history by date range — Records filtered to specified start/end dates — `public/cycle-count.html` — `GET /api/cycle-counts/history?start_date=...&end_date=...`
+- [ ] Filter cycle count history by specific date — Single-day count records shown — `public/cycle-count.html` — `GET /api/cycle-counts/history?date=...`
+- [ ] Email cycle count report — Report email sent; success toast shown — `public/cycle-count.html` — `POST /api/cycle-counts/email-report`
+- [ ] Manually generate batch — Batch generated; pending list refreshes — `public/cycle-count.html` — `POST /api/cycle-counts/generate-batch`
+- [ ] Reset cycle count data (preserve history) — Active counts cleared; historical records retained — `public/cycle-count.html` — `POST /api/cycle-counts/reset` (with `preserve_history: true`)
+- [ ] Reset cycle count data (discard history) — All cycle count data cleared — `public/cycle-count.html` — `POST /api/cycle-counts/reset` (with `preserve_history: false`)
+- [ ] Access cycle count page as clerk — Page loads; scan/complete actions available — `public/cycle-count.html` — `GET /api/cycle-counts/pending`
+
+#### Manual Adjustments & Min/Max Settings
+
+- [ ] Load `/inventory.html` — Inventory list renders with current stock levels per variation ⚠️ — `public/inventory.html` — `GET /api/inventory` ⚠️
+- [ ] Filter inventory by location — List narrows to selected location's stock levels ⚠️ — `public/inventory.html` — `GET /api/inventory?location_id=...` ⚠️
+- [ ] Filter inventory to low-stock items only — Only items at or below minimum shown ⚠️ — `public/inventory.html` — `GET /api/inventory?low_stock=true` ⚠️
+- [ ] Set min stock for a variation ⚠️ — Min stock saved in DB and synced to Square catalog; confirmation shown — `public/inventory.html` — `PATCH /api/variations/:id/min-stock` ⚠️ (writes to Square)
+- [ ] Set min stock for a variation at a specific location ⚠️ — Location-scoped threshold updated and pushed to Square — `public/inventory.html` — `PATCH /api/variations/:id/min-stock` (with `location_id`) ⚠️
+- [ ] Set vendor cost for a variation ⚠️ — Cost updated in DB and synced to Square as vendor cost — `public/inventory.html` — `PATCH /api/variations/:id/cost` ⚠️
+
+#### Expiry Tracking
+
+- [ ] Load `/expiry.html` — Expiry discount status summary and tier configuration shown — `public/expiry.html` — `GET /api/expiry-discounts/status`, `GET /api/expiry-discounts/tiers`
+- [ ] View discount tier list — All tier configurations with days-before-expiry thresholds and discount percentages shown — `public/expiry.html` — `GET /api/expiry-discounts/tiers`
+- [ ] Edit a discount tier threshold or percentage — Tier updated; new config saved; confirmation shown — `public/expiry.html` — `PATCH /api/expiry-discounts/tiers/:id`
+- [ ] Save invalid tier (e.g. discount > 100%) — Validation error returned; tier not saved — `public/expiry.html` — `PATCH /api/expiry-discounts/tiers/:id`
+- [ ] View variations with expiry discounts — Variation list with current discount status and tier codes shown — `public/expiry.html` — `GET /api/expiry-discounts/variations`
+- [ ] Filter variations by tier code — Filtered variation list returned — `public/expiry.html` — `GET /api/expiry-discounts/variations?tier_code=...`
+- [ ] Filter variations needing a discount pull — Only variations requiring pull shown — `public/expiry.html` — `GET /api/expiry-discounts/variations?needs_pull=true`
+- [ ] View expiry discount settings — System-level settings for the expiry discount engine shown — `public/expiry.html` — `GET /api/expiry-discounts/settings`
+- [ ] Update expiry settings — Settings saved; confirmation shown — `public/expiry.html` — `PATCH /api/expiry-discounts/settings`
+- [ ] Run expiry evaluation dry run ⚠️ — Evaluation results previewed; no changes applied to Square — `public/expiry.html` — `POST /api/expiry-discounts/evaluate` (with `dry_run: true`) ⚠️
+- [ ] Apply expiry discounts to Square ⚠️ — Discounts pushed to Square catalog; result summary shown — `public/expiry.html` — `POST /api/expiry-discounts/apply` ⚠️ (writes discounts to Square catalog)
+- [ ] Run full expiry workflow (evaluate + apply) ⚠️ — Discounts evaluated and applied; notification email sent — `public/expiry.html` — `POST /api/expiry-discounts/run` ⚠️
+- [ ] Run full expiry workflow dry run ⚠️ — Workflow simulated end-to-end; no Square writes; report shown — `public/expiry.html` — `POST /api/expiry-discounts/run` (with `dry_run: true`) ⚠️
+- [ ] View expiry audit log — Audit log of all discount changes shown with timestamps — `public/expiry.html` — `GET /api/expiry-discounts/audit-log`
+- [ ] Filter expiry audit log by variation — Audit entries for specific variation returned — `public/expiry.html` — `GET /api/expiry-discounts/audit-log?variation_id=...`
+- [ ] Access expiry page as clerk — Page loads; expiry review actions available — `public/expiry.html` — `GET /api/expiry-discounts/status`
+
+#### Sync Operations
+
+- [ ] Initialize Square discount objects ⚠️ — Discount catalog objects created in Square for expiry tiers — `public/expiry.html` — `POST /api/expiry-discounts/init-square` ⚠️ (creates objects in Square catalog)
+- [ ] Pull expiry data from Square ⚠️ — Inventory adjusted based on pull request; Square data reflected locally — `public/expiry.html` — `POST /api/expirations/pull` ⚠️ (adjusts Square inventory)
