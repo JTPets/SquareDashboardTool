@@ -521,15 +521,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Close modals on background click
   document.getElementById('send-now-modal').addEventListener('click', (e) => {
-    if (e.target.id === 'send-now-modal') {
-      closeSendNowModal();
-    }
+    if (e.target.id === 'send-now-modal') closeSendNowModal();
+  });
+  document.getElementById('count-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'count-modal') closeCountModal();
+  });
+  document.getElementById('category-batch-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'category-batch-modal') closeCategoryBatchModal();
   });
 
-  document.getElementById('count-modal').addEventListener('click', (e) => {
-    if (e.target.id === 'count-modal') {
-      closeCountModal();
-    }
+  // Reload dropdown when switching between category/vendor
+  document.querySelectorAll('input[name="batch-type"]').forEach(radio => {
+    radio.addEventListener('change', loadCategoryBatchDropdown);
   });
 });
 
@@ -544,6 +547,129 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+// ── Category / Vendor batch ───────────────────────────────────────────────────
+
+let categoryBatchCache = { categories: [], vendors: [] };
+
+async function showCategoryBatchModal() {
+  document.getElementById('category-batch-modal').classList.add('active');
+  document.getElementById('batch-preview-result').textContent = '';
+  document.getElementById('submit-category-batch-btn').disabled = true;
+  await loadCategoryBatchDropdown();
+}
+
+function closeCategoryBatchModal() {
+  document.getElementById('category-batch-modal').classList.remove('active');
+  document.getElementById('batch-preview-result').textContent = '';
+  document.getElementById('submit-category-batch-btn').disabled = true;
+}
+
+async function loadCategoryBatchDropdown() {
+  const type = document.querySelector('input[name="batch-type"]:checked').value;
+  const select = document.getElementById('batch-select');
+  document.getElementById('batch-select-label').textContent = type === 'category' ? 'Category:' : 'Vendor:';
+  document.getElementById('batch-preview-result').textContent = '';
+  document.getElementById('submit-category-batch-btn').disabled = true;
+  select.innerHTML = '<option value="">Loading...</option>';
+
+  try {
+    let items;
+    if (type === 'category') {
+      if (categoryBatchCache.categories.length === 0) {
+        const res = await fetch('/api/categories');
+        const data = await res.json();
+        categoryBatchCache.categories = data.categories || [];
+      }
+      items = categoryBatchCache.categories.map(name => ({ id: name, label: name }));
+    } else {
+      if (categoryBatchCache.vendors.length === 0) {
+        const res = await fetch('/api/vendors');
+        const data = await res.json();
+        categoryBatchCache.vendors = data.vendors || [];
+      }
+      items = categoryBatchCache.vendors.map(v => ({ id: v.id, label: v.name }));
+    }
+
+    if (items.length === 0) {
+      select.innerHTML = `<option value="">No ${type === 'category' ? 'categories' : 'vendors'} found</option>`;
+    } else {
+      select.innerHTML = '<option value="">Select...</option>' +
+        items.map(item => `<option value="${escapeAttr(item.id)}">${escapeHtml(item.label)}</option>`).join('');
+    }
+  } catch (err) {
+    select.innerHTML = '<option value="">Error loading options</option>';
+    showToast('Error loading options: ' + err.message, 'error');
+  }
+}
+
+async function previewCategoryBatch() {
+  const type = document.querySelector('input[name="batch-type"]:checked').value;
+  const id = document.getElementById('batch-select').value;
+  if (!id) {
+    showToast('Please select a ' + (type === 'category' ? 'category' : 'vendor'), 'error');
+    return;
+  }
+
+  const previewEl = document.getElementById('batch-preview-result');
+  const btn = document.getElementById('preview-category-batch-btn');
+  previewEl.textContent = 'Loading...';
+  previewEl.style.color = '#6b7280';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`/api/cycle-counts/preview-category-batch?type=${encodeURIComponent(type)}&id=${encodeURIComponent(id)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Preview failed');
+
+    const count = data.total_found;
+    if (count > 0) {
+      previewEl.textContent = `${count} item${count !== 1 ? 's' : ''} will be added to your count queue`;
+      previewEl.style.color = '#059669';
+      document.getElementById('submit-category-batch-btn').disabled = false;
+    } else {
+      previewEl.textContent = `No trackable items found for this ${type}`;
+      previewEl.style.color = '#6b7280';
+      document.getElementById('submit-category-batch-btn').disabled = true;
+    }
+  } catch (err) {
+    previewEl.textContent = 'Preview failed: ' + err.message;
+    previewEl.style.color = '#dc2626';
+    document.getElementById('submit-category-batch-btn').disabled = true;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function submitCategoryBatch() {
+  const type = document.querySelector('input[name="batch-type"]:checked').value;
+  const id = document.getElementById('batch-select').value;
+  if (!id) return;
+
+  const btn = document.getElementById('submit-category-batch-btn');
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+
+  try {
+    const res = await fetch('/api/cycle-counts/generate-category-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, id, added_by: 'Mobile User' })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Generation failed');
+
+    const { items_added, items_skipped } = data;
+    const skipMsg = items_skipped > 0 ? ` (${items_skipped} already queued)` : '';
+    showToast(`${items_added} item${items_added !== 1 ? 's' : ''} added to count queue${skipMsg}`, 'success');
+    closeCategoryBatchModal();
+    setTimeout(() => loadPendingItems(), 500);
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Generate Count';
+  }
+}
+
 // Expose functions to global scope for event delegation
 window.showSendNowModal = showSendNowModal;
 window.generateBatch = generateBatch;
@@ -553,3 +679,7 @@ window.submitSendNow = submitSendNow;
 window.closeCountModal = closeCountModal;
 window.submitCount = submitCount;
 window.showCountModal = showCountModal;
+window.showCategoryBatchModal = showCategoryBatchModal;
+window.closeCategoryBatchModal = closeCategoryBatchModal;
+window.previewCategoryBatch = previewCategoryBatch;
+window.submitCategoryBatch = submitCategoryBatch;

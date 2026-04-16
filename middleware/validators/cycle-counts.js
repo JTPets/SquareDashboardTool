@@ -159,6 +159,48 @@ const generateBatch = [
     handleValidationErrors
 ];
 
+/**
+ * POST /api/cycle-counts/generate-category-batch
+ */
+const generateCategoryBatch = [
+    body('type')
+        .trim()
+        .notEmpty()
+        .isIn(['category', 'vendor'])
+        .withMessage('type must be "category" or "vendor"'),
+    body('id')
+        .trim()
+        .notEmpty()
+        .withMessage('id is required'),
+    body('added_by')
+        .optional()
+        .trim()
+        .isLength({ max: 100 })
+        .withMessage('added_by cannot exceed 100 characters'),
+    body('notes')
+        .optional()
+        .trim()
+        .isLength({ max: 500 })
+        .withMessage('notes cannot exceed 500 characters'),
+    handleValidationErrors
+];
+
+/**
+ * GET /api/cycle-counts/preview-category-batch
+ */
+const previewCategoryBatch = [
+    query('type')
+        .trim()
+        .notEmpty()
+        .isIn(['category', 'vendor'])
+        .withMessage('type must be "category" or "vendor"'),
+    query('id')
+        .trim()
+        .notEmpty()
+        .withMessage('id is required'),
+    handleValidationErrors
+];
+
 module.exports = {
     complete,
     syncToSquare,
@@ -167,5 +209,7 @@ module.exports = {
     getHistory,
     reset,
     emailReport,
-    generateBatch
+    generateBatch,
+    generateCategoryBatch,
+    previewCategoryBatch
 };
