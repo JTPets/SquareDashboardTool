@@ -2411,3 +2411,21 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - [ ] Weekly auto min/max cron job runs (simulated via job trigger) ⚠️ — Recommendations generated; thresholds updated in DB; changes pushed to Square catalog; summary email sent — no frontend (cron/`jobs/auto-min-max-job.js`) — internal + `pushMinStockThresholdsToSquare` ⚠️
 - [ ] Get sales velocity data — Sales velocity per item returned based on synced Square order history ⚠️ — `public/sales-velocity.html` — `GET /api/sales-velocity` ⚠️ (reads real sales data synced from Square)
 - [ ] View reorder suggestions with custom supply days — Suggestions recalculated for specified supply window ⚠️ — `public/reorder.html` — `GET /api/reorder-suggestions?supply_days=45` ⚠️
+
+### Journey 8 — Reorder Suggestions
+
+- [ ] Load `/reorder.html` with no vendor selected — All reorder suggestions across all vendors load, sorted URGENT → LOW priority ⚠️ — `public/reorder.html` — `GET /api/reorder-suggestions` ⚠️ (reads Square-synced inventory data)
+- [ ] Filter suggestions by vendor — Suggestion list narrows to selected vendor's items only ⚠️ — `public/reorder.html` — `GET /api/reorder-suggestions?vendor_id=...` ⚠️
+- [ ] Filter suggestions by location — Suggestions recalculate based on stock at selected location ⚠️ — `public/reorder.html` — `GET /api/reorder-suggestions?location_id=...` ⚠️
+- [ ] View URGENT priority items (on-hand = 0) — Items with zero stock appear at top with URGENT badge — `public/reorder.html` — client-side only (data already loaded)
+- [ ] View HIGH priority items — Items with stock below minimum but non-zero shown below URGENT group — `public/reorder.html` — client-side only
+- [ ] View MEDIUM and LOW priority items — Items approaching minimum threshold grouped below HIGH — `public/reorder.html` — client-side only
+- [ ] Load suggestions when no items are below threshold — Empty state message shown; no suggestion rows rendered ⚠️ — `public/reorder.html` — `GET /api/reorder-suggestions` ⚠️
+- [ ] View sales velocity for a variation (91-day window) ⚠️ — Daily average units sold per location shown — `public/reorder.html` — `GET /api/sales-velocity?variation_id=...&period_days=91` ⚠️
+- [ ] Switch velocity period to 182 days ⚠️ — Velocity recalculates; suggested reorder quantity updates — `public/reorder.html` — `GET /api/sales-velocity?period_days=182` ⚠️
+- [ ] Switch velocity period to 365 days ⚠️ — Velocity recalculates for full-year window ⚠️ — `public/reorder.html` — `GET /api/sales-velocity?period_days=365` ⚠️
+- [ ] Load `/sales-velocity.html` — Sales velocity report for all items renders with period selector ⚠️ — `public/sales-velocity.html` — `GET /api/sales-velocity` ⚠️
+- [ ] Filter `/sales-velocity.html` by variation — Single-variation velocity breakdown shown ⚠️ — `public/sales-velocity.html` — `GET /api/sales-velocity?variation_id=...` ⚠️
+- [ ] Load `/inventory.html` and view low-stock items — Items at or below minimum stock threshold highlighted ⚠️ — `public/inventory.html` — `GET /api/low-stock` ⚠️ (reads Square-synced inventory)
+- [ ] Access `/reorder.html` as readonly user — Suggestions visible; add-to-order and order-submit buttons absent — `public/reorder.html` — `GET /api/reorder-suggestions` ⚠️
+- [ ] Access `/reorder.html` as clerk — 403 or feature-gate blocks access (clerk has no reorder/vendor access) — `public/reorder.html` — `GET /api/merchant/features`
