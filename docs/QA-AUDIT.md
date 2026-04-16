@@ -1207,3 +1207,144 @@ All routes below carry the feature/permission gate noted in the mount summary. "
 | 1 | MEDIUM | `POST /api/loyalty/backfill` | No rate limit — can trigger unbounded Square order fetch (expensive API fan-out) |
 | 2 | MEDIUM | `POST /api/loyalty/catchup` | No rate limit — reverse-lookup can fan out across many customers and Square API calls |
 | 3 | LOW | `POST /api/loyalty/refresh-customers` | No rate limit — fetches Square customer data for all customers with missing phone numbers |
+
+---
+
+### Group 5 — Delivery & Vendors
+
+Files scanned: `routes/delivery/` (5 sub-modules via `routes/delivery/index.js`), `routes/vendor-catalog/` (4 sub-modules via `routes/vendor-catalog/index.js`).
+
+> **Scope note:** `routes/vendors.js` does not exist as a standalone file. Vendor listing and management are split across `routes/vendor-catalog/vendors.js`, `routes/vendor-catalog/import.js`, `routes/vendor-catalog/lookup.js`, and `routes/vendor-catalog/manage.js`.
+
+Mount points:
+- `routes/delivery/` → `/api/delivery` (and `/api/v1/delivery`); server.js applies `requireFeature('delivery')`, `requirePermission('delivery', 'read')` at mount; `routes/delivery/index.js` applies `requireAuth`, `requireMerchant` globally for all sub-routes.
+- `routes/vendor-catalog/` → `/api` (and `/api/v1`); server.js `gateApi` applies `requireFeature('reorder')`, `requirePermission('reorder', 'read')` on `/vendors` and `/vendor-catalog` prefixes.
+
+**Important:** `routes/delivery/index.js` applies `requireAuth` and `requireMerchant` at router level — these are inherited by all sub-routes and omitted from individual rows for clarity. `requireWriteAccess` is absent from every delivery sub-router; write operations are protected only by rate limiting.
+
+---
+
+#### `routes/delivery/orders.js`
+
+_(All routes inherit `requireAuth`, `requireMerchant` from parent router.)_
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/delivery/orders` | `validators.listOrders` | `deliveryApi.getOrders` | Y | — |
+| POST | `/api/delivery/orders` | `deliveryRateLimit`, `validators.createOrder` | `deliveryApi.createOrder` + `geocodeAndPatchOrder` + `logAuditEvent` | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/delivery/orders/:id` | `validators.getOrder` | `deliveryApi.getOrderById` | Y | — |
+| PATCH | `/api/delivery/orders/:id` | `deliveryRateLimit`, `validators.updateOrder` | `deliveryApi.updateOrder` + `geocodeAndPatchOrder` | Y | ⚠️ Missing `requireWriteAccess` |
+| DELETE | `/api/delivery/orders/:id` | `deliveryRateLimit`, `validators.deleteOrder` | `deliveryApi.deleteOrder` + `logAuditEvent` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/delivery/orders/:id/skip` | `deliveryRateLimit`, `validators.skipOrder` | `deliveryApi.skipOrder` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/delivery/orders/:id/complete` | `deliveryRateLimit`, `validators.completeOrder` | `deliveryApi.completeDeliveryInSquare` + `deliveryApi.completeOrder` | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/delivery/orders/:id/customer` | `validators.getOrder` | `deliveryStats.getCustomerInfo` | Y | — |
+| PATCH | `/api/delivery/orders/:id/customer-note` | `deliveryRateLimit`, `validators.updateCustomerNote` | `deliveryStats.updateCustomerNote` | Y | ⚠️ Missing `requireWriteAccess` |
+| PATCH | `/api/delivery/orders/:id/notes` | `deliveryRateLimit`, `validators.updateOrderNotes` | `deliveryApi.updateOrderNotes` | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/delivery/orders/:id/customer-stats` | `validators.getOrder` | `deliveryStats.getCustomerStats` | Y | — |
+
+---
+
+#### `routes/delivery/pod.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/delivery/orders/:id/pod` | `deliveryRateLimit`, `podUpload.single('photo')`, `validateUploadedImage('photo')`, `validators.uploadPod` | `deliveryApi.savePodPhoto` + `logAuditEvent` | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/delivery/pod/:id` | `validators.getPod` | `deliveryApi.getPodPhoto` + `res.sendFile` | Y | — |
+
+---
+
+#### `routes/delivery/routes.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/delivery/route/generate` | `deliveryStrictRateLimit`, `validators.generateRoute` | `deliveryApi.generateRoute` | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/delivery/route/active` | `validators.getActiveRoute` | `deliveryApi.getActiveRouteWithOrders` | Y | — |
+| GET | `/api/delivery/route/:id` | `validators.getRoute` | `deliveryApi.getRouteWithOrders` | Y | — |
+| POST | `/api/delivery/route/finish` | `deliveryRateLimit`, `validators.finishRoute` | `deliveryApi.finishRoute` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/delivery/geocode` | `deliveryStrictRateLimit`, `validators.geocode` | `deliveryApi.geocodePendingOrders` | Y | ⚠️ Missing `requireWriteAccess` — triggers external geocoding API calls |
+
+---
+
+#### `routes/delivery/settings.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/delivery/settings` | _(none at route level)_ | `deliveryApi.getSettingsWithDefaults` | Y | — |
+| PUT | `/api/delivery/settings` | `deliveryRateLimit`, `validators.updateSettings` | `deliveryApi.updateSettingsWithGeocode` + `logAuditEvent` | Y | ⚠️ Missing `requireWriteAccess` |
+
+---
+
+#### `routes/delivery/sync.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/delivery/sync` | `deliveryStrictRateLimit`, `validators.syncOrders` | `deliveryApi.syncSquareOrders` | Y | ⚠️ Missing `requireWriteAccess` — triggers full Square order sync |
+| POST | `/api/delivery/backfill-customers` | `deliveryStrictRateLimit`, `validators.backfillCustomers` | `deliveryApi.backfillUnknownCustomers` | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/delivery/audit` | `validators.getAudit` | `deliveryApi.getAuditLog` | Y | — |
+| GET | `/api/delivery/stats` | _(none at route level)_ | `deliveryStats.getDashboardStats` | Y | — |
+
+---
+
+#### `routes/vendor-catalog/vendors.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/vendors` | `requireAuth`, `requireMerchant`, `validators.getVendors` | `vendorQuery.listVendors` | Y | — |
+| GET | `/api/vendor-dashboard` | `requireAuth`, `requireMerchant` | `vendorDashboard.getVendorDashboard` | Y | — |
+| PATCH | `/api/vendors/:id/settings` | `requireAuth`, `requireMerchant`, `validators.updateVendorSettings` | `vendorDashboard.updateVendorSettings` | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/vendor-catalog/merchant-taxes` | `requireAuth`, `requireMerchant` | `vendorQuery.getMerchantTaxes` | Y | — |
+
+---
+
+#### `routes/vendor-catalog/import.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/vendor-catalog/import` | `requireAuth`, `requireMerchant`, `validators.importCatalog` | `vendorCatalog.importVendorCatalog` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/vendor-catalog/preview` | `requireAuth`, `requireMerchant`, `validators.previewFile` | `vendorCatalog.previewFile` | Y | — |
+| POST | `/api/vendor-catalog/import-mapped` | `requireAuth`, `requireMerchant`, `validators.importMapped` | `vendorCatalog.importWithMappings` | Y | ⚠️ Missing `requireWriteAccess` |
+| GET | `/api/vendor-catalog/field-types` | `requireAuth` _(no `requireMerchant`)_ | `vendorCatalog.FIELD_TYPES` (inline) | Y | ⚠️ Missing `requireMerchant` — field-types is read-only catalog metadata, but pattern inconsistency |
+| GET | `/api/vendor-catalog/stats` | `requireAuth`, `requireMerchant` | `vendorCatalog.getStats` | Y | — |
+
+---
+
+#### `routes/vendor-catalog/lookup.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| GET | `/api/vendor-catalog` | `requireAuth`, `requireMerchant`, `validators.searchCatalog` | `vendorCatalog.searchVendorCatalog` | Y | — |
+| GET | `/api/vendor-catalog/lookup/:upc` | `requireAuth`, `requireMerchant`, `validators.lookupUpc` | `vendorCatalog.lookupByUPC` + `vendorQuery.lookupOurItemByUPC` | Y | — |
+| GET | `/api/vendor-catalog/batches` | `requireAuth`, `requireMerchant`, `validators.getBatches` | `vendorCatalog.getImportBatches` | Y | — |
+| GET | `/api/vendor-catalog/batches/:batchId/report` | `requireAuth`, `requireMerchant`, `validators.batchAction` | `vendorCatalog.regeneratePriceReport` | Y | — |
+
+---
+
+#### `routes/vendor-catalog/manage.js`
+
+| Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
+|--------|------|-------------------------------|---------|------|-------|
+| POST | `/api/vendor-catalog/push-price-changes` | `requireAuth`, `requireMerchant`, `validators.pushPriceChanges` | `vendorQuery.verifyVariationsBelongToMerchant` + `squareApi.batchUpdateVariationPrices` | Y | ⚠️ Missing `requireWriteAccess` — bulk Square price updates |
+| POST | `/api/vendor-catalog/confirm-links` | `requireAuth`, `requireMerchant`, `validators.confirmLinks` | `vendorQuery.confirmVendorLinks` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/vendor-catalog/deduplicate` | `requireAuth`, `requireMerchant`, `validators.deduplicate` | `vendorCatalog.deduplicateVendorCatalog` | Y | ⚠️ Missing `requireWriteAccess` — destructive DB deduplication |
+| POST | `/api/vendor-catalog/create-items` | `requireAuth`, `requireMerchant`, `validators.createItems` | `bulkCreateSquareItems` | Y | ⚠️ Missing `requireWriteAccess` — bulk Square catalog item creation |
+| POST | `/api/vendor-catalog/batches/:batchId/archive` | `requireAuth`, `requireMerchant`, `validators.batchAction` | `vendorCatalog.archiveImportBatch` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/vendor-catalog/batches/:batchId/unarchive` | `requireAuth`, `requireMerchant`, `validators.batchAction` | `vendorCatalog.unarchiveImportBatch` | Y | ⚠️ Missing `requireWriteAccess` |
+| DELETE | `/api/vendor-catalog/batches/:batchId` | `requireAuth`, `requireMerchant`, `validators.batchAction` | `vendorCatalog.deleteImportBatch` | Y | ⚠️ Missing `requireWriteAccess` — permanent batch deletion |
+
+---
+
+**Group 5 flag summary:**
+
+| # | Severity | Route | Issue |
+|---|----------|-------|-------|
+| 1 | HIGH | All delivery write endpoints (POST/PATCH/DELETE/PUT in orders, pod, routes, settings, sync) | No `requireWriteAccess` on any delivery write operation — read-only users can create/modify/delete orders, generate routes, sync from Square, upload POD photos |
+| 2 | HIGH | `POST /api/vendor-catalog/push-price-changes` | Missing `requireWriteAccess` — bulk Square catalog price updates without write-role gate |
+| 3 | HIGH | `POST /api/vendor-catalog/create-items` | Missing `requireWriteAccess` — bulk Square catalog item creation |
+| 4 | MEDIUM | `POST /api/vendor-catalog/import` | Missing `requireWriteAccess` |
+| 5 | MEDIUM | `POST /api/vendor-catalog/import-mapped` | Missing `requireWriteAccess` |
+| 6 | MEDIUM | `POST /api/vendor-catalog/deduplicate` | Missing `requireWriteAccess` — can permanently remove DB rows |
+| 7 | MEDIUM | `DELETE /api/vendor-catalog/batches/:batchId` | Missing `requireWriteAccess` — permanent deletion |
+| 8 | MEDIUM | `PATCH /api/vendors/:id/settings` | Missing `requireWriteAccess` |
+| 9 | MEDIUM | `POST /api/vendor-catalog/confirm-links`, `POST .../archive`, `POST .../unarchive` | Missing `requireWriteAccess` |
+| 10 | LOW | `GET /api/vendor-catalog/field-types` | Missing `requireMerchant` — low risk (read-only metadata) but inconsistent with project patterns |
+| 11 | INFO | — | `routes/vendors.js` referenced in task scope does not exist; vendor endpoints are in `routes/vendor-catalog/vendors.js` |
