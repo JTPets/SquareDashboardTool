@@ -1841,3 +1841,100 @@ All middleware files in `middleware/`:
 **Routes with NO tests:** None.
 
 **Untested flows:** None.
+
+---
+
+### Group 2 — Purchasing, Counts, Vendors
+
+#### Purchase Orders
+
+**Section 2 location:** Group 3 — `routes/purchase-orders.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/purchase-orders.test.js` | 34 |
+| `__tests__/services/purchase-orders/po-service.test.js` | 39 |
+| `__tests__/services/purchase-orders/po-receive-service.test.js` | 18 |
+| `__tests__/services/purchase-orders/po-export-service.test.js` | 36 |
+| **Total** | **127** |
+
+**Routes with tests:** All 9 routes marked Y in Section 2 Group 3.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None.
+
+---
+
+#### Cycle Counts
+
+Covered in full under **Inventory** in Group 1 (`routes/cycle-counts.js`, `routes/min-max-suppression-routes.js`, `services/inventory/`). Total: **140 tests across 4 files.** All 12 routes marked Y. No gaps.
+
+---
+
+#### Reorder
+
+**Section 2 location:** Group 6 — `routes/analytics.js` (reorder suggestions, sales-velocity, and min-max recommendation/apply/history/pin endpoints). Core reorder services are in `services/catalog/`.
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/analytics.test.js` | 47 |
+| `__tests__/services/catalog/reorder-service.test.js` | 44 |
+| `__tests__/services/catalog/reorder-math.test.js` | 41 |
+| `__tests__/services/reorder/checkbox-defaults-service.test.js` | 26 |
+| `__tests__/jobs/auto-min-max-job.test.js` | 23 |
+| **Total** | **181** |
+
+> `reorder-service.test.js` and `reorder-math.test.js` are also counted under Catalog in Group 1 (shared service files).
+
+**Routes with tests:** All 6 routes in `analytics.js` (`GET /api/sales-velocity`, `GET /api/reorder-suggestions`, `GET /api/min-max/recommendations`, `POST /api/min-max/apply`, `GET /api/min-max/history`, `POST /api/min-max/pin`) marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None.
+
+---
+
+#### Vendors
+
+**Section 2 location:** Group 5 — `routes/vendor-catalog/vendors.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/vendor-dashboard.test.js` | 14 |
+| `__tests__/routes/vendor-catalog-merchant-taxes.test.js` | 5 |
+| `__tests__/services/vendor-dashboard.test.js` | 41 |
+| `__tests__/services/vendor/vendor-query-service.test.js` | 15 |
+| `__tests__/services/ensure-vendors-exist.test.js` | 7 |
+| **Total** | **82** |
+
+**Routes with tests:** All 4 routes in `vendor-catalog/vendors.js` (`GET /api/vendors`, `GET /api/vendor-dashboard`, `PATCH /api/vendors/:id/settings`, `GET /api/vendor-catalog/merchant-taxes`) marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None.
+
+---
+
+#### Vendor Catalog
+
+**Section 2 location:** Groups 5 and 6 — `routes/vendor-catalog/import.js`, `routes/vendor-catalog/lookup.js`, `routes/vendor-catalog/manage.js`, `routes/vendor-match-suggestions.js`
+
+| Test File | Tests |
+|-----------|-------|
+| `__tests__/routes/vendor-catalog.test.js` | 58 |
+| `__tests__/routes/vendor-catalog-create.test.js` | 15 |
+| `__tests__/routes/vendor-match-suggestions.test.js` | 20 |
+| `__tests__/services/vendor/catalog-service.test.js` | 94 |
+| `__tests__/services/vendor/catalog-create-service.test.js` | 34 |
+| `__tests__/services/vendor/lead-time-service.test.js` | 15 |
+| `__tests__/services/vendor/match-suggestions-service.test.js` | 27 |
+| `__tests__/services/sync-variation-vendor-guard.test.js` | 7 |
+| `__tests__/utils/vendor-catalog.test.js` | 7 |
+| **Total** | **277** |
+
+**Routes with tests:** All 16 routes across `import.js`, `lookup.js`, and `manage.js`, and all 6 routes in `vendor-match-suggestions.js`, marked Y.
+
+**Routes with NO tests:** None.
+
+**Untested flows:** None.
