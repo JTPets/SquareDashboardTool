@@ -239,6 +239,9 @@
     <button class="btn btn-primary" data-action="generateBatch" id="generate-batch-btn">
       ⚡ Generate Batch
     </button>
+    <button class="btn btn-secondary" data-action="showCategoryBatchModal">
+      📦 By Category/Vendor
+    </button>
     <button class="btn btn-primary" data-action="loadPendingItems">
       🔄 Refresh
     </button>
@@ -291,6 +294,36 @@ SKU-003"></textarea>
       <div class="form-actions">
         <button class="btn btn-secondary" data-action="closeCountModal">Cancel</button>
         <button class="btn btn-primary" style="flex: 1;" data-action="submitCount" id="submit-count-btn">Submit Count</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Category/Vendor Batch Modal -->
+  <div class="modal" id="category-batch-modal">
+    <div class="modal-content">
+      <h2 class="modal-title">📦 Count by Category / Vendor</h2>
+      <div class="form-group">
+        <label class="form-label">Type:</label>
+        <div style="display:flex;gap:20px;margin-bottom:12px;">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="radio" name="batch-type" value="category" id="batch-type-category" checked> Category
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="radio" name="batch-type" value="vendor" id="batch-type-vendor"> Vendor
+          </label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" id="batch-select-label">Category:</label>
+        <select class="form-input" id="batch-select">
+          <option value="">Loading...</option>
+        </select>
+      </div>
+      <div id="batch-preview-result" style="margin-bottom:12px;font-size:14px;color:#6b7280;min-height:20px;"></div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" data-action="closeCategoryBatchModal">Cancel</button>
+        <button class="btn btn-secondary" style="flex:1;" data-action="previewCategoryBatch" id="preview-category-batch-btn">Preview</button>
+        <button class="btn btn-primary" style="flex:1;" data-action="submitCategoryBatch" id="submit-category-batch-btn" disabled>Generate Count</button>
       </div>
     </div>
   </div>

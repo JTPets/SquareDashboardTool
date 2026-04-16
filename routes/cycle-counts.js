@@ -470,4 +470,95 @@ router.post('/cycle-counts/reset', requireAuth, requireMerchant, validators.rese
     });
 }));
 
+/**
+ * Query variations for a category or vendor batch.
+ * For category: matches on i.category_name.
+ * For vendor: joins variation_vendors (any vendor assignment, not just primary —
+ *   the schema has no is_primary column on variation_vendors).
+ * Returns { rows, name } where name is the human-readable label for the response.
+ */
+async function queryCategoryBatchItems(type, id, merchantId) {
+    const bundleExclusion = `
+        AND NOT EXISTS (
+            SELECT 1 FROM bundle_definitions bd
+            WHERE bd.bundle_variation_id = v.id AND bd.merchant_id = $1 AND bd.is_active = true
+        )`;
+
+    if (type === 'category') {
+        const result = await db.query(`
+            SELECT v.id, v.sku, i.name as item_name, v.name as variation_name
+            FROM variations v
+            JOIN items i ON i.id = v.item_id AND i.merchant_id = $1
+            WHERE i.category_name = $2
+              AND v.merchant_id = $1
+              AND COALESCE(v.is_deleted, FALSE) = FALSE
+              AND COALESCE(i.is_deleted, FALSE) = FALSE
+              AND v.track_inventory = TRUE
+              ${bundleExclusion}
+        `, [merchantId, id]);
+        return { rows: result.rows, name: id };
+    }
+
+    // vendor
+    const vendorResult = await db.query(
+        'SELECT name FROM vendors WHERE id = $1 AND merchant_id = $2',
+        [id, merchantId]
+    );
+    const name = vendorResult.rows[0]?.name || id;
+    const result = await db.query(`
+        SELECT v.id, v.sku, i.name as item_name, v.name as variation_name
+        FROM variations v
+        JOIN items i ON i.id = v.item_id AND i.merchant_id = $1
+        JOIN variation_vendors vv ON vv.variation_id = v.id AND vv.vendor_id = $2 AND vv.merchant_id = $1
+        WHERE v.merchant_id = $1
+          AND COALESCE(v.is_deleted, FALSE) = FALSE
+          AND COALESCE(i.is_deleted, FALSE) = FALSE
+          AND v.track_inventory = TRUE
+          ${bundleExclusion}
+    `, [merchantId, id]);
+    return { rows: result.rows, name };
+}
+
+/**
+ * GET /api/cycle-counts/preview-category-batch
+ * Preview how many items would be added by a category or vendor batch (no inserts).
+ */
+router.get('/cycle-counts/preview-category-batch', requireAuth, requireMerchant, validators.previewCategoryBatch, asyncHandler(async (req, res) => {
+    const { type, id } = req.query;
+    const merchantId = req.merchantContext.id;
+    const { rows, name } = await queryCategoryBatchItems(type, id, merchantId);
+    sendSuccess(res, { total_found: rows.length, name, type });
+}));
+
+/**
+ * POST /api/cycle-counts/generate-category-batch
+ * Add all tracked variations in a category or vendor to the priority count queue.
+ */
+router.post('/cycle-counts/generate-category-batch', requireAuth, requireMerchant, validators.generateCategoryBatch, asyncHandler(async (req, res) => {
+    const { type, id, added_by, notes } = req.body;
+    const merchantId = req.merchantContext.id;
+    const { rows, name } = await queryCategoryBatchItems(type, id, merchantId);
+
+    if (rows.length === 0) {
+        return sendSuccess(res, { items_added: 0, items_skipped: 0, total_found: 0, name, type });
+    }
+
+    const results = await Promise.all(rows.map(row =>
+        db.query(
+            `INSERT INTO count_queue_priority (catalog_object_id, added_by, notes, merchant_id)
+             SELECT $1, $2, $3, $4
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM count_queue_priority
+                 WHERE catalog_object_id = $1 AND completed = FALSE AND merchant_id = $4
+             )`,
+            [row.id, added_by || 'System', notes || null, merchantId]
+        )
+    ));
+
+    const itemsAdded = results.filter(r => r.rowCount > 0).length;
+    const itemsSkipped = results.length - itemsAdded;
+
+    sendSuccess(res, { items_added: itemsAdded, items_skipped: itemsSkipped, total_found: rows.length, name, type });
+}));
+
 module.exports = router;

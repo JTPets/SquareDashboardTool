@@ -27,6 +27,8 @@ jest.mock('../../middleware/validators/cycle-counts', () => ({
     emailReport: [(req, res, next) => next()],
     generateBatch: [(req, res, next) => next()],
     reset: [(req, res, next) => next()],
+    generateCategoryBatch: [(req, res, next) => next()],
+    previewCategoryBatch: [(req, res, next) => next()],
 }));
 
 const request = require('supertest');
@@ -332,6 +334,165 @@ describe('POST /api/cycle-counts/generate-batch', () => {
 
         expect(res.status).toBe(200);
         expect(inventoryService.generateDailyBatch).toHaveBeenCalled();
+    });
+});
+
+describe('GET /api/cycle-counts/preview-category-batch', () => {
+    it('returns 401 without auth', async () => {
+        app = createApp();
+        const res = await request(app).get('/api/cycle-counts/preview-category-batch?type=category&id=Dogs');
+        expect(res.status).toBe(401);
+    });
+
+    it('returns count for category without inserting', async () => {
+        app = createApp({ authenticated: true, hasMerchant: true });
+        db.query.mockResolvedValueOnce({
+            rows: [
+                { id: 'v1', sku: 'SKU1', item_name: 'Dog Food', variation_name: 'Large' },
+                { id: 'v2', sku: 'SKU2', item_name: 'Dog Treats', variation_name: 'Small' },
+            ],
+            rowCount: 2,
+        });
+
+        const res = await request(app).get('/api/cycle-counts/preview-category-batch?type=category&id=Dogs');
+
+        expect(res.status).toBe(200);
+        expect(res.body.total_found).toBe(2);
+        expect(res.body.name).toBe('Dogs');
+        // Must not have triggered any INSERT
+        expect(db.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns 0 for empty category', async () => {
+        app = createApp({ authenticated: true, hasMerchant: true });
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+        const res = await request(app).get('/api/cycle-counts/preview-category-batch?type=category&id=EmptyCat');
+
+        expect(res.status).toBe(200);
+        expect(res.body.total_found).toBe(0);
+    });
+
+    it('returns count for vendor preview', async () => {
+        app = createApp({ authenticated: true, hasMerchant: true });
+        db.query
+            .mockResolvedValueOnce({ rows: [{ name: 'Acme Supplies' }], rowCount: 1 }) // vendor name lookup
+            .mockResolvedValueOnce({
+                rows: [{ id: 'v1', sku: 'SKU1', item_name: 'Widget', variation_name: 'Default' }],
+                rowCount: 1,
+            });
+
+        const res = await request(app).get('/api/cycle-counts/preview-category-batch?type=vendor&id=vendor-123');
+
+        expect(res.status).toBe(200);
+        expect(res.body.total_found).toBe(1);
+        expect(res.body.name).toBe('Acme Supplies');
+    });
+
+    it('returns 0 for empty vendor', async () => {
+        app = createApp({ authenticated: true, hasMerchant: true });
+        db.query
+            .mockResolvedValueOnce({ rows: [{ name: 'Empty Vendor' }], rowCount: 1 })
+            .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+        const res = await request(app).get('/api/cycle-counts/preview-category-batch?type=vendor&id=vendor-empty');
+
+        expect(res.status).toBe(200);
+        expect(res.body.total_found).toBe(0);
+    });
+});
+
+describe('POST /api/cycle-counts/generate-category-batch', () => {
+    it('returns 401 without auth', async () => {
+        app = createApp();
+        const res = await request(app)
+            .post('/api/cycle-counts/generate-category-batch')
+            .send({ type: 'category', id: 'Dogs' });
+        expect(res.status).toBe(401);
+    });
+
+    it('inserts category variations and returns correct counts', async () => {
+        app = createApp({ authenticated: true, hasMerchant: true });
+        db.query
+            .mockResolvedValueOnce({
+                rows: [
+                    { id: 'v1', sku: 'SKU1', item_name: 'Dog Food', variation_name: 'Large' },
+                    { id: 'v2', sku: 'SKU2', item_name: 'Dog Treats', variation_name: 'Small' },
+                ],
+                rowCount: 2,
+            }) // variations query
+            .mockResolvedValueOnce({ rowCount: 1 }) // insert v1 — new
+            .mockResolvedValueOnce({ rowCount: 0 }); // insert v2 — already queued (dedup)
+
+        const res = await request(app)
+            .post('/api/cycle-counts/generate-category-batch')
+            .send({ type: 'category', id: 'Dogs' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.items_added).toBe(1);
+        expect(res.body.items_skipped).toBe(1);
+        expect(res.body.total_found).toBe(2);
+        expect(res.body.name).toBe('Dogs');
+    });
+
+    it('inserts vendor variations (any vendor assignment)', async () => {
+        app = createApp({ authenticated: true, hasMerchant: true });
+        db.query
+            .mockResolvedValueOnce({ rows: [{ name: 'Acme Supplies' }], rowCount: 1 }) // vendor name
+            .mockResolvedValueOnce({
+                rows: [{ id: 'v1', sku: 'SKU1', item_name: 'Widget', variation_name: 'Default' }],
+                rowCount: 1,
+            }) // variations
+            .mockResolvedValueOnce({ rowCount: 1 }); // insert
+
+        const res = await request(app)
+            .post('/api/cycle-counts/generate-category-batch')
+            .send({ type: 'vendor', id: 'vendor-123' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.items_added).toBe(1);
+        expect(res.body.items_skipped).toBe(0);
+        expect(res.body.name).toBe('Acme Supplies');
+    });
+
+    it('returns 0 counts for empty category without inserting', async () => {
+        app = createApp({ authenticated: true, hasMerchant: true });
+        db.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+        const res = await request(app)
+            .post('/api/cycle-counts/generate-category-batch')
+            .send({ type: 'category', id: 'EmptyCat' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.items_added).toBe(0);
+        expect(res.body.items_skipped).toBe(0);
+        expect(res.body.total_found).toBe(0);
+        // No INSERT calls — only the one variations query
+        expect(db.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('dedup: skips variations already in queue', async () => {
+        app = createApp({ authenticated: true, hasMerchant: true });
+        db.query
+            .mockResolvedValueOnce({
+                rows: [
+                    { id: 'v1', sku: 'S1', item_name: 'A', variation_name: 'Default' },
+                    { id: 'v2', sku: 'S2', item_name: 'B', variation_name: 'Default' },
+                    { id: 'v3', sku: 'S3', item_name: 'C', variation_name: 'Default' },
+                ],
+                rowCount: 3,
+            })
+            .mockResolvedValueOnce({ rowCount: 0 }) // v1 already queued
+            .mockResolvedValueOnce({ rowCount: 0 }) // v2 already queued
+            .mockResolvedValueOnce({ rowCount: 1 }); // v3 inserted
+
+        const res = await request(app)
+            .post('/api/cycle-counts/generate-category-batch')
+            .send({ type: 'category', id: 'Pets' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.items_added).toBe(1);
+        expect(res.body.items_skipped).toBe(2);
     });
 });
 
