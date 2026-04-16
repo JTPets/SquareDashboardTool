@@ -46,6 +46,7 @@
 
 | ID | Description | Effort |
 |----|-------------|--------|
+| BACKLOG-126 | **Add `requireWriteAccess` negative-path tests across all affected domains** — existing tests confirm authorized access works but do not verify read-only users are blocked from write endpoints. Affects 12+ domains: delivery, square-attributes, vendor-catalog, purchase-orders, cycle-counts, sync, bundles, expiry-discounts, labels, settings, webhooks, ai-autofill, vendor-match-suggestions. See QA-AUDIT.md S2 and S3 summary. | M |
 | BACKLOG-127 | Static security analysis test suite (SQL injection, merchant_id, escapeHtml patterns) | M |
 | BACKLOG-117 | Jest coverage reporting — visibility into coverage gaps | S |
 | BACKLOG-118 | Integration test framework — real DB tests | M |
