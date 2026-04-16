@@ -1,6 +1,6 @@
 # Backlog — Open Work Items
 
-> **Last Updated**: 2026-04-09 | Consolidated from WORK-ITEMS, PRIORITIES, TECHNICAL_DEBT, PRE-BETA-AUDIT, ROADMAP
+> **Last Updated**: 2026-04-16 | Consolidated from WORK-ITEMS, PRIORITIES, TECHNICAL_DEBT, PRE-BETA-AUDIT, ROADMAP, QA-AUDIT S2
 
 ---
 
@@ -9,6 +9,7 @@
 | ID | Description | Effort |
 |----|-------------|--------|
 | B3 | **Promo duration_months not enforced** — `promo-expiry-job.js` detects expired promos but only logs warnings. Missing: auto-revert `discount_applied_cents = 0`, Square API call to update to full price, merchant notification. Direct revenue loss without fix. | M |
+| BACKLOG-122 | **Mount `routes/catalog-location-health.js` in `server.js`** — file exists, tests pass, but the two `/api/admin/catalog-location-health` endpoints are unreachable because the router is never registered. Detected in QA audit S2-G6. | S |
 
 ---
 
@@ -16,6 +17,12 @@
 
 | ID | Description | Effort |
 |----|-------------|--------|
+| BACKLOG-119 | **Rate-limit `POST /api/auth/forgot-password`** — `passwordResetRateLimit` middleware is declared in `routes/auth/password.js` but not applied to the forgot-password handler; unlimited reset emails can be triggered per IP. Same brute-force pattern already fixed on other auth endpoints. QA audit S2-G1. | S |
+| BACKLOG-120 | **Replace hardcoded `DEBUG_MERCHANT_ID = 3` in catalog-health routes** — `GET /api/admin/catalog-health` and `POST /api/admin/catalog-health/check` always run against merchant 3 regardless of the authenticated caller. Replace with `requireMerchant` middleware. Breaks multi-tenant isolation. QA audit S2-G2. | S |
+| BACKLOG-121 | **Add `requireAdmin` gate to `POST /api/cycle-counts/reset`** — missing `requireWriteAccess` and any admin gate; any authenticated user can irrecoverably wipe all cycle-count history. QA audit S2-G3. | S |
+| BACKLOG-123 | **Add `requireWriteAccess` to all delivery write routes** — `routes/delivery/orders.js`, `pod.js`, `routes.js`, `settings.js`, `sync.js`, and `routes/driver-api.js` have no write-role gate. Read-only staff can create/delete orders, generate routes, sync from Square, and upload POD photos. QA audit S2-G5. | M |
+| BACKLOG-124 | **Add `requireWriteAccess` to `routes/square-attributes.js` write/delete endpoints** — all 9 POST/PUT/DELETE endpoints (init, create/delete definitions, update values, bulk push case-pack/brand/expiry/all) are unprotected against read-only role. QA audit S2-G6. | S |
+| BACKLOG-125 | **Add `requireWriteAccess` to vendor-catalog manage and import routes** — `routes/vendor-catalog/manage.js` (push-price-changes, confirm-links, deduplicate, create-items, archive/unarchive/delete batch) and `routes/vendor-catalog/import.js` (import, import-mapped) have no write-role gate. Includes bulk Square price updates and permanent batch deletion. QA audit S2-G5. | M |
 | PRICING-UI | Pricing page shows per-module prices with individual CTAs but `subscribe.html` is all-or-nothing. Misleads customers. | S |
 | SUB-UI-1 | No cancel subscription button. API exists (`POST /api/subscriptions/cancel`) but no UI. | S |
 | SUB-UI-2 | No trial countdown banner. Merchants have no visibility into trial expiry. | S |
@@ -39,7 +46,7 @@
 
 | ID | Description | Effort |
 |----|-------------|--------|
-| BACKLOG-120 | Static security analysis test suite (SQL injection, merchant_id, escapeHtml patterns) | M |
+| BACKLOG-127 | Static security analysis test suite (SQL injection, merchant_id, escapeHtml patterns) | M |
 | BACKLOG-117 | Jest coverage reporting — visibility into coverage gaps | S |
 | BACKLOG-118 | Integration test framework — real DB tests | M |
 | CSS-5 | Extract inline `<style>` blocks from ~20 HTML pages into `shared.css` | M |
@@ -96,7 +103,7 @@
 | BACKLOG-8 | Vendor API sync gaps (display + address fields) | S-M |
 | BACKLOG-43 | Min/Max stock per item per location | S |
 | BACKLOG-99 | PO inventory push to Square on receive | M |
-| BACKLOG-119 | E2E browser test framework (Playwright/Cypress) | L |
+| BACKLOG-126 | E2E browser test framework (Playwright/Cypress) | L |
 | BACKLOG-40 | exceljs deprecated transitive deps (no active security issues) | S |
 | BACKLOG-95 | Multi-location expiry/count scoping (pre-franchise) | L |
 | BACKLOG-104 | GMC product schema completeness audit | S |
@@ -138,12 +145,12 @@
 
 | Priority | Count |
 |----------|-------|
-| CRITICAL | 1 |
-| HIGH | 6 |
+| CRITICAL | 2 |
+| HIGH | 12 |
 | MEDIUM | ~33 |
 | LOW | ~18 |
 | FUTURE | 7 initiatives |
-| **Total** | **~58 open items** |
+| **Total** | **~65 open items** |
 
 **Ship readiness**: Fix B3 + PRICING-UI + SUB-UI-1/2 (4 items, all S-M effort), then ship beta.
 
