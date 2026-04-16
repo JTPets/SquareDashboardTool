@@ -1,5 +1,8 @@
 # Backlog — Open Work Items
 
+> **Maintenance:** Add items when: audit surfaces gaps, security review finds issues, dogfooding identifies bugs. Close items by adding resolution note and date.
+> See also: [QA-AUDIT.md](./QA-AUDIT.md), [DOMAIN-MAP.md](./DOMAIN-MAP.md)
+
 > **Last Updated**: 2026-04-16 | Consolidated from WORK-ITEMS, PRIORITIES, TECHNICAL_DEBT, PRE-BETA-AUDIT, ROADMAP, QA-AUDIT S2, QA-AUDIT S5
 
 ---

@@ -1,5 +1,8 @@
 # Architecture Reference
 
+> **Maintenance:** Update when: HTTP client pattern changes, new middleware layer added, auth pattern changes, new external service integrated.
+> See also: [DOMAIN-MAP.md](./DOMAIN-MAP.md), [CODING-PATTERNS.md](./CODING-PATTERNS.md), [AUTOMATION-PATTERNS.md](./AUTOMATION-PATTERNS.md)
+
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Backlog](./BACKLOG.md) | [Domain Map](./DOMAIN-MAP.md)
 >
 > **Last Updated**: 2026-03-22

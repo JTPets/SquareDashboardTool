@@ -1,6 +1,9 @@
 # SqTools QA Audit
 Generated: 2026-04-16
 
+> **Maintenance:** Re-run full audit before each beta/major release. Re-run Section 2 (routes) after any sprint that adds new routes. Re-run Section 5 (gaps) after any security-related sprint.
+> See also: [BACKLOG.md](./BACKLOG.md), [DOMAIN-MAP.md](./DOMAIN-MAP.md)
+
 ---
 
 ## Section 1 — Frontend Inventory
