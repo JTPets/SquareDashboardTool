@@ -12,8 +12,6 @@
 | ID | Description | Effort |
 |----|-------------|--------|
 | B3 | **Promo duration_months not enforced** — `promo-expiry-job.js` detects expired promos but only logs warnings. Missing: auto-revert `discount_applied_cents = 0`, Square API call to update to full price, merchant notification. Direct revenue loss without fix. | M |
-| BACKLOG-122 | **Mount `routes/catalog-location-health.js` in `server.js`** — file exists, tests pass, but the two `/api/admin/catalog-location-health` endpoints are unreachable because the router is never registered. Detected in QA audit S2-G6. | S |
-| BACKLOG-127 | **Remove hardcoded `DEBUG_MERCHANT_ID = 3` from catalog-health routes** — `GET /api/admin/catalog-health` and `POST /api/admin/catalog-health/check` always run against merchant 3 regardless of the authenticated admin caller. Replace with `requireMerchant` middleware and use `req.merchantContext.id`. Breaks multi-tenant isolation for every admin who runs a health check. QA audit S5-G2 (CRITICAL). | S |
 | BACKLOG-128 | **Audit and fix ~30 path errors in Section 4 QA checklist** — `docs/QA-AUDIT.md` Section 4 documents API paths that do not match actual mounted routes: delivery routes omit `/delivery/` prefix (18 paths), auth/user management routes omit `/auth/` prefix (9 paths), vendor-match suggestions use wrong HTTP verbs (`accept`/DELETE vs `approve`/`reject`), admin subscriptions reference `PATCH /api/admin/subscriptions/:id` which has no matching route in Section 2. A QA tester following the checklist would hit 404s on all corrected paths. QA audit S5-G1. | S |
 
 ---
@@ -22,8 +20,6 @@
 
 | ID | Description | Effort |
 |----|-------------|--------|
-| BACKLOG-119 | **Rate-limit `POST /api/auth/forgot-password`** — `passwordResetRateLimit` middleware is declared in `routes/auth/password.js` but not applied to the forgot-password handler; unlimited reset emails can be triggered per IP. Same brute-force pattern already fixed on other auth endpoints. QA audit S2-G1. | S |
-| BACKLOG-121 | **Add `requireAdmin` gate to `POST /api/cycle-counts/reset`** — missing `requireWriteAccess` and any admin gate; any authenticated user can irrecoverably wipe all cycle-count history. QA audit S2-G3. | S |
 | BACKLOG-123 | **Add `requireWriteAccess` to all delivery write routes** — `routes/delivery/orders.js`, `pod.js`, `routes.js`, `settings.js`, `sync.js`, and `routes/driver-api.js` have no write-role gate. Read-only staff can create/delete orders, generate routes, sync from Square, and upload POD photos. QA audit S2-G5. | M |
 | BACKLOG-124 | **Add `requireWriteAccess` to `routes/square-attributes.js` write/delete endpoints** — all 9 POST/PUT/DELETE endpoints (init, create/delete definitions, update values, bulk push case-pack/brand/expiry/all) are unprotected against read-only role. QA audit S2-G6. | S |
 | BACKLOG-125 | **Add `requireWriteAccess` to vendor-catalog manage and import routes** — `routes/vendor-catalog/manage.js` (push-price-changes, confirm-links, deduplicate, create-items, archive/unarchive/delete batch) and `routes/vendor-catalog/import.js` (import, import-mapped) have no write-role gate. Includes bulk Square price updates and permanent batch deletion. QA audit S2-G5. | M |
@@ -155,7 +151,7 @@
 | FUTURE | 7 initiatives |
 | **Total** | **~65 open items** |
 
-**Ship readiness**: CRITICAL items BACKLOG-122, BACKLOG-127, BACKLOG-128 are all S effort — clear these first. Then fix B3 + PRICING-UI + SUB-UI-1/2 (all S-M effort) to ship beta.
+**Ship readiness**: CRITICAL item BACKLOG-128 remains — clear it first. Then fix B3 + PRICING-UI + SUB-UI-1/2 (all S-M effort) to ship beta.
 
 ---
 

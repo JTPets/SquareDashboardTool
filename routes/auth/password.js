@@ -25,7 +25,7 @@ router.post('/change-password', requireAuth, validators.changePassword, asyncHan
 }));
 
 // Security: always returns success — prevents email enumeration
-router.post('/forgot-password', validators.forgotPassword, asyncHandler(async (req, res) => {
+router.post('/forgot-password', passwordResetRateLimit, validators.forgotPassword, asyncHandler(async (req, res) => {
     const result = await passwordService.forgotPassword(req.body.email, getClientIp(req));
     sendSuccess(res, result);
 }));

@@ -15,6 +15,7 @@ const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/catalog-health');
 const { sendSuccess } = require('../utils/response-helper');
@@ -24,16 +25,15 @@ const {
     getOpenIssues
 } = require('../services/catalog/catalog-health-service');
 
-const DEBUG_MERCHANT_ID = 3;
-
 /**
  * GET /api/admin/catalog-health
- * Returns history and open issues for merchant 3
+ * Returns history and open issues for the authenticated admin's active merchant
  */
-router.get('/', requireAuth, requireAdmin, validators.getHealth, asyncHandler(async (req, res) => {
+router.get('/', requireAuth, requireAdmin, requireMerchant, validators.getHealth, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
     const [history, openIssues] = await Promise.all([
-        getHealthHistory(DEBUG_MERCHANT_ID),
-        getOpenIssues(DEBUG_MERCHANT_ID)
+        getHealthHistory(merchantId),
+        getOpenIssues(merchantId)
     ]);
 
     sendSuccess(res, {
@@ -46,12 +46,14 @@ router.get('/', requireAuth, requireAdmin, validators.getHealth, asyncHandler(as
  * POST /api/admin/catalog-health/check
  * Trigger a full health check now and return results
  */
-router.post('/check', requireAuth, requireAdmin, validators.runCheck, asyncHandler(async (req, res) => {
+router.post('/check', requireAuth, requireAdmin, requireMerchant, validators.runCheck, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
     logger.info('Manual catalog health check triggered', {
-        adminUserId: req.session.user.id
+        adminUserId: req.session.user.id,
+        merchantId
     });
 
-    const result = await runFullHealthCheck(DEBUG_MERCHANT_ID);
+    const result = await runFullHealthCheck(merchantId);
 
     sendSuccess(res, result);
 }));
