@@ -81,6 +81,17 @@ function staleSyncDate() {
 
 beforeEach(() => {
     jest.clearAllMocks();
+    // Default db.query: respond with `live` rows for the is_deleted filter
+    // query inside _pushToSquare. Individual tests can override with
+    // mockResolvedValueOnce to simulate empty/partial DB results before
+    // this fallback fires.
+    db.query.mockImplementation(async (sql, params) => {
+        if (typeof sql === 'string' && sql.includes('is_deleted = FALSE') && params) {
+            const ids = params[1] || [];
+            return { rows: ids.map(id => ({ id })) };
+        }
+        return { rows: [] };
+    });
 });
 
 // ==================== generateRecommendations ====================
@@ -1137,6 +1148,14 @@ describe('getHistory', () => {
 // applyRecommendation and applyAllRecommendations still call it directly (fire-and-forget).
 
 describe('Square push after apply', () => {
+    // _pushToSquare runs a SQL filter for is_deleted variations before
+    // calling Square. Tests must drain the microtask queue between awaiting
+    // the apply call and asserting on pushMinStockThresholdsToSquare so the
+    // .then() chain inside _pushToSquare gets to run.
+    function flushMicrotasks() {
+        return new Promise(setImmediate);
+    }
+
     beforeEach(() => {
         squareInventory.pushMinStockThresholdsToSquare.mockClear();
         squareInventory.pushMinStockThresholdsToSquare.mockResolvedValue({ pushed: 1, failed: 0 });
@@ -1151,8 +1170,11 @@ describe('Square push after apply', () => {
             };
             return fn(mockClient);
         });
+        // _pushToSquare is_deleted filter: var1 is live.
+        db.query.mockResolvedValueOnce({ rows: [{ id: 'var1' }] });
 
         await service.applyRecommendation(MERCHANT_ID, 'var1', 'loc1', 2);
+        await flushMicrotasks();
 
         expect(squareInventory.pushMinStockThresholdsToSquare).toHaveBeenCalledWith(
             MERCHANT_ID,
@@ -1170,8 +1192,10 @@ describe('Square push after apply', () => {
             const mockClient = { query: jest.fn().mockResolvedValue({ rows: [{ stock_alert_min: 2 }] }) };
             return fn(mockClient);
         });
+        db.query.mockResolvedValueOnce({ rows: [{ id: 'var1' }, { id: 'var2' }] });
 
         await service.applyAllRecommendations(MERCHANT_ID, recs);
+        await flushMicrotasks();
 
         expect(squareInventory.pushMinStockThresholdsToSquare).toHaveBeenCalledWith(
             MERCHANT_ID,
@@ -1184,6 +1208,51 @@ describe('Square push after apply', () => {
 
     test('applyAllRecommendations: Square push not called for empty array', async () => {
         await service.applyAllRecommendations(MERCHANT_ID, []);
+        await flushMicrotasks();
+        expect(squareInventory.pushMinStockThresholdsToSquare).not.toHaveBeenCalled();
+    });
+
+    test('_pushToSquare: deleted variations filtered out, only live IDs reach Square', async () => {
+        // applyAllRecommendations passes both var1 and var2; SQL filter says
+        // only var1 is live (var2 has is_deleted=true).
+        const recs = [
+            { variationId: 'var1', locationId: 'loc1', newMin: 1, rule: 'R1', reason: '' },
+            { variationId: 'var2', locationId: 'loc1', newMin: 2, rule: 'R2', reason: '' },
+        ];
+
+        db.transaction.mockImplementationOnce(async (fn) => {
+            const mockClient = { query: jest.fn().mockResolvedValue({ rows: [{ stock_alert_min: 0 }] }) };
+            return fn(mockClient);
+        });
+        db.query.mockResolvedValueOnce({ rows: [{ id: 'var1' }] });
+
+        await service.applyAllRecommendations(MERCHANT_ID, recs);
+        await flushMicrotasks();
+
+        // Verify the SQL filter shape
+        expect(db.query).toHaveBeenCalledWith(
+            expect.stringMatching(/is_deleted = FALSE/),
+            [MERCHANT_ID, ['var1', 'var2']]
+        );
+        // Push only sees the live variation
+        expect(squareInventory.pushMinStockThresholdsToSquare).toHaveBeenCalledWith(
+            MERCHANT_ID,
+            [{ variationId: 'var1', locationId: 'loc1', newMin: 1 }]
+        );
+    });
+
+    test('_pushToSquare: all variations deleted → push not called', async () => {
+        const recs = [{ variationId: 'gone', locationId: 'loc1', newMin: 1, rule: 'R', reason: '' }];
+
+        db.transaction.mockImplementationOnce(async (fn) => {
+            const mockClient = { query: jest.fn().mockResolvedValue({ rows: [{ stock_alert_min: 0 }] }) };
+            return fn(mockClient);
+        });
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        await service.applyAllRecommendations(MERCHANT_ID, recs);
+        await flushMicrotasks();
+
         expect(squareInventory.pushMinStockThresholdsToSquare).not.toHaveBeenCalled();
     });
 });

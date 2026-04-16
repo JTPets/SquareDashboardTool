@@ -11,6 +11,7 @@
  * @module services/inventory/auto-min-max-square-sync
  */
 
+const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { pushMinStockThresholdsToSquare } = require('../square/square-inventory');
 
@@ -36,7 +37,33 @@ async function syncMinsToSquare(merchantId, adjustments) {
         return { synced: 0, failed: 0, repairedParents: 0, errors: [] };
     }
 
-    const changes = adjustments.map(a => ({
+    // Defensive filter: skip variations marked is_deleted in the local DB.
+    // Square no longer has these items so batch-retrieve would return nothing
+    // for them and they'd be counted as failed. The auto-min-max DATA_QUERY
+    // already excludes deleted variations, but this guards future callers.
+    const variationIds = adjustments.map(a => a.variationId);
+    const { rows } = await db.query(
+        `SELECT id FROM variations
+         WHERE merchant_id = $1 AND id = ANY($2) AND is_deleted = FALSE`,
+        [merchantId, variationIds]
+    );
+    const liveIds = new Set(rows.map(r => r.id));
+    const liveAdjustments = adjustments.filter(a => liveIds.has(a.variationId));
+    const skippedDeleted = adjustments.length - liveAdjustments.length;
+    if (skippedDeleted > 0) {
+        logger.info('syncMinsToSquare: skipped deleted variations', {
+            merchantId, skippedDeleted, total: adjustments.length
+        });
+    }
+
+    if (liveAdjustments.length === 0) {
+        logger.info('syncMinsToSquare complete', {
+            merchantId, synced: 0, failed: 0, repairedParents: 0, skippedDeleted
+        });
+        return { synced: 0, failed: 0, repairedParents: 0, errors: [] };
+    }
+
+    const changes = liveAdjustments.map(a => ({
         variationId: a.variationId,
         locationId: a.locationId,
         newMin: a.newMin
