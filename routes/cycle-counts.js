@@ -28,7 +28,7 @@ const logger = require('../utils/logger');
 const squareApi = require('../services/square');
 const { batchResolveImageUrls } = require('../utils/image-utils');
 const { generateDailyBatch, sendCycleCountReport } = require('../services/inventory');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/cycle-counts');
@@ -432,7 +432,7 @@ router.post('/cycle-counts/generate-batch', requireAuth, requireMerchant, valida
  * POST /api/cycle-counts/reset
  * Admin function to rebuild count history from current catalog
  */
-router.post('/cycle-counts/reset', requireAuth, requireMerchant, validators.reset, asyncHandler(async (req, res) => {
+router.post('/cycle-counts/reset', requireAuth, requireMerchant, requireAdmin, validators.reset, asyncHandler(async (req, res) => {
     const { preserve_history } = req.body;
     const merchantId = req.merchantContext.id;
 

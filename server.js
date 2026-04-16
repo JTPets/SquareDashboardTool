@@ -106,6 +106,7 @@ const labelsRoutes = require('./routes/labels');
 const seniorsRoutes = require('./routes/seniors');
 const adminRoutes = require('./routes/admin');
 const catalogHealthRoutes = require('./routes/catalog-health');
+const catalogLocationHealthRoutes = require('./routes/catalog-location-health');
 const staffRoutes = require('./routes/staff');
 
 const app = express();
@@ -511,8 +512,9 @@ app.use('/api/staff', staffRoutes);
 // ==================== ADMIN ROUTES ====================
 // Platform administration endpoints (merchant management, settings)
 app.use('/api/admin', adminRoutes);
-// Catalog health monitor debug tool (admin only, merchant 3 only)
+// Catalog health monitor debug tool (admin only)
 app.use('/api/admin/catalog-health', catalogHealthRoutes);
+app.use('/api/admin/catalog-location-health', catalogLocationHealthRoutes);
 
 // ==================== DRIVER API ROUTES ====================
 // Token-based public endpoints for contract drivers + authenticated merchant endpoints
