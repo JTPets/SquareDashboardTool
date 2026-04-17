@@ -19,6 +19,7 @@ jest.mock('../../middleware/auth', () => ({
         }
         return res.status(403).json({ error: 'Admin access required' });
     },
+    requireWriteAccess: (req, res, next) => next(),
 }));
 
 // Mock fs.promises for log file reads

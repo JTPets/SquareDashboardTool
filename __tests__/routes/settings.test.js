@@ -28,6 +28,7 @@ jest.mock('../../services/merchant', () => ({
 jest.mock('../../middleware/auth', () => ({
     requireAuth: (req, res, next) => next(),
     requireAdmin: (req, res, next) => next(),
+    requireWriteAccess: (req, res, next) => next(),
 }));
 
 jest.mock('../../middleware/merchant', () => ({

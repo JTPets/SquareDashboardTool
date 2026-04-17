@@ -46,6 +46,7 @@ jest.mock('../../middleware/auth', () => ({
         req.session = { user: { id: 1, email: 'test@test.com', role: 'user' } };
         next();
     },
+    requireWriteAccess: (req, res, next) => next(),
 }));
 
 jest.mock('../../middleware/security', () => ({

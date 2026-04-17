@@ -43,6 +43,7 @@ jest.mock('../../middleware/auth', () => ({
         if (!req.session?.user) return res.status(401).json({ error: 'Unauthorized' });
         next();
     },
+    requireWriteAccess: (req, res, next) => next(),
 }));
 jest.mock('../../middleware/merchant', () => ({
     requireMerchant: (req, res, next) => {

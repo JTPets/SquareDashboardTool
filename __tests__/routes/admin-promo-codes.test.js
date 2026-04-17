@@ -26,6 +26,7 @@ jest.mock('../../middleware/auth', () => ({
     },
     logAuthEvent: jest.fn(),
     getClientIp: jest.fn(() => '127.0.0.1'),
+    requireWriteAccess: (req, res, next) => next(),
 }));
 
 jest.mock('../../services/merchant/platform-settings', () => ({
