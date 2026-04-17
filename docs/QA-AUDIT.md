@@ -1223,7 +1223,7 @@ Mount points:
 - `routes/delivery/` → `/api/delivery` (and `/api/v1/delivery`); server.js applies `requireFeature('delivery')`, `requirePermission('delivery', 'read')` at mount; `routes/delivery/index.js` applies `requireAuth`, `requireMerchant` globally for all sub-routes.
 - `routes/vendor-catalog/` → `/api` (and `/api/v1`); server.js `gateApi` applies `requireFeature('reorder')`, `requirePermission('reorder', 'read')` on `/vendors` and `/vendor-catalog` prefixes.
 
-**Important:** `routes/delivery/index.js` applies `requireAuth` and `requireMerchant` at router level — these are inherited by all sub-routes and omitted from individual rows for clarity. `requireWriteAccess` is absent from every delivery sub-router; write operations are protected only by rate limiting.
+**Important:** `routes/delivery/index.js` applies `requireAuth` and `requireMerchant` at router level — these are inherited by all sub-routes and omitted from individual rows for clarity. `requireWriteAccess` is applied inline on every write endpoint in each sub-router (resolved 2026-04-17; negative-path tests in `delivery-write-access.test.js`).
 
 ---
 
@@ -1234,15 +1234,15 @@ _(All routes inherit `requireAuth`, `requireMerchant` from parent router.)_
 | Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
 |--------|------|-------------------------------|---------|------|-------|
 | GET | `/api/delivery/orders` | `validators.listOrders` | `deliveryApi.getOrders` | Y | — |
-| POST | `/api/delivery/orders` | `deliveryRateLimit`, `validators.createOrder` | `deliveryApi.createOrder` + `geocodeAndPatchOrder` + `logAuditEvent` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/delivery/orders` | `deliveryRateLimit`, `requireWriteAccess`, `validators.createOrder` | `deliveryApi.createOrder` + `geocodeAndPatchOrder` + `logAuditEvent` | Y | — |
 | GET | `/api/delivery/orders/:id` | `validators.getOrder` | `deliveryApi.getOrderById` | Y | — |
-| PATCH | `/api/delivery/orders/:id` | `deliveryRateLimit`, `validators.updateOrder` | `deliveryApi.updateOrder` + `geocodeAndPatchOrder` | Y | ⚠️ Missing `requireWriteAccess` |
-| DELETE | `/api/delivery/orders/:id` | `deliveryRateLimit`, `validators.deleteOrder` | `deliveryApi.deleteOrder` + `logAuditEvent` | Y | ⚠️ Missing `requireWriteAccess` |
-| POST | `/api/delivery/orders/:id/skip` | `deliveryRateLimit`, `validators.skipOrder` | `deliveryApi.skipOrder` | Y | ⚠️ Missing `requireWriteAccess` |
-| POST | `/api/delivery/orders/:id/complete` | `deliveryRateLimit`, `validators.completeOrder` | `deliveryApi.completeDeliveryInSquare` + `deliveryApi.completeOrder` | Y | ⚠️ Missing `requireWriteAccess` |
+| PATCH | `/api/delivery/orders/:id` | `deliveryRateLimit`, `requireWriteAccess`, `validators.updateOrder` | `deliveryApi.updateOrder` + `geocodeAndPatchOrder` | Y | — |
+| DELETE | `/api/delivery/orders/:id` | `deliveryRateLimit`, `requireWriteAccess`, `validators.deleteOrder` | `deliveryApi.deleteOrder` + `logAuditEvent` | Y | — |
+| POST | `/api/delivery/orders/:id/skip` | `deliveryRateLimit`, `requireWriteAccess`, `validators.skipOrder` | `deliveryApi.skipOrder` | Y | — |
+| POST | `/api/delivery/orders/:id/complete` | `deliveryRateLimit`, `requireWriteAccess`, `validators.completeOrder` | `deliveryApi.completeDeliveryInSquare` + `deliveryApi.completeOrder` | Y | — |
 | GET | `/api/delivery/orders/:id/customer` | `validators.getOrder` | `deliveryStats.getCustomerInfo` | Y | — |
-| PATCH | `/api/delivery/orders/:id/customer-note` | `deliveryRateLimit`, `validators.updateCustomerNote` | `deliveryStats.updateCustomerNote` | Y | ⚠️ Missing `requireWriteAccess` |
-| PATCH | `/api/delivery/orders/:id/notes` | `deliveryRateLimit`, `validators.updateOrderNotes` | `deliveryApi.updateOrderNotes` | Y | ⚠️ Missing `requireWriteAccess` |
+| PATCH | `/api/delivery/orders/:id/customer-note` | `deliveryRateLimit`, `requireWriteAccess`, `validators.updateCustomerNote` | `deliveryStats.updateCustomerNote` | Y | — |
+| PATCH | `/api/delivery/orders/:id/notes` | `deliveryRateLimit`, `requireWriteAccess`, `validators.updateOrderNotes` | `deliveryApi.updateOrderNotes` | Y | — |
 | GET | `/api/delivery/orders/:id/customer-stats` | `validators.getOrder` | `deliveryStats.getCustomerStats` | Y | — |
 
 ---
@@ -1251,7 +1251,7 @@ _(All routes inherit `requireAuth`, `requireMerchant` from parent router.)_
 
 | Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
 |--------|------|-------------------------------|---------|------|-------|
-| POST | `/api/delivery/orders/:id/pod` | `deliveryRateLimit`, `podUpload.single('photo')`, `validateUploadedImage('photo')`, `validators.uploadPod` | `deliveryApi.savePodPhoto` + `logAuditEvent` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/delivery/orders/:id/pod` | `deliveryRateLimit`, `requireWriteAccess`, `podUpload.single('photo')`, `validateUploadedImage('photo')`, `validators.uploadPod` | `deliveryApi.savePodPhoto` + `logAuditEvent` | Y | — |
 | GET | `/api/delivery/pod/:id` | `validators.getPod` | `deliveryApi.getPodPhoto` + `res.sendFile` | Y | — |
 
 ---
@@ -1260,11 +1260,11 @@ _(All routes inherit `requireAuth`, `requireMerchant` from parent router.)_
 
 | Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
 |--------|------|-------------------------------|---------|------|-------|
-| POST | `/api/delivery/route/generate` | `deliveryStrictRateLimit`, `validators.generateRoute` | `deliveryApi.generateRoute` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/delivery/route/generate` | `deliveryStrictRateLimit`, `requireWriteAccess`, `validators.generateRoute` | `deliveryApi.generateRoute` | Y | — |
 | GET | `/api/delivery/route/active` | `validators.getActiveRoute` | `deliveryApi.getActiveRouteWithOrders` | Y | — |
 | GET | `/api/delivery/route/:id` | `validators.getRoute` | `deliveryApi.getRouteWithOrders` | Y | — |
-| POST | `/api/delivery/route/finish` | `deliveryRateLimit`, `validators.finishRoute` | `deliveryApi.finishRoute` | Y | ⚠️ Missing `requireWriteAccess` |
-| POST | `/api/delivery/geocode` | `deliveryStrictRateLimit`, `validators.geocode` | `deliveryApi.geocodePendingOrders` | Y | ⚠️ Missing `requireWriteAccess` — triggers external geocoding API calls |
+| POST | `/api/delivery/route/finish` | `deliveryRateLimit`, `requireWriteAccess`, `validators.finishRoute` | `deliveryApi.finishRoute` | Y | — |
+| POST | `/api/delivery/geocode` | `deliveryStrictRateLimit`, `requireWriteAccess`, `validators.geocode` | `deliveryApi.geocodePendingOrders` | Y | — |
 
 ---
 
@@ -1273,7 +1273,7 @@ _(All routes inherit `requireAuth`, `requireMerchant` from parent router.)_
 | Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
 |--------|------|-------------------------------|---------|------|-------|
 | GET | `/api/delivery/settings` | _(none at route level)_ | `deliveryApi.getSettingsWithDefaults` | Y | — |
-| PUT | `/api/delivery/settings` | `deliveryRateLimit`, `validators.updateSettings` | `deliveryApi.updateSettingsWithGeocode` + `logAuditEvent` | Y | ⚠️ Missing `requireWriteAccess` |
+| PUT | `/api/delivery/settings` | `deliveryRateLimit`, `requireWriteAccess`, `validators.updateSettings` | `deliveryApi.updateSettingsWithGeocode` + `logAuditEvent` | Y | — |
 
 ---
 
@@ -1281,8 +1281,8 @@ _(All routes inherit `requireAuth`, `requireMerchant` from parent router.)_
 
 | Method | Path | Middleware chain (route-level) | Handler | Test | Flags |
 |--------|------|-------------------------------|---------|------|-------|
-| POST | `/api/delivery/sync` | `deliveryStrictRateLimit`, `validators.syncOrders` | `deliveryApi.syncSquareOrders` | Y | ⚠️ Missing `requireWriteAccess` — triggers full Square order sync |
-| POST | `/api/delivery/backfill-customers` | `deliveryStrictRateLimit`, `validators.backfillCustomers` | `deliveryApi.backfillUnknownCustomers` | Y | ⚠️ Missing `requireWriteAccess` |
+| POST | `/api/delivery/sync` | `deliveryStrictRateLimit`, `requireWriteAccess`, `validators.syncOrders` | `deliveryApi.syncSquareOrders` | Y | — |
+| POST | `/api/delivery/backfill-customers` | `deliveryStrictRateLimit`, `requireWriteAccess`, `validators.backfillCustomers` | `deliveryApi.backfillUnknownCustomers` | Y | — |
 | GET | `/api/delivery/audit` | `validators.getAudit` | `deliveryApi.getAuditLog` | Y | — |
 | GET | `/api/delivery/stats` | _(none at route level)_ | `deliveryStats.getDashboardStats` | Y | — |
 
@@ -2046,7 +2046,7 @@ Additional loyalty-adjacent files:
 
 **Routes with NO tests:** None.
 
-**Untested flows:** `delivery-rate-limiting.test.js` contains only 1 test — rate-limit enforcement on delivery write routes has minimal dedicated coverage. This aligns with the Section 2 HIGH flag that all delivery write routes lack `requireWriteAccess`; neither the access control gap nor the rate-limit behaviour has meaningful test depth.
+**Untested flows:** `delivery-rate-limiting.test.js` contains only 1 test — rate-limit enforcement on delivery write routes has minimal dedicated coverage. The `requireWriteAccess` access-control gap has been resolved (2026-04-17) and negative-path coverage added in `delivery-write-access.test.js`; rate-limit enforcement depth remains low.
 
 ---
 
@@ -2788,28 +2788,9 @@ The `PATCH /api/admin/subscriptions/:id` path documented in Section 4 Journey 3 
 
 Read-only users (role: `readonly`) can currently invoke all of the following routes. `requireWriteAccess` is declared in `middleware/auth.js` and enforced correctly elsewhere (e.g., all loyalty write routes, GMC writes, most catalog mutations) — these are omissions, not design decisions.
 
-**Delivery — HIGH (entire write surface unprotected)**
+**Delivery — ✅ RESOLVED (2026-04-17)**
 
-All delivery write routes inherit `requireAuth` + `requireMerchant` from `routes/delivery/index.js` but `requireWriteAccess` was never added at the sub-router level. Rate limiting substitutes, but rate limiting is not an access control mechanism.
-
-| Route | Effect if exploited |
-|-------|---------------------|
-| `POST /api/delivery/orders` | Read-only user creates delivery orders |
-| `PATCH /api/delivery/orders/:id` | Modifies any order address, phone, or status |
-| `DELETE /api/delivery/orders/:id` | Permanently deletes orders |
-| `POST /api/delivery/orders/:id/skip` | Skips orders in active route |
-| `POST /api/delivery/orders/:id/complete` | Marks orders delivered; updates Square fulfillment ⚠️ |
-| `PATCH /api/delivery/orders/:id/notes` | Overwrites internal notes |
-| `PATCH /api/delivery/orders/:id/customer-note` | Overwrites note synced to Square customer ⚠️ |
-| `POST /api/delivery/orders/:id/pod` | Uploads proof-of-delivery photo |
-| `POST /api/delivery/route/generate` | Generates (overwrites) active delivery route |
-| `POST /api/delivery/route/finish` | Closes the active route |
-| `POST /api/delivery/geocode` | Triggers external geocoding API calls |
-| `PUT /api/delivery/settings` | Overwrites delivery settings (with geocoding) |
-| `POST /api/delivery/sync` | Triggers full Square order sync ⚠️ |
-| `POST /api/delivery/backfill-customers` | Fetches unknown customers from Square ⚠️ |
-| `POST /api/delivery/route/:id/share` | Generates and publishes a driver share token |
-| `DELETE /api/delivery/route/:id/token` | Revokes a driver share token |
+`requireWriteAccess` added inline to all 16 delivery write endpoints across `orders.js`, `pod.js`, `routes.js`, `settings.js`, `sync.js`, and `driver-api.js`. Negative-path tests added in `__tests__/routes/delivery-write-access.test.js`; driver token routes confirmed publicly accessible (no auth required).
 
 **Purchase Orders**
 
@@ -2990,7 +2971,7 @@ Every route documented in Section 2 has at least one test. The single exception 
 
 #### 3.3 — Negative-path auth tests missing
 
-This is the most significant test coverage gap in the codebase. The `requireWriteAccess` access-control gaps documented in Section 2 Group 2.C affect approximately 38 routes across 12 route files. **Not a single one of those routes has a dedicated negative-path test asserting that a `readonly` user receives a 403.**
+This is the most significant test coverage gap in the codebase. The `requireWriteAccess` access-control gaps documented in Section 2 Group 2.C affect approximately 22 routes across 11 route files. **Not a single one of those routes has a dedicated negative-path test asserting that a `readonly` user receives a 403.**
 
 Existing tests confirm the happy path (authenticated write-role user succeeds). They do not assert that a read-only user is blocked.
 
@@ -2998,7 +2979,7 @@ Existing tests confirm the happy path (authenticated write-role user succeeds). 
 
 | Domain | Route file | Write routes without negative-path test | Test file |
 |--------|-----------|----------------------------------------|-----------|
-| Delivery | `routes/delivery/orders.js`, `pod.js`, `routes.js`, `settings.js`, `sync.js`, `routes/driver-api.js` | 16 write endpoints | `delivery.test.js`, `delivery-completion.test.js` |
+| ~~Delivery~~ | ~~`routes/delivery/orders.js`, `pod.js`, `routes.js`, `settings.js`, `sync.js`, `routes/driver-api.js`~~ | ~~16 write endpoints~~ | ✅ Covered — `delivery-write-access.test.js` (9 tests; resolved 2026-04-17) |
 | Purchase Orders | `routes/purchase-orders.js` | 5 write endpoints | `purchase-orders.test.js` |
 | Cycle Counts | `routes/cycle-counts.js` | 6 write endpoints | `cycle-counts.test.js` |
 | Square Attributes | `routes/square-attributes.js` | 8 write endpoints | `square-attributes.test.js` |
@@ -3018,7 +2999,7 @@ Existing tests confirm the happy path (authenticated write-role user succeeds). 
 
 | # | Severity | Gap | Relevant Section 2 flag |
 |---|----------|-----|-------------------------|
-| 1 | MEDIUM | No test asserts that a read-only user is blocked from any of the 16 delivery write endpoints | S2 Group 5 flag #1 |
+| 1 | ✅ RESOLVED | ~~No test asserts that a read-only user is blocked from any of the 16 delivery write endpoints~~ — covered by `delivery-write-access.test.js` (2026-04-17) | S2 Group 5 flag #1 |
 | 2 | MEDIUM | No test asserts that triggering `POST /api/auth/forgot-password` in rapid succession is rate-limited (the rate limit is not applied, so no such test can pass until 2.B flag #1 is fixed) | S2 Group 1 flag #1 |
 | 3 | MEDIUM | No test asserts that `GET /api/admin/catalog-health` returns merchant-scoped data for the calling admin's merchant (the hard-coded DEBUG_MERCHANT_ID = 3 makes any such test trivially pass against merchant 3 only) | S2 Group 2 flag #1 |
 | 4 | LOW | `delivery-rate-limiting.test.js` contains only 1 test; rate-limit enforcement across all delivery write routes is not systematically validated | S3 Group 3 delivery notes |
@@ -3053,7 +3034,7 @@ Existing tests confirm the happy path (authenticated write-role user succeeds). 
 | 1 | Possible unimplemented admin route (`PATCH /api/admin/subscriptions/:id`) | — | 1 | — | — | 1 |
 | 2 | Multi-tenant isolation (hardcoded merchantId) | 1 | — | — | — | 1 |
 | 2 | Missing rate limiting | — | 1 | 2 | 1 | 4 |
-| 2 | Missing `requireWriteAccess` (delivery) | — | 1 group | — | — | 16 routes |
+| 2 | ~~Missing `requireWriteAccess` (delivery)~~ ✅ RESOLVED 2026-04-17 | — | — | — | — | 0 |
 | 2 | Missing `requireWriteAccess` (Square attributes) | — | 1 group | — | — | 8 routes |
 | 2 | Missing `requireWriteAccess` (vendor catalog) | — | 2 routes | 8 routes | — | 10 routes |
 | 2 | Missing `requireWriteAccess` (purchase orders) | — | 1 route | 4 routes | — | 5 routes |
@@ -3062,7 +3043,7 @@ Existing tests confirm the happy path (authenticated write-role user succeeds). 
 | 2 | Missing `requireMerchant` | — | — | — | 5 | 5 |
 | 2 | Missing elevated-role gate on bulk ops | — | — | 2 | — | 2 |
 | 2 | Implicit-only auth | — | — | — | 1 | 1 |
-| 3 | Missing negative-path `requireWriteAccess` tests | — | ~38 routes | — | — | ~38 |
+| 3 | Missing negative-path `requireWriteAccess` tests | — | ~22 routes | — | — | ~22 |
 | 3 | Missing rate-limit negative-path tests | — | — | 4 | — | 4 |
 | 3 | Delivery rate-limit test depth | — | — | — | 1 | 1 |
 | 3 | Catalog-location-health HTTP untestable | 1 | — | — | — | 1 |
@@ -3130,12 +3111,12 @@ Ranked by: exploitability × blast radius × ease of fix.
 | **1** | CRITICAL | Mount `routes/catalog-location-health.js` in `server.js` | `server.js` | 2 lines |
 | **2** | CRITICAL | Replace hard-coded `DEBUG_MERCHANT_ID = 3` with `req.merchantContext.id` in catalog-health | `routes/catalog-health.js` | 2 changes |
 | **3** | HIGH | Apply `passwordResetRateLimit` to `POST /api/auth/forgot-password` | `routes/auth/password.js` | 1 line |
-| **4** | HIGH | Add `requireWriteAccess` to all delivery write routes (create/update/delete orders, route ops, sync, POD, settings) | `routes/delivery/index.js` or per sub-router | 15–20 insertions |
+| **4** | ~~HIGH~~ ✅ | ~~Add `requireWriteAccess` to all delivery write routes~~ — resolved 2026-04-17; `delivery-write-access.test.js` added | ~~`routes/delivery/index.js` or per sub-router~~ | Done |
 | **5** | HIGH | Add `requireWriteAccess` to all `routes/square-attributes.js` write endpoints | `routes/square-attributes.js` | 8 insertions |
 | **6** | HIGH | Add `requireWriteAccess` + `requireAdmin` gate to `POST /api/cycle-counts/reset` | `routes/cycle-counts.js` | 2 insertions |
 | **7** | HIGH | Add `requireWriteAccess` to `DELETE /api/purchase-orders/:id` (read-only deletion) | `routes/purchase-orders.js` | 1 insertion |
 | **8** | HIGH | Add `requireWriteAccess` to `POST /api/vendor-catalog/push-price-changes` and `/create-items` | `routes/vendor-catalog/manage.js` | 2 insertions |
-| **9** | HIGH | Add negative-path `requireWriteAccess` tests for delivery, purchase-orders, and cycle-counts (highest-blast-radius domains first; follow the pattern in `catalog-write-access.test.js`) | `__tests__/routes/` | New test files |
+| **9** | HIGH | Add negative-path `requireWriteAccess` tests for purchase-orders and cycle-counts (delivery already done; follow `delivery-write-access.test.js` pattern) | `__tests__/routes/` | New test files |
 | **10** | MEDIUM | Investigate and implement (or document as intentionally absent) `PATCH /api/admin/subscriptions/:id` — referenced in Section 4 Journey 3 with no matching route in Section 2 | `routes/subscriptions/admin.js` | Unknown |
 
 ---
@@ -3149,7 +3130,7 @@ The following gaps identified in this audit overlap with items already tracked i
 | Hard-coded `DEBUG_MERCHANT_ID = 3` (C1) | CRITICAL | Multi-tenant isolation failures are always CRITICAL in this codebase |
 | `routes/catalog-location-health.js` unmounted (C2) | HIGH | Route infrastructure gap — likely already known |
 | `POST /api/auth/forgot-password` missing rate limit (H3) | HIGH | Auth hardening — likely already tracked |
-| Delivery `requireWriteAccess` gap (H1) | HIGH | Delivery module write-access gap — large surface area |
+| ~~Delivery `requireWriteAccess` gap (H1)~~ | ~~HIGH~~ | ✅ Resolved 2026-04-17 |
 | Square attributes `requireWriteAccess` gap (H2) | HIGH | May be tracked as Square attributes hardening |
 | `POST /api/cycle-counts/reset` no admin gate (H6) | HIGH | Destructive operation guardrails |
 | Vendor-catalog `requireWriteAccess` gaps (H6) | MEDIUM | Vendor catalog hardening |
