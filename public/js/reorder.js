@@ -198,7 +198,7 @@ async function getSuggestions() {
 
   hideVendorPrompt();
   const tbody = document.getElementById('suggestions-body');
-  tbody.innerHTML = '<tr><td colspan="20" class="loading">Loading suggestions...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="19" class="loading">Loading suggestions...</td></tr>';
 
   try {
     const response = await fetch(url);
@@ -244,7 +244,7 @@ async function getSuggestions() {
     if (allSuggestions.length === 0 && bundleAnalysis.length === 0) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="20" class="empty-state">
+          <td colspan="19" class="empty-state">
             <h3>No Reorder Suggestions</h3>
             <p>No items need reordering for the selected vendor and supply days.</p>
             <p>Try different filters or run a sync to update inventory data.</p>
@@ -273,7 +273,7 @@ async function getSuggestions() {
     const friendlyMsg = window.ErrorHelper
       ? ErrorHelper.getFriendlyMessage(error, 'inventory', 'load')
       : 'Unable to load reorder suggestions. Please refresh the page.';
-    tbody.innerHTML = `<tr><td colspan="20" class="loading">${escapeHtml(friendlyMsg)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="19" class="loading">${escapeHtml(friendlyMsg)}</td></tr>`;
   }
 }
 
@@ -406,7 +406,7 @@ function renderBundleRows() {
     // Parent header row
     let html = `
       <tr class="bundle-parent-row" data-bundle-id="${escapeAttr(bundle.bundle_id)}">
-        <td colspan="20" data-action="toggleBundleExpand" data-action-param="${escapeAttr(bundle.bundle_id)}">
+        <td colspan="19" data-action="toggleBundleExpand" data-action-param="${escapeAttr(bundle.bundle_id)}">
           <span class="bundle-toggle">${toggle}</span>
           <strong>Bundle: ${escapeHtml(bundle.bundle_item_name)}</strong>
           <span class="bundle-header-meta">
@@ -520,7 +520,7 @@ function renderBundleRows() {
     }
 
     // Separator
-    html += `<tr class="bundle-separator"><td colspan="20"></td></tr>`;
+    html += `<tr class="bundle-separator"><td colspan="19"></td></tr>`;
 
     return html;
   }).join('');
@@ -831,7 +831,6 @@ function renderTable() {
         <td class="text-right">${item.retail_price_cents ? '$' + (item.retail_price_cents / 100).toFixed(2) : '-'}</td>
         <td class="text-right ${item.gross_margin_percent !== null ? (item.gross_margin_percent >= 40 ? 'velocity-fast' : item.gross_margin_percent >= 20 ? 'velocity-moderate' : 'days-critical') : ''}">${item.gross_margin_percent !== null ? item.gross_margin_percent.toFixed(1) + '%' : '-'}</td>
         <td class="text-right" id="line-total-${item.variation_id}"><strong>$${totalCost}</strong></td>
-        <td>${escapeHtml(item.vendor_name)}</td>
         <td class="clickable ${needsReorderResistance ? 'vendor-code-expiring' : ''}" data-action="copyToClipboard" data-action-param="${escapeJsString(item.vendor_code || '')}" data-copy-label="Vendor Code" title="${needsReorderResistance ? 'EXPIRING ITEM - Click to copy Vendor Code (still works)' : 'Click to copy Vendor Code'}">${escapeHtml(item.vendor_code)}</td>
       </tr>
     `;
@@ -840,7 +839,7 @@ function renderTable() {
   // Manual items divider and rows (Feature 4)
   let manualHtml = '';
   if (manualItems.length > 0) {
-    manualHtml += '<tr class="manual-divider"><td colspan="20"></td></tr>';
+    manualHtml += '<tr class="manual-divider"><td colspan="19"></td></tr>';
     manualHtml += manualItems.map(item => renderManualItemRow(item)).join('');
   }
 
@@ -1072,10 +1071,17 @@ function updateFooter() {
   // Update vendor info bar running total
   updateVendorRunningTotal(totalCost);
 
-  // Disable PO button only when no items are selected (below-minimum is a soft warning via dialog)
   const createBtn = document.getElementById('create-po-btn');
-  createBtn.disabled = totalItems === 0;
-  createBtn.title = '';
+  const currentVendorId = document.getElementById('vendor-select').value;
+  const isAllVendors = currentVendorId === '' || currentVendorId === '__none__';
+  if (isAllVendors) {
+    createBtn.disabled = true;
+    createBtn.title = 'Select a specific vendor to generate a PO';
+  } else {
+    // Disable PO button only when no items are selected (below-minimum is a soft warning via dialog)
+    createBtn.disabled = totalItems === 0;
+    createBtn.title = '';
+  }
 }
 
 async function createPurchaseOrder(force = false) {
@@ -1378,7 +1384,6 @@ function sortTable(element, event, param) {
         break;
 
       case 'item_name':
-      case 'vendor_name':
       case 'sku':
       case 'vendor_code':
         // String comparison (case-insensitive)
