@@ -3,7 +3,7 @@
 > **Maintenance:** Add items when: audit surfaces gaps, security review finds issues, dogfooding identifies bugs. Close items by adding resolution note and date.
 > See also: [QA-AUDIT.md](./QA-AUDIT.md), [DOMAIN-MAP.md](./DOMAIN-MAP.md)
 
-> **Last Updated**: 2026-04-16 | Consolidated from WORK-ITEMS, PRIORITIES, TECHNICAL_DEBT, PRE-BETA-AUDIT, ROADMAP, QA-AUDIT S2, QA-AUDIT S5
+> **Last Updated**: 2026-04-17 | Consolidated from WORK-ITEMS, PRIORITIES, TECHNICAL_DEBT, PRE-BETA-AUDIT, ROADMAP, QA-AUDIT S2, QA-AUDIT S5
 
 ---
 
@@ -20,9 +20,6 @@
 
 | ID | Description | Effort |
 |----|-------------|--------|
-| BACKLOG-123 | **Add `requireWriteAccess` to all delivery write routes** — `routes/delivery/orders.js`, `pod.js`, `routes.js`, `settings.js`, `sync.js`, and `routes/driver-api.js` have no write-role gate. Read-only staff can create/delete orders, generate routes, sync from Square, and upload POD photos. QA audit S2-G5. | M |
-| BACKLOG-124 | **Add `requireWriteAccess` to `routes/square-attributes.js` write/delete endpoints** — all 9 POST/PUT/DELETE endpoints (init, create/delete definitions, update values, bulk push case-pack/brand/expiry/all) are unprotected against read-only role. QA audit S2-G6. | S |
-| BACKLOG-125 | **Add `requireWriteAccess` to vendor-catalog manage and import routes** — `routes/vendor-catalog/manage.js` (push-price-changes, confirm-links, deduplicate, create-items, archive/unarchive/delete batch) and `routes/vendor-catalog/import.js` (import, import-mapped) have no write-role gate. Includes bulk Square price updates and permanent batch deletion. QA audit S2-G5. | M |
 | PRICING-UI | Pricing page shows per-module prices with individual CTAs but `subscribe.html` is all-or-nothing. Misleads customers. | S |
 | SUB-UI-1 | No cancel subscription button. API exists (`POST /api/subscriptions/cancel`) but no UI. | S |
 | SUB-UI-2 | No trial countdown banner. Merchants have no visibility into trial expiry. | S |
@@ -145,11 +142,11 @@
 | Priority | Count |
 |----------|-------|
 | CRITICAL | 4 |
-| HIGH | 11 |
+| HIGH | 8 |
 | MEDIUM | ~31 |
 | LOW | ~18 |
 | FUTURE | 7 initiatives |
-| **Total** | **~65 open items** |
+| **Total** | **~62 open items** |
 
 **Ship readiness**: CRITICAL item BACKLOG-128 remains — clear it first. Then fix B3 + PRICING-UI + SUB-UI-1/2 (all S-M effort) to ship beta.
 
