@@ -41,6 +41,7 @@ jest.mock('../../middleware/auth', () => ({
     requireAdmin: (req, res, next) => next(),
     logAuthEvent: jest.fn(),
     getClientIp: jest.fn(() => '127.0.0.1'),
+    requireWriteAccess: (req, res, next) => next(),
 }));
 
 // requireMerchant — pass through (merchantContext set on app)

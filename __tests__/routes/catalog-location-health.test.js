@@ -25,6 +25,7 @@ jest.mock('../../middleware/auth', () => ({
         }
         return res.status(403).json({ error: 'Admin access required' });
     },
+    requireWriteAccess: (req, res, next) => next(),
 }));
 
 jest.mock('../../middleware/merchant', () => ({

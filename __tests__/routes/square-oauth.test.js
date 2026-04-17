@@ -4,6 +4,7 @@ jest.mock('../../middleware/auth', () => ({
     requireAdmin: (req, res, next) => { if (req.session?.user?.role !== 'admin') return res.status(403).json({ error: 'Admin access required' }); next(); },
     logAuthEvent: jest.fn().mockResolvedValue(),
     getClientIp: jest.fn(() => '127.0.0.1'),
+    requireWriteAccess: (req, res, next) => next(),
 }));
 jest.mock('../../middleware/merchant', () => ({
     requireMerchant: (req, res, next) => { if (!req.merchantContext) return res.status(400).json({ error: 'Merchant context required' }); next(); },

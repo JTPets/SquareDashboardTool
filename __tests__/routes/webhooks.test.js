@@ -30,6 +30,7 @@ jest.mock('../../utils/square-webhooks', () => ({
 jest.mock('../../middleware/auth', () => ({
     requireAuth: (req, res, next) => next(),
     requireAdmin: (req, res, next) => next(),
+    requireWriteAccess: (req, res, next) => next(),
 }));
 
 jest.mock('../../middleware/merchant', () => ({

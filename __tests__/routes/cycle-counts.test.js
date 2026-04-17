@@ -2,6 +2,7 @@ jest.mock('../../utils/logger', () => ({ info: jest.fn(), warn: jest.fn(), error
 jest.mock('../../middleware/auth', () => ({
     requireAuth: (req, res, next) => { if (!req.session?.user) return res.status(401).json({ error: 'Unauthorized' }); next(); },
     requireAdmin: (req, res, next) => { if (req.session?.user?.role !== 'admin') return res.status(403).json({ error: 'Admin access required' }); next(); },
+    requireWriteAccess: (req, res, next) => next(),
 }));
 jest.mock('../../middleware/merchant', () => ({
     requireMerchant: (req, res, next) => { if (!req.merchantContext) return res.status(400).json({ error: 'Merchant context required' }); next(); },
