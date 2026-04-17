@@ -3,7 +3,7 @@
 > **Maintenance:** Add items when: audit surfaces gaps, security review finds issues, dogfooding identifies bugs. Close items by adding resolution note and date.
 > See also: [QA-AUDIT.md](./QA-AUDIT.md), [DOMAIN-MAP.md](./DOMAIN-MAP.md)
 
-> **Last Updated**: 2026-04-17 | Consolidated from WORK-ITEMS, PRIORITIES, TECHNICAL_DEBT, PRE-BETA-AUDIT, ROADMAP, QA-AUDIT S2, QA-AUDIT S5
+> **Last Updated**: 2026-04-17 | Consolidated from WORK-ITEMS, PRIORITIES, TECHNICAL_DEBT, PRE-BETA-AUDIT, ROADMAP, QA-AUDIT S2, QA-AUDIT S5; BACKLOG-133/134/135 from delivery-square.js audit
 
 ---
 
@@ -24,6 +24,7 @@
 | SUB-UI-3 | No billing history page. Merchants can't see past charges. | M |
 | BACKLOG-80 | Email alert infrastructure. Code built (`utils/alert-recipients.js`, 135 tests), sends from/to same email. Needs transactional sender (Resend/Mailgun) + Cloudflare Email Routing. | S |
 | BACKLOG-50 | Post-trial conversion — $1 first month. Capture payment method, prove intent. Decide Stripe vs Square for SaaS billing. | L |
+| BACKLOG-133 | **Delivery — `address_missing` tombstone status.** When `ingestSquareOrder` finds no address, it returns null and writes nothing — the Square order is invisible to operators and re-processed on every webhook/sync. Fix: insert a `delivery_orders` row with `status='address_missing'` before returning null (`delivery-square.js:109–117`) to block repeat processing and give operator visibility. Add retry mechanism (analogous to `needs_customer_refresh`) so that if the fulfillment is later updated with an address, the order is promoted to `pending`. Missed deliveries are possible without this. | M |
 
 ---
 
@@ -51,6 +52,8 @@
 
 | ID | Description | Effort |
 |----|-------------|--------|
+| BACKLOG-134 | **Delivery — COMPLETED SHIPMENT orders not in system are permanently unreachable.** `delivery-sync.js:74–83` logs debug and skips COMPLETED Square orders not in `delivery_orders`. If the address was available at completion time, there is no path to recover them. Fix: after the debug skip, check if the order has an address in `shipmentDetails.recipient.address` and if so, ingest it (with `status='completed'` to avoid routing it as a live delivery). | M |
+| BACKLOG-135 | **Delivery — manual records without `square_order_id` break ingest deduplication.** If staff manually create a `delivery_orders` row without linking `square_order_id`, subsequent webhooks and syncs cannot detect the duplicate via `getOrderBySquareId` (`delivery-orders.js:120–127`). If Square later has an address in the fulfillment, a second `delivery_orders` row will be created for the same physical delivery. Fix: add a UI warning when creating manual orders for Square order IDs that already exist, or require `square_order_id` linkage when the Square order is known. | S |
 | BACKLOG-107 | Reorder suggestions audit — 810-line service with silent exclusion bugs | S |
 | BACKLOG-108 | Stale draft PO warning — old drafts suppress reorder items silently | M |
 | BACKLOG-109 | Merchant-configurable auto min/max settings | M |
@@ -140,11 +143,11 @@
 | Priority | Count |
 |----------|-------|
 | CRITICAL | 0 |
-| HIGH | 8 |
-| MEDIUM | ~31 |
+| HIGH | 9 |
+| MEDIUM | ~33 |
 | LOW | ~18 |
 | FUTURE | 7 initiatives |
-| **Total** | **~57 open items** |
+| **Total** | **~60 open items** |
 
 **Ship readiness**: Fix PRICING-UI + SUB-UI-1/2 (all S effort) to ship beta.
 
