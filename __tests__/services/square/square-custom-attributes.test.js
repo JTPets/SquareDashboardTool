@@ -393,6 +393,60 @@ describe('updateCustomAttributeValues', () => {
 });
 
 // ===========================================================================
+// updateCustomAttributeValues — withLocationRepair integration
+// ===========================================================================
+
+describe('updateCustomAttributeValues — withLocationRepair', () => {
+    test('INVALID_VALUE/item_id error triggers repair and retry', async () => {
+        const existingObj = makeCatalogObject('VAR-1', 'ITEM_VARIATION', { version: 5 });
+        makeSquareRequest
+            .mockResolvedValueOnce({ object: existingObj })
+            .mockRejectedValueOnce(new Error('INVALID_VALUE: item_id invalid'))
+            .mockResolvedValueOnce({ catalog_object: { id: 'VAR-1', version: 6 } });
+
+        withLocationRepair.mockImplementationOnce(async ({ fn }) => {
+            try { await fn(); } catch (_) { /* repair */ }
+            const result = await fn();
+            return { result, repairedCount: 1 };
+        });
+
+        const result = await updateCustomAttributeValues(
+            'VAR-1',
+            { brand: { string_value: 'Acme' } },
+            { merchantId }
+        );
+
+        expect(withLocationRepair).toHaveBeenCalledWith(expect.objectContaining({
+            merchantId,
+            accessToken: 'test-token',
+            variationIds: ['VAR-1'],
+            fn: expect.any(Function)
+        }));
+        expect(result.success).toBe(true);
+        expect(result.catalog_object.version).toBe(6);
+    });
+
+    test('repair succeeds — upsert retries and returns result', async () => {
+        const existingObj = makeCatalogObject('VAR-1', 'ITEM_VARIATION', { version: 5 });
+        makeSquareRequest.mockResolvedValueOnce({ object: existingObj });
+
+        withLocationRepair.mockImplementationOnce(async () => ({
+            result: { catalog_object: { id: 'VAR-1', version: 6 } },
+            repairedCount: 1
+        }));
+
+        const result = await updateCustomAttributeValues(
+            'VAR-1',
+            { brand: { string_value: 'Acme' } },
+            { merchantId }
+        );
+
+        expect(result.success).toBe(true);
+        expect(result.catalog_object).toEqual({ id: 'VAR-1', version: 6 });
+    });
+});
+
+// ===========================================================================
 // batchUpdateCustomAttributeValues
 // ===========================================================================
 

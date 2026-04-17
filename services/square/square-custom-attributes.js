@@ -229,10 +229,15 @@ async function updateCustomAttributeValues(catalogObjectId, customAttributeValue
             object: updateObj
         };
 
-        const data = await makeSquareRequest('/v2/catalog/object', {
-            method: 'POST',
-            body: JSON.stringify(requestBody),
-            accessToken
+        const { result: data } = await withLocationRepair({
+            merchantId,
+            accessToken,
+            variationIds: [catalogObjectId],
+            fn: () => makeSquareRequest('/v2/catalog/object', {
+                method: 'POST',
+                body: JSON.stringify(requestBody),
+                accessToken
+            })
         });
 
         logger.info('Custom attribute values updated', {
