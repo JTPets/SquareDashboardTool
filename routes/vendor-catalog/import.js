@@ -1,14 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const vendorCatalog = require('../../services/vendor');
-const { requireAuth } = require('../../middleware/auth');
+const { requireAuth, requireWriteAccess } = require('../../middleware/auth');
 const { requireMerchant } = require('../../middleware/merchant');
 const validators = require('../../middleware/validators/vendor-catalog');
 const asyncHandler = require('../../middleware/async-handler');
 const { sendSuccess, sendError } = require('../../utils/response-helper');
 const { decodeFileData } = require('../../utils/file-decode');
 
-router.post('/vendor-catalog/import', requireAuth, requireMerchant, validators.importCatalog, asyncHandler(async (req, res) => {
+router.post('/vendor-catalog/import', requireAuth, requireMerchant, requireWriteAccess, validators.importCatalog, asyncHandler(async (req, res) => {
     const { data, fileType, fileName, defaultVendorName } = req.body;
     if (!data) return sendError(res, 'Missing file data', 400);
     const { fileData, type } = decodeFileData(data, fileType, fileName);
@@ -24,7 +24,7 @@ router.post('/vendor-catalog/import', requireAuth, requireMerchant, validators.i
     });
 }));
 
-router.post('/vendor-catalog/preview', requireAuth, requireMerchant, validators.previewFile, asyncHandler(async (req, res) => {
+router.post('/vendor-catalog/preview', requireAuth, requireMerchant, requireWriteAccess, validators.previewFile, asyncHandler(async (req, res) => {
     const { data, fileType, fileName } = req.body;
     if (!data) return sendError(res, 'Missing file data', 400);
     const { fileData, type } = decodeFileData(data, fileType, fileName);
@@ -39,7 +39,7 @@ router.post('/vendor-catalog/preview', requireAuth, requireMerchant, validators.
     sendSuccess(res, { totalRows: preview.totalRows, columns, autoMappings, sampleValues, fieldTypes: preview.fieldTypes });
 }));
 
-router.post('/vendor-catalog/import-mapped', requireAuth, requireMerchant, validators.importMapped, asyncHandler(async (req, res) => {
+router.post('/vendor-catalog/import-mapped', requireAuth, requireMerchant, requireWriteAccess, validators.importMapped, asyncHandler(async (req, res) => {
     const { data, fileType, fileName, columnMappings, mappings, vendorId, vendorName, importName } = req.body;
     if (!data) return sendError(res, 'Missing file data', 400);
     if (!vendorId) return sendError(res, 'Missing vendor', 400);
