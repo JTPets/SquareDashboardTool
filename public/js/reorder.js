@@ -198,7 +198,7 @@ async function getSuggestions() {
 
   hideVendorPrompt();
   const tbody = document.getElementById('suggestions-body');
-  tbody.innerHTML = '<tr><td colspan="20" class="loading">Loading suggestions...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="19" class="loading">Loading suggestions...</td></tr>';
 
   try {
     const response = await fetch(url);
@@ -244,7 +244,7 @@ async function getSuggestions() {
     if (allSuggestions.length === 0 && bundleAnalysis.length === 0) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="20" class="empty-state">
+          <td colspan="19" class="empty-state">
             <h3>No Reorder Suggestions</h3>
             <p>No items need reordering for the selected vendor and supply days.</p>
             <p>Try different filters or run a sync to update inventory data.</p>
@@ -273,7 +273,7 @@ async function getSuggestions() {
     const friendlyMsg = window.ErrorHelper
       ? ErrorHelper.getFriendlyMessage(error, 'inventory', 'load')
       : 'Unable to load reorder suggestions. Please refresh the page.';
-    tbody.innerHTML = `<tr><td colspan="20" class="loading">${escapeHtml(friendlyMsg)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="19" class="loading">${escapeHtml(friendlyMsg)}</td></tr>`;
   }
 }
 
@@ -406,7 +406,7 @@ function renderBundleRows() {
     // Parent header row
     let html = `
       <tr class="bundle-parent-row" data-bundle-id="${escapeAttr(bundle.bundle_id)}">
-        <td colspan="20" data-action="toggleBundleExpand" data-action-param="${escapeAttr(bundle.bundle_id)}">
+        <td colspan="19" data-action="toggleBundleExpand" data-action-param="${escapeAttr(bundle.bundle_id)}">
           <span class="bundle-toggle">${toggle}</span>
           <strong>Bundle: ${escapeHtml(bundle.bundle_item_name)}</strong>
           <span class="bundle-header-meta">
@@ -520,7 +520,7 @@ function renderBundleRows() {
     }
 
     // Separator
-    html += `<tr class="bundle-separator"><td colspan="20"></td></tr>`;
+    html += `<tr class="bundle-separator"><td colspan="19"></td></tr>`;
 
     return html;
   }).join('');
@@ -1071,10 +1071,17 @@ function updateFooter() {
   // Update vendor info bar running total
   updateVendorRunningTotal(totalCost);
 
-  // Disable PO button only when no items are selected (below-minimum is a soft warning via dialog)
   const createBtn = document.getElementById('create-po-btn');
-  createBtn.disabled = totalItems === 0;
-  createBtn.title = '';
+  const currentVendorId = document.getElementById('vendor-select').value;
+  const isAllVendors = currentVendorId === '' || currentVendorId === '__none__';
+  if (isAllVendors) {
+    createBtn.disabled = true;
+    createBtn.title = 'Select a specific vendor to generate a PO';
+  } else {
+    // Disable PO button only when no items are selected (below-minimum is a soft warning via dialog)
+    createBtn.disabled = totalItems === 0;
+    createBtn.title = '';
+  }
 }
 
 async function createPurchaseOrder(force = false) {
