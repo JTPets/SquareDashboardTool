@@ -5,6 +5,7 @@ const deliveryApi = require('../../services/delivery');
 const asyncHandler = require('../../middleware/async-handler');
 const { configureDeliveryRateLimit } = require('../../middleware/security');
 const validators = require('../../middleware/validators/delivery');
+const { requireWriteAccess } = require('../../middleware/auth');
 const { sendSuccess } = require('../../utils/response-helper');
 
 const deliveryRateLimit = configureDeliveryRateLimit();
@@ -14,7 +15,7 @@ router.get('/settings', asyncHandler(async (req, res) => {
     sendSuccess(res, { settings });
 }));
 
-router.put('/settings', deliveryRateLimit, validators.updateSettings, asyncHandler(async (req, res) => {
+router.put('/settings', deliveryRateLimit, requireWriteAccess, validators.updateSettings, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const settings = await deliveryApi.updateSettingsWithGeocode(merchantId, req.body);
     await deliveryApi.logAuditEvent(merchantId, req.session.user.id, 'settings_updated', null, null,

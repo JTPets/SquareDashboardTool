@@ -6,12 +6,13 @@ const deliveryApi = require('../../services/delivery');
 const asyncHandler = require('../../middleware/async-handler');
 const { configureDeliveryRateLimit, configureDeliveryStrictRateLimit } = require('../../middleware/security');
 const validators = require('../../middleware/validators/delivery');
+const { requireWriteAccess } = require('../../middleware/auth');
 const { sendSuccess, sendError } = require('../../utils/response-helper');
 
 const deliveryRateLimit = configureDeliveryRateLimit();
 const deliveryStrictRateLimit = configureDeliveryStrictRateLimit();
 
-router.post('/route/generate', deliveryStrictRateLimit, validators.generateRoute, asyncHandler(async (req, res) => {
+router.post('/route/generate', deliveryStrictRateLimit, requireWriteAccess, validators.generateRoute, asyncHandler(async (req, res) => {
     const { routeDate, orderIds, excludeOrderIds, force, startLat, startLng, endLat, endLng } = req.body;
     const route = await deliveryApi.generateRoute(req.merchantContext.id, req.session.user.id, {
         routeDate, orderIds, excludeOrderIds, force,
@@ -37,12 +38,12 @@ router.get('/route/:id', validators.getRoute, asyncHandler(async (req, res) => {
     sendSuccess(res, { route });
 }));
 
-router.post('/route/finish', deliveryRateLimit, validators.finishRoute, asyncHandler(async (req, res) => {
+router.post('/route/finish', deliveryRateLimit, requireWriteAccess, validators.finishRoute, asyncHandler(async (req, res) => {
     const result = await deliveryApi.finishRoute(req.merchantContext.id, req.body.routeId || null, req.session.user.id);
     sendSuccess(res, { result });
 }));
 
-router.post('/geocode', deliveryStrictRateLimit, validators.geocode, asyncHandler(async (req, res) => {
+router.post('/geocode', deliveryStrictRateLimit, requireWriteAccess, validators.geocode, asyncHandler(async (req, res) => {
     const result = await deliveryApi.geocodePendingOrders(req.merchantContext.id, req.body.limit || 10);
     sendSuccess(res, { result });
 }));

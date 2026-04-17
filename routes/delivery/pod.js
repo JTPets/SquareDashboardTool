@@ -7,6 +7,7 @@ const asyncHandler = require('../../middleware/async-handler');
 const { configureDeliveryRateLimit } = require('../../middleware/security');
 const { validateUploadedImage } = require('../../utils/file-validation');
 const validators = require('../../middleware/validators/delivery');
+const { requireWriteAccess } = require('../../middleware/auth');
 const { sendSuccess, sendError } = require('../../utils/response-helper');
 
 const deliveryRateLimit = configureDeliveryRateLimit();
@@ -20,7 +21,7 @@ const podUpload = multer({
     }
 });
 
-router.post('/orders/:id/pod', deliveryRateLimit, podUpload.single('photo'), validateUploadedImage('photo'), validators.uploadPod, asyncHandler(async (req, res) => {
+router.post('/orders/:id/pod', deliveryRateLimit, requireWriteAccess, podUpload.single('photo'), validateUploadedImage('photo'), validators.uploadPod, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     if (!req.file) return sendError(res, 'No photo uploaded', 400);
     const pod = await deliveryApi.savePodPhoto(merchantId, req.params.id, req.file.buffer, {
