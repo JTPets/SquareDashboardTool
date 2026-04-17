@@ -22,7 +22,7 @@ const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
 const squareApi = require('../services/square');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/square-attributes');
 const asyncHandler = require('../middleware/async-handler');
@@ -61,7 +61,7 @@ router.get('/square/custom-attributes', requireAuth, requireMerchant, asyncHandl
  * Initialize custom attribute definitions in Square
  * Creates: case_pack_quantity (NUMBER), brand (STRING)
  */
-router.post('/square/custom-attributes/init', requireAuth, requireMerchant, validators.init, asyncHandler(async (req, res) => {
+router.post('/square/custom-attributes/init', requireAuth, requireMerchant, requireWriteAccess, validators.init, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Initializing custom attribute definitions', { merchantId });
     const result = await squareApi.initializeCustomAttributes({ merchantId });
@@ -72,7 +72,7 @@ router.post('/square/custom-attributes/init', requireAuth, requireMerchant, vali
  * POST /api/square/custom-attributes/definition
  * Create or update a single custom attribute definition
  */
-router.post('/square/custom-attributes/definition', requireAuth, requireMerchant, validators.createDefinition, asyncHandler(async (req, res) => {
+router.post('/square/custom-attributes/definition', requireAuth, requireMerchant, requireWriteAccess, validators.createDefinition, asyncHandler(async (req, res) => {
     const definition = req.body;
     const merchantId = req.merchantContext.id;
 
@@ -89,7 +89,7 @@ router.post('/square/custom-attributes/definition', requireAuth, requireMerchant
  * Delete a custom attribute definition by key or ID
  * WARNING: This also deletes all values using this definition
  */
-router.delete('/square/custom-attributes/definition/:key', requireAuth, requireMerchant, validators.deleteDefinition, asyncHandler(async (req, res) => {
+router.delete('/square/custom-attributes/definition/:key', requireAuth, requireMerchant, requireWriteAccess, validators.deleteDefinition, asyncHandler(async (req, res) => {
     const { key } = req.params;
     const merchantId = req.merchantContext.id;
     logger.info('Deleting custom attribute definition', { key, merchantId });
@@ -101,7 +101,7 @@ router.delete('/square/custom-attributes/definition/:key', requireAuth, requireM
  * PUT /api/square/custom-attributes/:objectId
  * Update custom attribute values on a single catalog object (item or variation)
  */
-router.put('/square/custom-attributes/:objectId', requireAuth, requireMerchant, validators.updateAttributes, asyncHandler(async (req, res) => {
+router.put('/square/custom-attributes/:objectId', requireAuth, requireMerchant, requireWriteAccess, validators.updateAttributes, asyncHandler(async (req, res) => {
     const { objectId } = req.params;
     const customAttributeValues = req.body;
     const merchantId = req.merchantContext.id;
@@ -118,7 +118,7 @@ router.put('/square/custom-attributes/:objectId', requireAuth, requireMerchant, 
  * POST /api/square/custom-attributes/push/case-pack
  * Push all local case_pack_quantity values to Square
  */
-router.post('/square/custom-attributes/push/case-pack', requireAuth, requireMerchant, validators.pushCasePack, asyncHandler(async (req, res) => {
+router.post('/square/custom-attributes/push/case-pack', requireAuth, requireMerchant, requireWriteAccess, validators.pushCasePack, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Pushing case pack quantities to Square', { merchantId });
     const result = await squareApi.pushCasePackToSquare({ merchantId });
@@ -129,7 +129,7 @@ router.post('/square/custom-attributes/push/case-pack', requireAuth, requireMerc
  * POST /api/square/custom-attributes/push/brand
  * Push all local brand assignments to Square
  */
-router.post('/square/custom-attributes/push/brand', requireAuth, requireMerchant, validators.pushBrand, asyncHandler(async (req, res) => {
+router.post('/square/custom-attributes/push/brand', requireAuth, requireMerchant, requireWriteAccess, validators.pushBrand, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Pushing brand assignments to Square', { merchantId });
     const result = await squareApi.pushBrandsToSquare({ merchantId });
@@ -140,7 +140,7 @@ router.post('/square/custom-attributes/push/brand', requireAuth, requireMerchant
  * POST /api/square/custom-attributes/push/expiry
  * Push all local expiration dates to Square
  */
-router.post('/square/custom-attributes/push/expiry', requireAuth, requireMerchant, validators.pushExpiry, asyncHandler(async (req, res) => {
+router.post('/square/custom-attributes/push/expiry', requireAuth, requireMerchant, requireWriteAccess, validators.pushExpiry, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Pushing expiry dates to Square', { merchantId });
     const result = await squareApi.pushExpiryDatesToSquare({ merchantId });
@@ -151,7 +151,7 @@ router.post('/square/custom-attributes/push/expiry', requireAuth, requireMerchan
  * POST /api/square/custom-attributes/push/all
  * Push all local custom attribute data to Square (case pack, brand, expiry)
  */
-router.post('/square/custom-attributes/push/all', requireAuth, requireMerchant, validators.pushAll, asyncHandler(async (req, res) => {
+router.post('/square/custom-attributes/push/all', requireAuth, requireMerchant, requireWriteAccess, validators.pushAll, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Pushing all custom attributes to Square', { merchantId });
 
