@@ -20,7 +20,7 @@ jest.mock('../../../services/square/square-client', () => ({
 const { makeSquareRequest } = require('../../../services/square/square-client');
 const { checkAndRecordHealth } = require('../../../services/catalog/location-health-service');
 
-const MERCHANT_ID = 3; // must be DEBUG_MERCHANT_ID
+const MERCHANT_ID = 3;
 
 beforeEach(() => {
     jest.clearAllMocks();
@@ -53,11 +53,6 @@ function squarePage(objects) {
 }
 
 describe('checkAndRecordHealth', () => {
-    it('throws when called with a merchant other than 3', async () => {
-        await expect(checkAndRecordHealth(1)).rejects.toThrow();
-        await expect(checkAndRecordHealth(99)).rejects.toThrow();
-    });
-
     // =========================================================================
     // check_type in INSERT
     // =========================================================================

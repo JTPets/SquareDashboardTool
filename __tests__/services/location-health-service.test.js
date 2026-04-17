@@ -2,7 +2,7 @@
  * Tests for services/catalog/location-health-service.js
  *
  * Covers:
- *   - checkAndRecordHealth: merchant guard, mismatch detection, insert, resolve, idempotency
+ *   - checkAndRecordHealth: mismatch detection, insert, resolve, idempotency
  *   - getMismatchHistory: returns rows, requires merchantId
  *   - getOpenMismatches: returns open rows, requires merchantId
  */
@@ -43,11 +43,6 @@ beforeEach(() => {
 // checkAndRecordHealth
 // ============================================================================
 describe('checkAndRecordHealth', () => {
-    test('throws if merchantId is not 3', async () => {
-        await expect(checkAndRecordHealth(1)).rejects.toThrow('debug-only, merchant 3 only');
-        await expect(checkAndRecordHealth(99)).rejects.toThrow('debug-only, merchant 3 only');
-    });
-
     test('detects new mismatch when variation differs from parent item', async () => {
         // Square returns one item with one variation — variation has mismatched present_at_all_locations
         makeSquareRequest.mockResolvedValueOnce({

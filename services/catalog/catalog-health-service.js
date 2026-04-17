@@ -2,7 +2,7 @@
  * Catalog Health Service
  *
  * Full catalog health monitor that runs 12 check types against the Square Catalog API
- * and local inventory data. Debug tool scoped to merchant_id = 3 only.
+ * and local inventory data. Multi-tenant — runs for any authenticated merchant.
  * Permanent audit trail — rows never pruned.
  *
  * Check types:
@@ -34,8 +34,6 @@ const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { getMerchantToken, makeSquareRequest } = require('../square/square-client');
 const { SQUARE: { MAX_PAGINATION_ITERATIONS } } = require('../../config/constants');
-
-const DEBUG_MERCHANT_ID = 3;
 
 /**
  * Fetch all catalog objects via paginated ListCatalog call
@@ -558,16 +556,12 @@ async function checkAvailableButEmpty(merchantId) {
 // ============================================================================
 
 /**
- * Run all 8 health checks against the Square catalog
+ * Run all 12 health checks against the Square catalog
  *
- * @param {number} merchantId - Must be DEBUG_MERCHANT_ID (3)
+ * @param {number} merchantId - The merchant ID
  * @returns {Promise<Object>} { checked, newIssues, resolved, existingOpen, durationMs }
  */
 async function runFullHealthCheck(merchantId) {
-    if (merchantId !== DEBUG_MERCHANT_ID) {
-        throw new Error('Catalog health check is debug-only, merchant 3 only');
-    }
-
     const startTime = Date.now();
     logger.info('Starting full catalog health check', { merchantId });
 
