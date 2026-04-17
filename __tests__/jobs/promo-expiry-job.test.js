@@ -13,9 +13,15 @@ jest.mock('../../utils/logger', () => ({
     error: jest.fn(),
     debug: jest.fn()
 }));
+jest.mock('../../utils/email-notifier', () => ({
+    sendAlert: jest.fn().mockResolvedValue(undefined),
+    sendCritical: jest.fn().mockResolvedValue(undefined),
+    enabled: false
+}));
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
+const emailNotifier = require('../../utils/email-notifier');
 const {
     runPromoExpiryCheck,
     runScheduledPromoExpiryCheck,
@@ -154,6 +160,10 @@ describe('revertSubscriberPromo', () => {
             expect.stringContaining('base plan price not found'),
             expect.objectContaining({ subscriberId: 1 })
         );
+        expect(emailNotifier.sendAlert).toHaveBeenCalledWith(
+            'Promo Revert Failed — manual review required',
+            expect.stringContaining('1')
+        );
     });
 
     it('includes merchant_id in subscriber UPDATE for tenant isolation', async () => {
@@ -281,6 +291,107 @@ describe('runPromoExpiryCheck (dry run)', () => {
         expect(logger.info).toHaveBeenCalledWith(
             expect.stringContaining('[DRY RUN]'),
             expect.objectContaining({ dryRun: true })
+        );
+    });
+});
+
+// ── Email notifications — Fix 1 ─────────────────────────────────────────
+
+describe('runPromoExpiryCheck email notifications', () => {
+    it('sends report email when subscribers are reverted', async () => {
+        const sub = makeSub({ id: 10, business_name: 'Pet Palace', price_cents: 500 });
+        db.query.mockResolvedValueOnce({ rows: [sub] });
+        db.query.mockResolvedValueOnce({ rows: [{ price_cents: 2999 }] });
+        mockTransaction();
+
+        await runPromoExpiryCheck();
+
+        expect(emailNotifier.sendAlert).toHaveBeenCalledWith(
+            expect.stringContaining('Promo Expiry Report — 1 subscriber(s) reverted to base pricing'),
+            expect.stringContaining('REVERTED (1)')
+        );
+    });
+
+    it('includes business name and formatted prices in report body', async () => {
+        const sub = makeSub({ id: 11, business_name: 'Happy Paws', price_cents: 999, promo_expires_at: new Date('2026-01-15') });
+        db.query.mockResolvedValueOnce({ rows: [sub] });
+        db.query.mockResolvedValueOnce({ rows: [{ price_cents: 2999 }] });
+        mockTransaction();
+
+        await runPromoExpiryCheck();
+
+        const [, body] = emailNotifier.sendAlert.mock.calls[0];
+        expect(body).toContain('Happy Paws');
+        expect(body).toContain('$9.99');
+        expect(body).toContain('$29.99');
+    });
+
+    it('includes error info in same report email when reverted > 0 and errors > 0', async () => {
+        const goodSub = makeSub({ id: 20, business_name: 'Good Shop', price_cents: 500 });
+        const badSub = makeSub({ id: 21, subscription_plan: 'unknown', merchant_id: 99 });
+        db.query.mockResolvedValueOnce({ rows: [goodSub, badSub] });
+        db.query.mockResolvedValueOnce({ rows: [{ price_cents: 2999 }] }); // good sub plan lookup
+        mockTransaction();
+        db.query.mockResolvedValueOnce({ rows: [] }); // bad sub plan lookup — not found
+
+        await runPromoExpiryCheck();
+
+        expect(emailNotifier.sendAlert).toHaveBeenCalledWith(
+            expect.stringContaining('1 subscriber(s) reverted'),
+            expect.stringContaining('ERRORS (1)')
+        );
+        const [, body] = emailNotifier.sendAlert.mock.calls[emailNotifier.sendAlert.mock.calls.length - 1];
+        expect(body).toContain('21');
+    });
+
+    it('sends error-only alert when reverted = 0 and errors > 0', async () => {
+        const sub = makeSub({ id: 30, subscription_plan: 'unknown' });
+        db.query.mockResolvedValueOnce({ rows: [sub] });
+        db.query.mockResolvedValueOnce({ rows: [] }); // plan not found
+
+        await runPromoExpiryCheck();
+
+        const reportCall = emailNotifier.sendAlert.mock.calls.find(
+            ([subject]) => subject.includes('Promo Expiry Report')
+        );
+        expect(reportCall).toBeDefined();
+        expect(reportCall[0]).toContain('revert error(s)');
+        expect(reportCall[1]).toContain('30');
+    });
+
+    it('does not send report email when no expired promos', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        await runPromoExpiryCheck();
+
+        expect(emailNotifier.sendAlert).not.toHaveBeenCalled();
+    });
+
+    it('does not send email in dry-run mode', async () => {
+        db.query.mockResolvedValueOnce({ rows: [makeSub({ id: 40 })] });
+
+        await runPromoExpiryCheck({ dryRun: true });
+
+        expect(emailNotifier.sendAlert).not.toHaveBeenCalled();
+    });
+});
+
+// ── Email notification — Fix 2 (revertSubscriberPromo missing plan) ─────
+
+describe('revertSubscriberPromo email on missing plan', () => {
+    it('sends manual review alert with subscriber ID in body', async () => {
+        const sub = makeSub({ id: 50, business_name: 'Mystery Store', merchant_id: 7, subscription_plan: 'enterprise' });
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        await revertSubscriberPromo(sub);
+
+        expect(emailNotifier.sendAlert).toHaveBeenCalledWith(
+            'Promo Revert Failed — manual review required',
+            expect.stringContaining('50')
+        );
+        expect(emailNotifier.sendAlert).toHaveBeenCalledWith(
+            'Promo Revert Failed — manual review required',
+            expect.stringContaining('Mystery Store')
         );
     });
 });
