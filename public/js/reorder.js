@@ -831,7 +831,6 @@ function renderTable() {
         <td class="text-right">${item.retail_price_cents ? '$' + (item.retail_price_cents / 100).toFixed(2) : '-'}</td>
         <td class="text-right ${item.gross_margin_percent !== null ? (item.gross_margin_percent >= 40 ? 'velocity-fast' : item.gross_margin_percent >= 20 ? 'velocity-moderate' : 'days-critical') : ''}">${item.gross_margin_percent !== null ? item.gross_margin_percent.toFixed(1) + '%' : '-'}</td>
         <td class="text-right" id="line-total-${item.variation_id}"><strong>$${totalCost}</strong></td>
-        <td>${escapeHtml(item.vendor_name)}</td>
         <td class="clickable ${needsReorderResistance ? 'vendor-code-expiring' : ''}" data-action="copyToClipboard" data-action-param="${escapeJsString(item.vendor_code || '')}" data-copy-label="Vendor Code" title="${needsReorderResistance ? 'EXPIRING ITEM - Click to copy Vendor Code (still works)' : 'Click to copy Vendor Code'}">${escapeHtml(item.vendor_code)}</td>
       </tr>
     `;
@@ -840,7 +839,7 @@ function renderTable() {
   // Manual items divider and rows (Feature 4)
   let manualHtml = '';
   if (manualItems.length > 0) {
-    manualHtml += '<tr class="manual-divider"><td colspan="20"></td></tr>';
+    manualHtml += '<tr class="manual-divider"><td colspan="19"></td></tr>';
     manualHtml += manualItems.map(item => renderManualItemRow(item)).join('');
   }
 
@@ -1378,7 +1377,6 @@ function sortTable(element, event, param) {
         break;
 
       case 'item_name':
-      case 'vendor_name':
       case 'sku':
       case 'vendor_code':
         // String comparison (case-insensitive)
