@@ -8,6 +8,8 @@ let currentPO = null;
 let isEditMode = false;
 let originalItems = [];
 let confirmCallback = null;
+let selectedVariation = null;
+let searchResultsCache = {};
 
 // Helper function for safe DOM element updates
 function safeSetContent(elementId, content, useInnerHTML) {
@@ -407,6 +409,7 @@ function renderFooterButtons() {
     // Edit mode buttons
     modalFooter.innerHTML = `
       <button class="btn btn-secondary" data-action="cancelEdit">Cancel</button>
+      <button class="btn btn-secondary" data-action="showAddItemModal">+ Add Item</button>
       <button class="btn btn-success" data-action="saveChanges">&#128190; Save Changes</button>
     `;
     modalFooter.style.display = 'flex';
@@ -612,6 +615,122 @@ function closeConfirmModal() {
   confirmCallback = null;
 }
 
+// Show add item modal
+function showAddItemModal() {
+  const modal = document.getElementById('add-item-modal');
+  document.getElementById('add-item-search').value = '';
+  document.getElementById('add-item-results').innerHTML = '';
+  document.getElementById('add-item-form').style.display = 'none';
+  document.getElementById('add-item-footer').style.display = 'none';
+  selectedVariation = null;
+  searchResultsCache = {};
+  modal.classList.add('active');
+}
+
+// Close add item modal
+function closeAddItemModal() {
+  document.getElementById('add-item-modal').classList.remove('active');
+  selectedVariation = null;
+}
+
+// Search catalog variations
+async function searchItems() {
+  const query = document.getElementById('add-item-search').value.trim();
+  const resultsElem = document.getElementById('add-item-results');
+
+  if (!query) {
+    resultsElem.innerHTML = '<p style="color: #6b7280; font-size: 13px;">Enter a search term above.</p>';
+    return;
+  }
+
+  resultsElem.innerHTML = '<div class="loading">Searching...</div>';
+  document.getElementById('add-item-form').style.display = 'none';
+  document.getElementById('add-item-footer').style.display = 'none';
+  selectedVariation = null;
+
+  try {
+    const response = await fetch(`/api/variations?search=${encodeURIComponent(query)}&limit=20`);
+    if (!response.ok) throw new Error('Search failed');
+    const data = await response.json();
+
+    let variations = data.variations || [];
+
+    // Prefer items from the same vendor if possible
+    if (currentPO && currentPO.vendor_id) {
+      const vendorFiltered = variations.filter(v => v.primary_vendor_id === currentPO.vendor_id);
+      if (vendorFiltered.length > 0) variations = vendorFiltered;
+    }
+
+    if (variations.length === 0) {
+      resultsElem.innerHTML = '<p style="color: #6b7280; font-size: 13px;">No items found.</p>';
+      return;
+    }
+
+    searchResultsCache = {};
+    variations.forEach(v => { searchResultsCache[v.id] = v; });
+
+    resultsElem.innerHTML = variations.map(v => `
+      <div class="add-item-result" data-variation-id="${escapeAttr(v.id)}"
+           data-action="selectSearchResult" data-action-param="${escapeAttr(v.id)}">
+        <div style="font-weight: 600; font-size: 13px;">${escapeHtml(v.item_name)}${v.name ? ` \u2014 ${escapeHtml(v.name)}` : ''}</div>
+        <div style="font-size: 12px; color: #6b7280;">
+          SKU: ${escapeHtml(v.sku || '-')}${v.cost_cents ? ` &middot; Cost: $${(v.cost_cents / 100).toFixed(2)}` : ''}${v.primary_vendor_name ? ` &middot; Vendor: ${escapeHtml(v.primary_vendor_name)}` : ''}
+        </div>
+      </div>
+    `).join('');
+  } catch (error) {
+    resultsElem.innerHTML = `<p style="color: #dc2626; font-size: 13px;">Search failed: ${escapeHtml(error.message)}</p>`;
+  }
+}
+
+// Select a search result and pre-fill the form
+function selectSearchResult(element, event, param) {
+  const variation = searchResultsCache[param];
+  if (!variation) return;
+
+  selectedVariation = variation;
+
+  document.querySelectorAll('.add-item-result').forEach(el => {
+    const isSelected = el.dataset.variationId === param;
+    el.classList.toggle('selected', isSelected);
+  });
+
+  const nameParts = [variation.item_name];
+  if (variation.name) nameParts.push(variation.name);
+  document.getElementById('add-item-selected-name').textContent = nameParts.join(' \u2014 ');
+  document.getElementById('add-item-selected-sku').textContent = variation.sku || '-';
+  document.getElementById('add-item-cost').value = variation.cost_cents ? (variation.cost_cents / 100).toFixed(2) : '0.00';
+  document.getElementById('add-item-qty').value = 1;
+
+  document.getElementById('add-item-form').style.display = 'block';
+  document.getElementById('add-item-footer').style.display = 'flex';
+}
+
+// Add selected item to the PO
+function addItemToPO() {
+  if (!selectedVariation) return;
+
+  const qty = parseInt(document.getElementById('add-item-qty').value) || 1;
+  const costCents = Math.round((parseFloat(document.getElementById('add-item-cost').value) || 0) * 100);
+
+  const existing = currentPO.items.find(item => item.variation_id === selectedVariation.id);
+  if (existing) {
+    existing.quantity_ordered += qty;
+  } else {
+    currentPO.items.push({
+      variation_id: selectedVariation.id,
+      item_name: selectedVariation.item_name,
+      variation_name: selectedVariation.name || '',
+      sku: selectedVariation.sku || '',
+      quantity_ordered: qty,
+      unit_cost_cents: costCents
+    });
+  }
+
+  closeAddItemModal();
+  renderPODetails();
+}
+
 // Close modals
 function closeModal() {
   const modal = document.getElementById('view-po-modal');
@@ -645,6 +764,16 @@ document.addEventListener('DOMContentLoaded', function() {
       closeConfirmModal();
     }
   });
+
+  document.getElementById('add-item-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'add-item-modal') {
+      closeAddItemModal();
+    }
+  });
+
+  document.getElementById('add-item-search').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') searchItems();
+  });
 });
 
 // Expose functions to global scope for event delegation
@@ -661,3 +790,8 @@ window.dismissToast = dismissToast;
 window.removeItem = removeItem;
 window.updateItemQuantity = updateItemQuantity;
 window.updateItemCost = updateItemCost;
+window.showAddItemModal = showAddItemModal;
+window.closeAddItemModal = closeAddItemModal;
+window.searchItems = searchItems;
+window.selectSearchResult = selectSearchResult;
+window.addItemToPO = addItemToPO;

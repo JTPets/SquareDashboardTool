@@ -408,6 +408,25 @@
       margin-left: 20px;
       color: #78350f;
     }
+
+    .add-item-result {
+      padding: 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .add-item-result:hover {
+      background: #f9fafb;
+      border-color: #9ca3af;
+    }
+
+    .add-item-result.selected {
+      background: #eff6ff;
+      border-color: #2563eb;
+    }
   </style>
 </head>
 <body>
@@ -458,6 +477,52 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" data-action="closeConfirmModal">Cancel</button>
         <button class="btn btn-primary" id="confirm-action-btn" data-action="confirmAction">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Item Modal -->
+  <div id="add-item-modal" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="modal-header">
+        <h2>Add Item to Purchase Order</h2>
+        <button class="modal-close" data-action="closeAddItemModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label" for="add-item-search">Search by SKU or Item Name</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" class="form-input" id="add-item-search" placeholder="Type to search...">
+            <button class="btn btn-secondary" data-action="searchItems" style="white-space: nowrap;">Search</button>
+          </div>
+        </div>
+        <div id="add-item-results" style="margin-bottom: 15px; max-height: 250px; overflow-y: auto;"></div>
+        <div id="add-item-form" style="display: none; border-top: 1px solid #e5e7eb; padding-top: 15px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+            <div>
+              <div class="po-info-label">Item</div>
+              <div id="add-item-selected-name" class="po-info-value" style="font-weight: 600;"></div>
+            </div>
+            <div>
+              <div class="po-info-label">SKU</div>
+              <div id="add-item-selected-sku" class="po-info-value"></div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 16px;">
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="add-item-qty">Quantity</label>
+              <input type="number" class="form-input" id="add-item-qty" value="1" min="1" step="1">
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="add-item-cost">Unit Cost ($)</label>
+              <input type="number" class="form-input" id="add-item-cost" value="0.00" min="0" step="0.01">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" id="add-item-footer" style="display: none;">
+        <button class="btn btn-secondary" data-action="closeAddItemModal">Cancel</button>
+        <button class="btn btn-success" data-action="addItemToPO">+ Add to PO</button>
       </div>
     </div>
   </div>
