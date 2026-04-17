@@ -3,16 +3,16 @@
  *
  * Covers:
  *   - fn succeeds first try → no repair called
- *   - INVALID_VALUE/item_id with parseable detail → repair called, retried,
- *     returns retry result
- *   - Retry STILL fails with INVALID_VALUE/item_id → throws descriptive
- *     "manual review required" error, does NOT repair again
+ *   - INVALID_VALUE/item_id with parseable detail → repair + sleep, retried,
+ *     repairedCount: 1
+ *   - Two different parents in batch → both repaired → repairedCount: 2
+ *   - MAX_REPAIRS exhausted → throws descriptive "manual review required" error
+ *   - Non-location-mismatch error → rethrown immediately, no repair
+ *   - parseLocationMismatchDetail fails → warning logged, original error rethrown
  *   - Retry fails with a DIFFERENT error → that different error propagates
- *   - parseLocationMismatchDetail fails → warning logged with raw detail,
- *     original error rethrown, no repair attempted
- *   - Non-INVALID_VALUE error → rethrown immediately
  *   - INVALID_VALUE but field !== item_id → rethrown immediately
- *   - Repair throws (non-fatal) → retry still attempted
+ *   - Repair throws → error propagates (repair is not fire-and-forget)
+ *   - sleep called with 2000 ms after each repair
  */
 
 jest.mock('../../../utils/logger', () => ({
@@ -22,13 +22,17 @@ jest.mock('../../../utils/logger', () => ({
     debug: jest.fn()
 }));
 
-// square-diagnostics is lazy-required for targeted parent repair.
 jest.mock('../../../services/square/square-diagnostics', () => ({
     enableItemAtAllLocations: jest.fn()
 }));
 
+jest.mock('../../../services/square/square-client', () => ({
+    sleep: jest.fn().mockResolvedValue(undefined)
+}));
+
 const { withLocationRepair } = require('../../../services/square/with-location-repair');
 const { enableItemAtAllLocations } = require('../../../services/square/square-diagnostics');
+const { sleep } = require('../../../services/square/square-client');
 const logger = require('../../../utils/logger');
 
 const MERCHANT_ID = 1;
@@ -63,6 +67,7 @@ function makeUnparseableLocationError(detail = 'unparseable detail') {
 beforeEach(() => {
     jest.clearAllMocks();
     enableItemAtAllLocations.mockResolvedValue({ success: true });
+    sleep.mockResolvedValue(undefined);
 });
 
 describe('withLocationRepair', () => {
@@ -81,9 +86,10 @@ describe('withLocationRepair', () => {
         expect(ret.repairedCount).toBe(0);
         expect(fn).toHaveBeenCalledTimes(1);
         expect(enableItemAtAllLocations).not.toHaveBeenCalled();
+        expect(sleep).not.toHaveBeenCalled();
     });
 
-    test('INVALID_VALUE + item_id with parseable detail → repair called, fn retried, returns { result, repairedCount: 1 }', async () => {
+    test('single repair succeeds after delay → repairedCount: 1', async () => {
         const locationError = makeParsedLocationError();
         const retryResult = { objects: [{ id: 'VAR1' }] };
         const fn = jest.fn()
@@ -104,12 +110,54 @@ describe('withLocationRepair', () => {
         expect(enableItemAtAllLocations).toHaveBeenCalledWith('ITEM1', MERCHANT_ID);
     });
 
-    test('retry STILL fails with INVALID_VALUE/item_id → throws manual-review error, no second repair', async () => {
-        const firstErr = makeParsedLocationError({ itemId: 'ITEM_X', locationId: 'LOC_Y' });
-        const retryErr = makeParsedLocationError({ itemId: 'ITEM_X', locationId: 'LOC_Y' });
+    test('sleep called with 2000 ms after each repair', async () => {
+        const locationError = makeParsedLocationError();
+        const retryResult = { objects: [] };
         const fn = jest.fn()
-            .mockRejectedValueOnce(firstErr)
-            .mockRejectedValueOnce(retryErr);
+            .mockRejectedValueOnce(locationError)
+            .mockResolvedValueOnce(retryResult);
+
+        await withLocationRepair({
+            merchantId: MERCHANT_ID,
+            accessToken: ACCESS_TOKEN,
+            fn,
+            variationIds: VARIATION_IDS
+        });
+
+        expect(sleep).toHaveBeenCalledTimes(1);
+        expect(sleep).toHaveBeenCalledWith(2000);
+    });
+
+    test('two different parents in batch → both repaired → repairedCount: 2', async () => {
+        const errorItem1 = makeParsedLocationError({ itemId: 'ITEM1', locationId: 'LOC_A' });
+        const errorItem2 = makeParsedLocationError({ itemId: 'ITEM2', locationId: 'LOC_B' });
+        const finalResult = { objects: [{ id: 'VAR1' }] };
+        const fn = jest.fn()
+            .mockRejectedValueOnce(errorItem1)
+            .mockRejectedValueOnce(errorItem2)
+            .mockResolvedValueOnce(finalResult);
+
+        const ret = await withLocationRepair({
+            merchantId: MERCHANT_ID,
+            accessToken: ACCESS_TOKEN,
+            fn,
+            variationIds: VARIATION_IDS
+        });
+
+        expect(ret.result).toBe(finalResult);
+        expect(ret.repairedCount).toBe(2);
+        expect(fn).toHaveBeenCalledTimes(3);
+        expect(enableItemAtAllLocations).toHaveBeenCalledTimes(2);
+        expect(enableItemAtAllLocations).toHaveBeenNthCalledWith(1, 'ITEM1', MERCHANT_ID);
+        expect(enableItemAtAllLocations).toHaveBeenNthCalledWith(2, 'ITEM2', MERCHANT_ID);
+        expect(sleep).toHaveBeenCalledTimes(2);
+        expect(sleep).toHaveBeenCalledWith(2000);
+    });
+
+    test('MAX_REPAIRS exhausted → throws with clear "manual review required" message', async () => {
+        const locationError = makeParsedLocationError({ itemId: 'ITEM_X', locationId: 'LOC_Y' });
+        // fn fails MAX_REPAIRS + 1 times to exhaust all repair attempts
+        const fn = jest.fn().mockRejectedValue(locationError);
 
         const thrown = await withLocationRepair({
             merchantId: MERCHANT_ID,
@@ -120,25 +168,17 @@ describe('withLocationRepair', () => {
 
         expect(thrown).toBeInstanceOf(Error);
         expect(thrown.message).toMatch(/manual review required/);
-        expect(thrown.message).toContain('ITEM_X');
-        expect(thrown.message).toContain('LOC_Y');
-        expect(thrown.repairAttempted).toBe(true);
-        expect(thrown.parsedItemId).toBe('ITEM_X');
-        expect(thrown.parsedLocationId).toBe('LOC_Y');
-        expect(fn).toHaveBeenCalledTimes(2);
-        // Exactly ONE repair attempt — never retried.
-        expect(enableItemAtAllLocations).toHaveBeenCalledTimes(1);
+        expect(thrown.message).toContain('5');
+        expect(fn).toHaveBeenCalledTimes(6); // initial + 5 retries
+        expect(enableItemAtAllLocations).toHaveBeenCalledTimes(5);
+        expect(sleep).toHaveBeenCalledTimes(5);
         expect(logger.error).toHaveBeenCalledWith(
-            'withLocationRepair: retry still failing with location mismatch after repair',
-            expect.objectContaining({
-                merchantId: MERCHANT_ID,
-                parsedItemId: 'ITEM_X',
-                parsedLocationId: 'LOC_Y'
-            })
+            'withLocationRepair: exhausted max repairs',
+            expect.objectContaining({ merchantId: MERCHANT_ID, repairCount: 5 })
         );
     });
 
-    test('retry fails with a DIFFERENT error → that different error propagates (not manual-review message)', async () => {
+    test('retry fails with a DIFFERENT error → that different error propagates', async () => {
         const firstErr = makeParsedLocationError();
         const otherErr = new Error('Rate limited');
         otherErr.squareErrors = [{ code: 'RATE_LIMITED' }];
@@ -175,11 +215,10 @@ describe('withLocationRepair', () => {
         expect(fn).toHaveBeenCalledTimes(1);
         expect(enableItemAtAllLocations).not.toHaveBeenCalled();
         expect(logger.warn).toHaveBeenCalledWith(
-            'withLocationRepair: could not parse location mismatch detail, aborting repair',
+            'withLocationRepair: unparseable detail, rethrowing',
             expect.objectContaining({
                 merchantId: MERCHANT_ID,
-                variationIds: VARIATION_IDS,
-                rawDetail: 'garbled detail'
+                detail: 'garbled detail'
             })
         );
     });
@@ -220,28 +259,22 @@ describe('withLocationRepair', () => {
         expect(enableItemAtAllLocations).not.toHaveBeenCalled();
     });
 
-    test('repair throws internally → retry still happens, repairedCount stays 0', async () => {
+    test('repair throws → error propagates immediately', async () => {
         const firstErr = makeParsedLocationError();
-        const retryResult = { objects: [] };
-        const fn = jest.fn()
-            .mockRejectedValueOnce(firstErr)
-            .mockResolvedValueOnce(retryResult);
-        enableItemAtAllLocations.mockRejectedValueOnce(new Error('Square down'));
+        const repairErr = new Error('Square down');
+        const fn = jest.fn().mockRejectedValueOnce(firstErr);
+        enableItemAtAllLocations.mockRejectedValueOnce(repairErr);
 
-        const ret = await withLocationRepair({
+        const thrown = await withLocationRepair({
             merchantId: MERCHANT_ID,
             accessToken: ACCESS_TOKEN,
             fn,
-            variationIds: ['VAR1']
-        });
+            variationIds: VARIATION_IDS
+        }).catch(e => e);
 
-        expect(ret.result).toBe(retryResult);
-        expect(ret.repairedCount).toBe(0);
-        expect(fn).toHaveBeenCalledTimes(2);
-        expect(logger.warn).toHaveBeenCalledWith(
-            'withLocationRepair: targeted repair failed, proceeding to retry',
-            expect.objectContaining({ merchantId: MERCHANT_ID, itemId: 'ITEM1' })
-        );
+        expect(thrown).toBe(repairErr);
+        expect(fn).toHaveBeenCalledTimes(1);
+        expect(sleep).not.toHaveBeenCalled();
     });
 
     test('plain error without squareErrors → rethrown immediately', async () => {

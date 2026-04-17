@@ -4,16 +4,17 @@
  * Detects Square INVALID_VALUE/item_id errors (a variation is enabled at a
  * location where its parent ITEM is not), parses the offending item and
  * location out of Square's error detail, calls enableItemAtAllLocations
- * on that parent, then retries the failing call once.
+ * on that parent, then retries the failing call. Up to MAX_REPAIRS=5
+ * repairs are attempted; each iteration may fix a DIFFERENT parent.
+ * A 2 s sleep after each repair allows Square's catalog engine to reach
+ * consistency before the next attempt.
  *
  * Bounded-repair contract
  * -----------------------
- * Exactly ONE repair attempt per withLocationRepair call. The repair is
- * never retried, and the wrapper never loops. If the retry after repair
- * STILL throws INVALID_VALUE/item_id, a descriptive "manual review
- * required" error is thrown so operators see the failure instead of it
- * being swallowed. A retry that fails with a different error is rethrown
- * unchanged.
+ * At most MAX_REPAIRS repair+retry cycles. If the call is still failing
+ * with INVALID_VALUE/item_id after MAX_REPAIRS repairs, a descriptive
+ * "manual review required" error is thrown. A retry that fails with a
+ * different error is rethrown unchanged.
  *
  * If Square's error detail cannot be parsed into {itemId, locationId},
  * the original error is rethrown immediately — we never attempt a repair
@@ -47,6 +48,7 @@
 'use strict';
 
 const logger = require('../../utils/logger');
+const { sleep } = require('./square-client');
 
 /**
  * Returns true when the caught error is the Square INVALID_VALUE/item_id
@@ -112,19 +114,9 @@ function parseLocationMismatchDetail(err) {
 /**
  * Wraps a Square catalog upsert call with reactive parent-item location repair.
  *
- * Flow:
- *   1. Call fn(). On success, return { result, repairedCount: 0 }.
- *   2. If fn throws, and it's not INVALID_VALUE/item_id → rethrow.
- *   3. Parse the offending itemId/locationId from the error detail.
- *      If parsing fails → log warning with raw detail, rethrow original.
- *   4. Call enableItemAtAllLocations(itemId, merchantId). This is the ONLY
- *      repair attempt — never retried. repairedCount = 1 if this call
- *      succeeds, 0 if it throws (logged, retry still proceeds).
- *   5. Retry fn() exactly once.
- *      - Retry succeeds → return { result, repairedCount }.
- *      - Retry throws INVALID_VALUE/item_id → throw a "manual review
- *        required" error (do NOT repair again, do NOT loop).
- *      - Retry throws anything else → rethrow that error unchanged.
+ * Calls fn() in a loop. On each INVALID_VALUE/item_id failure, parses the
+ * offending parent, repairs it via enableItemAtAllLocations, waits 2 s for
+ * Square catalog consistency, then retries. Up to MAX_REPAIRS cycles.
  *
  * Square-specific. Not for use outside services/square/.
  * Will NOT be part of the POS adapter interface.
@@ -134,79 +126,58 @@ function parseLocationMismatchDetail(err) {
  * @param {string}   opts.accessToken  - Square access token for this merchant (unused, reserved)
  * @param {Function} opts.fn           - Async function performing the upsert
  * @param {string[]} opts.variationIds - ITEM_VARIATION IDs being upserted (for logging)
- * @returns {Promise<{ result: *, repairedCount: 0|1 }>}
+ * @returns {Promise<{ result: *, repairedCount: number }>}
  */
 // eslint-disable-next-line no-unused-vars
 async function withLocationRepair({ merchantId, accessToken, fn, variationIds }) {
-    let firstErr;
-    try {
-        const result = await fn();
-        return { result, repairedCount: 0 };
-    } catch (err) {
-        if (!isLocationMismatchError(err)) throw err;
-        firstErr = err;
-    }
+    const MAX_REPAIRS = 5;
+    let repairCount = 0;
+    let lastResult;
 
-    const parsed = parseLocationMismatchDetail(firstErr);
-    if (!parsed) {
-        logger.warn('withLocationRepair: could not parse location mismatch detail, aborting repair', {
-            merchantId,
-            variationIds,
-            rawDetail: getLocationMismatchDetail(firstErr)
-        });
-        throw firstErr;
-    }
+    while (true) {
+        try {
+            lastResult = await fn();
+            break;
+        } catch (err) {
+            if (!isLocationMismatchError(err)) throw err;
 
-    const { itemId, locationId } = parsed;
+            if (repairCount >= MAX_REPAIRS) {
+                logger.error('withLocationRepair: exhausted max repairs', {
+                    merchantId,
+                    variationIds,
+                    repairCount
+                });
+                throw new Error(
+                    'Location mismatch repair exhausted after ' + MAX_REPAIRS +
+                    ' attempts — manual review required'
+                );
+            }
 
-    // Single repair attempt — never retried, never looped.
-    let repairedCount = 0;
-    try {
-        // Lazy require — see circular dependency note in module JSDoc.
-        // eslint-disable-next-line global-require
-        const { enableItemAtAllLocations } = require('./square-diagnostics');
-        await enableItemAtAllLocations(itemId, merchantId);
-        repairedCount = 1;
-        logger.info('withLocationRepair: repaired parent from error detail', {
-            merchantId,
-            itemId,
-            locationId
-        });
-    } catch (repairErr) {
-        logger.warn('withLocationRepair: targeted repair failed, proceeding to retry', {
-            merchantId,
-            itemId,
-            locationId,
-            error: repairErr.message
-        });
-    }
+            const parsed = parseLocationMismatchDetail(err);
+            if (!parsed) {
+                logger.warn('withLocationRepair: unparseable detail, rethrowing', {
+                    merchantId,
+                    detail: getLocationMismatchDetail(err)
+                });
+                throw err;
+            }
 
-    // Exactly one retry. Do not repair again under any circumstance.
-    try {
-        const result = await fn();
-        return { result, repairedCount };
-    } catch (retryErr) {
-        if (isLocationMismatchError(retryErr)) {
-            logger.error('withLocationRepair: retry still failing with location mismatch after repair', {
+            // Lazy require — see circular dependency note in module JSDoc.
+            // eslint-disable-next-line global-require
+            const { enableItemAtAllLocations } = require('./square-diagnostics');
+            await enableItemAtAllLocations(parsed.itemId, merchantId);
+            logger.info('withLocationRepair: repaired parent', {
+                itemId: parsed.itemId,
+                locationId: parsed.locationId,
                 merchantId,
-                variationIds,
-                parsedItemId: itemId,
-                parsedLocationId: locationId,
-                error: retryErr.message
+                repairCount: repairCount + 1
             });
-            const finalErr = new Error(
-                `Location mismatch repair failed after 1 attempt for parent ${itemId} at location ${locationId} — manual review required`
-            );
-            finalErr.repairAttempted = true;
-            finalErr.parsedItemId = itemId;
-            finalErr.parsedLocationId = locationId;
-            finalErr.originalError = firstErr;
-            finalErr.retryError = retryErr;
-            throw finalErr;
+            await sleep(2000);
+            repairCount++;
         }
-        // Different error → propagate unchanged so callers see the real cause.
-        throw retryErr;
     }
+
+    return { result: lastResult, repairedCount: repairCount };
 }
 
 module.exports = { withLocationRepair };
