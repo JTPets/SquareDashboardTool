@@ -107,7 +107,11 @@ async function ingestSquareOrder(merchantId, squareOrder) {
     }
 
     if (!address) {
-        logger.warn('Square order has no delivery address - skipping', {
+        const fulfillmentType = squareOrder.fulfillments?.find(
+            f => f.type === 'DELIVERY' || f.type === 'SHIPMENT'
+        )?.type;
+        const logLevel = fulfillmentType === 'SHIPMENT' ? 'info' : 'warn';
+        logger[logLevel]('Square order has no delivery address - skipping', {
             merchantId,
             squareOrderId: squareOrder.id,
             fulfillmentTypes: squareOrder.fulfillments?.map(f => f.type),
