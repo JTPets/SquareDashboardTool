@@ -27,7 +27,7 @@ const router = express.Router();
 const multer = require('multer');
 const logger = require('../utils/logger');
 const deliveryApi = require('../services/delivery');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const { configureDeliveryRateLimit, configureDeliveryStrictRateLimit } = require('../middleware/security');
@@ -63,7 +63,7 @@ const podUpload = multer({
  * POST /api/delivery/route/:id/share
  * Generate a shareable token URL for a route
  */
-router.post('/delivery/route/:id/share', deliveryRateLimit, requireAuth, requireMerchant, validators.shareRoute, asyncHandler(async (req, res) => {
+router.post('/delivery/route/:id/share', deliveryRateLimit, requireAuth, requireMerchant, requireWriteAccess, validators.shareRoute, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const routeId = req.params.id;
     const { expiresInHours } = req.body;
@@ -106,7 +106,7 @@ router.get('/delivery/route/:id/token', requireAuth, requireMerchant, validators
  * DELETE /api/delivery/route/:id/token
  * Revoke active token for a route
  */
-router.delete('/delivery/route/:id/token', deliveryRateLimit, requireAuth, requireMerchant, validators.revokeRouteToken, asyncHandler(async (req, res) => {
+router.delete('/delivery/route/:id/token', deliveryRateLimit, requireAuth, requireMerchant, requireWriteAccess, validators.revokeRouteToken, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const routeId = req.params.id;
 

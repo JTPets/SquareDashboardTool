@@ -7,11 +7,12 @@ const deliveryStats = require('../../services/delivery/delivery-stats');
 const asyncHandler = require('../../middleware/async-handler');
 const { configureDeliveryStrictRateLimit } = require('../../middleware/security');
 const validators = require('../../middleware/validators/delivery');
+const { requireWriteAccess } = require('../../middleware/auth');
 const { sendSuccess } = require('../../utils/response-helper');
 
 const deliveryStrictRateLimit = configureDeliveryStrictRateLimit();
 
-router.post('/sync', deliveryStrictRateLimit, validators.syncOrders, asyncHandler(async (req, res) => {
+router.post('/sync', deliveryStrictRateLimit, requireWriteAccess, validators.syncOrders, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const { daysBack = 7 } = req.body;
     logger.info('Starting delivery order sync from Square', { merchantId, daysBack });
@@ -19,7 +20,7 @@ router.post('/sync', deliveryStrictRateLimit, validators.syncOrders, asyncHandle
     sendSuccess(res, result);
 }));
 
-router.post('/backfill-customers', deliveryStrictRateLimit, validators.backfillCustomers, asyncHandler(async (req, res) => {
+router.post('/backfill-customers', deliveryStrictRateLimit, requireWriteAccess, validators.backfillCustomers, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Starting customer backfill for delivery orders', { merchantId });
     const result = await deliveryApi.backfillUnknownCustomers(merchantId);

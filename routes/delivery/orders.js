@@ -6,6 +6,7 @@ const deliveryStats = require('../../services/delivery/delivery-stats');
 const asyncHandler = require('../../middleware/async-handler');
 const { configureDeliveryRateLimit } = require('../../middleware/security');
 const validators = require('../../middleware/validators/delivery');
+const { requireWriteAccess } = require('../../middleware/auth');
 const { sendSuccess, sendError } = require('../../utils/response-helper');
 
 const deliveryRateLimit = configureDeliveryRateLimit();
@@ -24,7 +25,7 @@ router.get('/orders', validators.listOrders, asyncHandler(async (req, res) => {
 }));
 
 // Create manual order — includes inline geocode + audit (no service fn for this combination yet)
-router.post('/orders', deliveryRateLimit, validators.createOrder, asyncHandler(async (req, res) => {
+router.post('/orders', deliveryRateLimit, requireWriteAccess, validators.createOrder, asyncHandler(async (req, res) => {
     const { customerName, address, phone, notes } = req.body;
     const merchantId = req.merchantContext.id;
     if (!customerName || !address) return sendError(res, 'Customer name and address are required', 400);
@@ -43,7 +44,7 @@ router.get('/orders/:id', validators.getOrder, asyncHandler(async (req, res) => 
 }));
 
 // Update order — field whitelist + optional re-geocode on address change
-router.patch('/orders/:id', deliveryRateLimit, validators.updateOrder, asyncHandler(async (req, res) => {
+router.patch('/orders/:id', deliveryRateLimit, requireWriteAccess, validators.updateOrder, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const updates = {};
     if (req.body.notes !== undefined) updates.notes = req.body.notes;
@@ -56,7 +57,7 @@ router.patch('/orders/:id', deliveryRateLimit, validators.updateOrder, asyncHand
     sendSuccess(res, { order });
 }));
 
-router.delete('/orders/:id', deliveryRateLimit, validators.deleteOrder, asyncHandler(async (req, res) => {
+router.delete('/orders/:id', deliveryRateLimit, requireWriteAccess, validators.deleteOrder, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const deleted = await deliveryApi.deleteOrder(merchantId, req.params.id);
     if (!deleted) return sendError(res, 'Cannot delete this order. Only manual orders not yet delivered can be deleted.', 400);
@@ -64,13 +65,13 @@ router.delete('/orders/:id', deliveryRateLimit, validators.deleteOrder, asyncHan
     sendSuccess(res, {});
 }));
 
-router.post('/orders/:id/skip', deliveryRateLimit, validators.skipOrder, asyncHandler(async (req, res) => {
+router.post('/orders/:id/skip', deliveryRateLimit, requireWriteAccess, validators.skipOrder, asyncHandler(async (req, res) => {
     const order = await deliveryApi.skipOrder(req.merchantContext.id, req.params.id, req.session.user.id);
     if (!order) return sendError(res, 'Order not found', 404);
     sendSuccess(res, { order });
 }));
 
-router.post('/orders/:id/complete', deliveryRateLimit, validators.completeOrder, asyncHandler(async (req, res) => {
+router.post('/orders/:id/complete', deliveryRateLimit, requireWriteAccess, validators.completeOrder, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const order = await deliveryApi.getOrderById(merchantId, req.params.id);
     if (!order) return sendError(res, 'Order not found', 404);
@@ -85,14 +86,14 @@ router.get('/orders/:id/customer', validators.getOrder, asyncHandler(async (req,
     sendSuccess(res, customerData);
 }));
 
-router.patch('/orders/:id/customer-note', deliveryRateLimit, validators.updateCustomerNote, asyncHandler(async (req, res) => {
+router.patch('/orders/:id/customer-note', deliveryRateLimit, requireWriteAccess, validators.updateCustomerNote, asyncHandler(async (req, res) => {
     const result = await deliveryStats.updateCustomerNote(req.merchantContext.id, req.params.id, req.body.note);
     if (!result.order) return sendError(res, 'Order not found', 404);
     if (result.error) return sendError(res, result.error, 400);
     sendSuccess(res, { square_synced: result.squareSynced, customer_note: req.body.note });
 }));
 
-router.patch('/orders/:id/notes', deliveryRateLimit, validators.updateOrderNotes, asyncHandler(async (req, res) => {
+router.patch('/orders/:id/notes', deliveryRateLimit, requireWriteAccess, validators.updateOrderNotes, asyncHandler(async (req, res) => {
     const result = await deliveryApi.updateOrderNotes(req.merchantContext.id, req.params.id, req.body.notes);
     if (!result) return sendError(res, 'Order not found', 404);
     sendSuccess(res, result);
