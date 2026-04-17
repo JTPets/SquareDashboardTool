@@ -12,7 +12,6 @@
 | ID | Description | Effort |
 |----|-------------|--------|
 | B3 | **Promo duration_months not enforced** — `promo-expiry-job.js` detects expired promos but only logs warnings. Missing: auto-revert `discount_applied_cents = 0`, Square API call to update to full price, merchant notification. Direct revenue loss without fix. | M |
-| BACKLOG-128 | **Audit and fix ~30 path errors in Section 4 QA checklist** — `docs/QA-AUDIT.md` Section 4 documents API paths that do not match actual mounted routes: delivery routes omit `/delivery/` prefix (18 paths), auth/user management routes omit `/auth/` prefix (9 paths), vendor-match suggestions use wrong HTTP verbs (`accept`/DELETE vs `approve`/`reject`), admin subscriptions reference `PATCH /api/admin/subscriptions/:id` which has no matching route in Section 2. A QA tester following the checklist would hit 404s on all corrected paths. QA audit S5-G1. | S |
 
 ---
 
@@ -148,7 +147,7 @@
 | FUTURE | 7 initiatives |
 | **Total** | **~62 open items** |
 
-**Ship readiness**: CRITICAL item BACKLOG-128 remains — clear it first. Then fix B3 + PRICING-UI + SUB-UI-1/2 (all S-M effort) to ship beta.
+**Ship readiness**: Fix B3 + PRICING-UI + SUB-UI-1/2 (all S-M effort) to ship beta.
 
 ---
 

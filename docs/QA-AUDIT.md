@@ -2316,8 +2316,8 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - [ ] Cancel subscription from settings page (owner only) — Confirmation modal appears; on confirm, subscription canceled and Square subscription canceled ⚠️ — `public/settings.html` — `POST /api/subscriptions/cancel` ⚠️ (cancels real Square subscription if present)
 - [ ] Attempt to cancel subscription as manager — Cancel button hidden or action returns 403 — `public/settings.html` — `POST /api/subscriptions/cancel`
 - [ ] Load any protected page as expired merchant — Redirect to `/subscription-expired.html` — `public/subscription-expired.html` — `GET /api/auth/me` (subscription gate middleware)
-- [ ] Load `/admin-subscriptions.html` as platform owner — Subscriber list loads; plan and status visible — `public/admin-subscriptions.html` — `GET /api/admin/subscriptions`, `GET /api/subscriptions/admin/plans`
-- [ ] Admin changes a merchant's subscription plan — Plan updated; event logged — `public/admin-subscriptions.html` — `PATCH /api/admin/subscriptions/:id`
+- [ ] Load `/admin-subscriptions.html` as platform owner — Subscriber list loads; plan and status visible — `public/admin-subscriptions.html` — `GET /api/subscriptions/admin/list`, `GET /api/subscriptions/admin/plans`
+- [ ] Admin changes a merchant's subscription plan — Plan updated; event logged — `public/admin-subscriptions.html` — `[NO ROUTE - backlogged]`
 
 ### Journey 4 — Staff Roles & Permissions
 
@@ -2346,7 +2346,7 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 
 - [ ] Load `/staff.html` as clerk — 403 or page redirects (no staff:read permission) — `public/staff.html` — `GET /api/staff`
 - [ ] Access cycle count page as clerk — Page loads; scan/complete actions available — `public/cycle-count.html` — `GET /api/cycle-counts/pending`, `POST /api/cycle-counts/:id/complete`
-- [ ] Access delivery page as clerk — Page loads; delivery status update available — `public/delivery.html` — `GET /api/deliveries`, `PATCH /api/deliveries/:id`
+- [ ] Access delivery page as clerk — Page loads; delivery status update available — `public/delivery.html` — `GET /api/delivery/orders`, `PATCH /api/delivery/orders/:id`
 - [ ] Access expiry page as clerk — Page loads; expiry review actions available — `public/expiry.html` — `GET /api/expirations`, `POST /api/expirations`
 - [ ] Attempt to access loyalty page as clerk — 403 or feature-gate blocks access (clerk has no loyalty access) — `public/loyalty.html` — `GET /api/merchant/features` (feature-check.js)
 - [ ] Attempt to access GMC feed page as clerk — 403 or feature-gate blocks access — `public/gmc-feed.html` — `GET /api/merchant/features`
@@ -2370,8 +2370,8 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 - [ ] Load `/vendor-catalog.html` — Vendor catalog items render — `public/vendor-catalog.html` — `GET /api/vendor-catalog`
 - [ ] Filter vendor list by status (ACTIVE/INACTIVE) — Filtered vendor list returned — `public/vendor-dashboard.html` — `GET /api/vendors?status=ACTIVE`
 - [ ] Load `/vendor-match-suggestions.html` — Unmatched catalog items with suggested vendor matches shown — `public/vendor-match-suggestions.html` — `GET /api/vendor-match-suggestions`
-- [ ] Accept a vendor match suggestion — Item linked to vendor; suggestion removed from list — `public/vendor-match-suggestions.html` — `POST /api/vendor-match-suggestions/:id/accept`
-- [ ] Reject a vendor match suggestion — Suggestion dismissed — `public/vendor-match-suggestions.html` — `DELETE /api/vendor-match-suggestions/:id`
+- [ ] Accept a vendor match suggestion — Item linked to vendor; suggestion removed from list — `public/vendor-match-suggestions.html` — `POST /api/vendor-match-suggestions/:id/approve`
+- [ ] Reject a vendor match suggestion — Suggestion dismissed — `public/vendor-match-suggestions.html` — `POST /api/vendor-match-suggestions/:id/reject`
 - [ ] Load merchant tax list — Taxes for merchant's Square account returned — no dedicated page (used in vendor-catalog forms) — `GET /api/vendor-catalog/merchant-taxes`
 - [ ] Access vendor pages as clerk — 403 or feature-gate blocks (clerk has no vendor access per permissions matrix) — `public/vendor-dashboard.html` — `GET /api/vendor-dashboard`
 
@@ -2490,48 +2490,48 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 
 #### Order Management
 
-- [ ] Load `/delivery.html` — Delivery orders list renders with status filters and pagination — `public/delivery.html` — `GET /api/orders`
-- [ ] Filter orders by status (e.g. PENDING, DELIVERED) — Filtered order list returned — `public/delivery.html` — `GET /api/orders?status=PENDING`
-- [ ] Filter orders by date range — Orders within specified date window returned — `public/delivery.html` — `GET /api/orders?dateFrom=...&dateTo=...`
-- [ ] Filter orders by route — Orders assigned to specific route shown — `public/delivery.html` — `GET /api/orders?routeId=...`
-- [ ] View paginated order list — Pagination controls work; correct total count shown — `public/delivery.html` — `GET /api/orders?limit=...&offset=...`
-- [ ] Create a manual delivery order — Order created with geocoding triggered; new row appears in list — `public/delivery.html` — `POST /api/orders`
-- [ ] Create order with invalid address (geocoding fails) — Order created; geocode error flagged on row — `public/delivery.html` — `POST /api/orders`
-- [ ] View single order detail — Detail panel opens with address, phone, notes, and status — `public/delivery.html` — `GET /api/orders/:id`
-- [ ] Edit order notes and phone — Notes and phone updated; success toast shown — `public/delivery.html` — `PATCH /api/orders/:id`
-- [ ] Edit order address — Address updated and re-geocoded automatically — `public/delivery.html` — `PATCH /api/orders/:id`
-- [ ] Delete a manual order not yet delivered — Order removed from list; success message shown — `public/delivery.html` — `DELETE /api/orders/:id`
-- [ ] Attempt to delete an already-delivered order — Error: cannot delete delivered order — `public/delivery.html` — `DELETE /api/orders/:id`
-- [ ] View customer profile for an order — Customer history and details panel shown — `public/delivery.html` — `GET /api/orders/:id/customer`
-- [ ] View customer delivery statistics — Delivery count, last delivery, and history stats shown — `public/delivery.html` — `GET /api/orders/:id/customer-stats`
-- [ ] Update internal order notes — Notes saved; no Square sync triggered — `public/delivery.html` — `PATCH /api/orders/:id/notes`
-- [ ] Update customer note ⚠️ — Note saved locally and synced to Square customer record — `public/delivery.html` — `PATCH /api/orders/:id/customer-note` ⚠️ (writes to Square customer)
-- [ ] Skip an order in the active route — Order marked as skipped; route continues to next stop — `public/delivery.html` — `POST /api/orders/:id/skip`
-- [ ] Complete a delivery ⚠️ — Order marked delivered; Square fulfillment updated; `square_synced: true` returned — `public/delivery.html` — `POST /api/orders/:id/complete` ⚠️ (updates Square order fulfillment)
-- [ ] Complete a delivery when Square sync fails ⚠️ — Order marked delivered locally; `square_sync_error` flag set; no delivery blocked — `public/delivery.html` — `POST /api/orders/:id/complete` ⚠️
-- [ ] Load `/delivery-history.html` — Completed delivery history renders with filters — `public/delivery-history.html` — `GET /api/orders?includeCompleted=true`
+- [ ] Load `/delivery.html` — Delivery orders list renders with status filters and pagination — `public/delivery.html` — `GET /api/delivery/orders`
+- [ ] Filter orders by status (e.g. PENDING, DELIVERED) — Filtered order list returned — `public/delivery.html` — `GET /api/delivery/orders?status=PENDING`
+- [ ] Filter orders by date range — Orders within specified date window returned — `public/delivery.html` — `GET /api/delivery/orders?dateFrom=...&dateTo=...`
+- [ ] Filter orders by route — Orders assigned to specific route shown — `public/delivery.html` — `GET /api/delivery/orders?routeId=...`
+- [ ] View paginated order list — Pagination controls work; correct total count shown — `public/delivery.html` — `GET /api/delivery/orders?limit=...&offset=...`
+- [ ] Create a manual delivery order — Order created with geocoding triggered; new row appears in list — `public/delivery.html` — `POST /api/delivery/orders`
+- [ ] Create order with invalid address (geocoding fails) — Order created; geocode error flagged on row — `public/delivery.html` — `POST /api/delivery/orders`
+- [ ] View single order detail — Detail panel opens with address, phone, notes, and status — `public/delivery.html` — `GET /api/delivery/orders/:id`
+- [ ] Edit order notes and phone — Notes and phone updated; success toast shown — `public/delivery.html` — `PATCH /api/delivery/orders/:id`
+- [ ] Edit order address — Address updated and re-geocoded automatically — `public/delivery.html` — `PATCH /api/delivery/orders/:id`
+- [ ] Delete a manual order not yet delivered — Order removed from list; success message shown — `public/delivery.html` — `DELETE /api/delivery/orders/:id`
+- [ ] Attempt to delete an already-delivered order — Error: cannot delete delivered order — `public/delivery.html` — `DELETE /api/delivery/orders/:id`
+- [ ] View customer profile for an order — Customer history and details panel shown — `public/delivery.html` — `GET /api/delivery/orders/:id/customer`
+- [ ] View customer delivery statistics — Delivery count, last delivery, and history stats shown — `public/delivery.html` — `GET /api/delivery/orders/:id/customer-stats`
+- [ ] Update internal order notes — Notes saved; no Square sync triggered — `public/delivery.html` — `PATCH /api/delivery/orders/:id/notes`
+- [ ] Update customer note ⚠️ — Note saved locally and synced to Square customer record — `public/delivery.html` — `PATCH /api/delivery/orders/:id/customer-note` ⚠️ (writes to Square customer)
+- [ ] Skip an order in the active route — Order marked as skipped; route continues to next stop — `public/delivery.html` — `POST /api/delivery/orders/:id/skip`
+- [ ] Complete a delivery ⚠️ — Order marked delivered; Square fulfillment updated; `square_synced: true` returned — `public/delivery.html` — `POST /api/delivery/orders/:id/complete` ⚠️ (updates Square order fulfillment)
+- [ ] Complete a delivery when Square sync fails ⚠️ — Order marked delivered locally; `square_sync_error` flag set; no delivery blocked — `public/delivery.html` — `POST /api/delivery/orders/:id/complete` ⚠️
+- [ ] Load `/delivery-history.html` — Completed delivery history renders with filters — `public/delivery-history.html` — `GET /api/delivery/orders?includeCompleted=true`
 
 #### Route Management
 
-- [ ] Load `/delivery-route.html` — Route page loads; active route (if any) shown with stops in order — `public/delivery-route.html` — `GET /api/route/active`
-- [ ] Generate optimized delivery route — Route generated with optimal stop order; map renders — `public/delivery-route.html` — `POST /api/route/generate`
-- [ ] Generate route for specific order IDs only — Route generated using only supplied orders — `public/delivery-route.html` — `POST /api/route/generate` (with `orderIds`)
-- [ ] Generate route excluding specific orders — Route excludes specified order IDs — `public/delivery-route.html` — `POST /api/route/generate` (with `excludeOrderIds`)
-- [ ] Generate route with custom start/end coordinates — Route uses provided depot coordinates — `public/delivery-route.html` — `POST /api/route/generate` (with `startLat`, `startLng`, `endLat`, `endLng`)
-- [ ] Force regenerate an existing route — Existing route overwritten with new optimization — `public/delivery-route.html` — `POST /api/route/generate` (with `force: true`)
-- [ ] View active route for a specific date — Route for the given date loaded — `public/delivery-route.html` — `GET /api/route/active?routeDate=...`
-- [ ] View a specific route by ID — Route detail with all stops and statuses shown — `public/delivery-route.html` — `GET /api/route/:id`
-- [ ] Finish the active route — Route marked complete; summary shown — `public/delivery-route.html` — `POST /api/route/finish`
-- [ ] Finish a specific route by ID — Named route closed out — `public/delivery-route.html` — `POST /api/route/finish` (with `routeId`)
-- [ ] Geocode pending orders (batch) — Ungeocoded addresses resolved; coordinates stored — `public/delivery-route.html` — `POST /api/geocode`
-- [ ] Load `/driver.html` — Driver view loads with active route stops in sequence — `public/driver.html` — `GET /api/route/active`
+- [ ] Load `/delivery-route.html` — Route page loads; active route (if any) shown with stops in order — `public/delivery-route.html` — `GET /api/delivery/route/active`
+- [ ] Generate optimized delivery route — Route generated with optimal stop order; map renders — `public/delivery-route.html` — `POST /api/delivery/route/generate`
+- [ ] Generate route for specific order IDs only — Route generated using only supplied orders — `public/delivery-route.html` — `POST /api/delivery/route/generate` (with `orderIds`)
+- [ ] Generate route excluding specific orders — Route excludes specified order IDs — `public/delivery-route.html` — `POST /api/delivery/route/generate` (with `excludeOrderIds`)
+- [ ] Generate route with custom start/end coordinates — Route uses provided depot coordinates — `public/delivery-route.html` — `POST /api/delivery/route/generate` (with `startLat`, `startLng`, `endLat`, `endLng`)
+- [ ] Force regenerate an existing route — Existing route overwritten with new optimization — `public/delivery-route.html` — `POST /api/delivery/route/generate` (with `force: true`)
+- [ ] View active route for a specific date — Route for the given date loaded — `public/delivery-route.html` — `GET /api/delivery/route/active?routeDate=...`
+- [ ] View a specific route by ID — Route detail with all stops and statuses shown — `public/delivery-route.html` — `GET /api/delivery/route/:id`
+- [ ] Finish the active route — Route marked complete; summary shown — `public/delivery-route.html` — `POST /api/delivery/route/finish`
+- [ ] Finish a specific route by ID — Named route closed out — `public/delivery-route.html` — `POST /api/delivery/route/finish` (with `routeId`)
+- [ ] Geocode pending orders (batch) — Ungeocoded addresses resolved; coordinates stored — `public/delivery-route.html` — `POST /api/delivery/geocode`
+- [ ] Load `/driver.html` — Driver view loads with active route stops in sequence — `public/driver.html` — `GET /api/delivery/route/active`
 
 #### Delivery Settings
 
-- [ ] Load `/delivery-settings.html` — Settings form renders with saved start/end address and defaults — `public/delivery-settings.html` — `GET /api/settings`
-- [ ] Save delivery settings with valid start/end addresses — Settings saved; addresses geocoded; audit log entry created — `public/delivery-settings.html` — `PUT /api/settings`
-- [ ] Save delivery settings with unresolvable address — Geocoding error returned; settings not saved — `public/delivery-settings.html` — `PUT /api/settings`
-- [ ] Access delivery pages as clerk — Page loads; delivery status update available — `public/delivery.html` — `GET /api/orders`
+- [ ] Load `/delivery-settings.html` — Settings form renders with saved start/end address and defaults — `public/delivery-settings.html` — `GET /api/delivery/settings`
+- [ ] Save delivery settings with valid start/end addresses — Settings saved; addresses geocoded; audit log entry created — `public/delivery-settings.html` — `PUT /api/delivery/settings`
+- [ ] Save delivery settings with unresolvable address — Geocoding error returned; settings not saved — `public/delivery-settings.html` — `PUT /api/delivery/settings`
+- [ ] Access delivery pages as clerk — Page loads; delivery status update available — `public/delivery.html` — `GET /api/delivery/orders`
 
 ### Journey 11 — Loyalty System
 
@@ -2597,13 +2597,13 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 
 #### Password Management
 
-- [ ] Change own password with correct current password — Password updated; success message shown — `public/settings.html` — `POST /api/change-password`
-- [ ] Change own password with incorrect current password — Error: current password is incorrect; no change — `public/settings.html` — `POST /api/change-password`
-- [ ] Change own password with weak new password — Validation error; password not changed — `public/settings.html` — `POST /api/change-password`
-- [ ] Request password reset email (forgot password) — Reset email sent; success response regardless of whether email exists (enumeration prevention) — `public/login.html` — `POST /api/forgot-password`
-- [ ] Reset password via token link — Password updated; redirect to `/login.html?setup=complete` — `public/set-password.html` — `POST /api/reset-password`
-- [ ] Reset password with expired token — Error: token invalid or expired; reset form shows error — `public/set-password.html` — `GET /api/verify-reset-token`
-- [ ] Admin resets another user's password — New password set (or generated); success message returned — `public/settings.html` — `POST /api/users/:id/reset-password`
+- [ ] Change own password with correct current password — Password updated; success message shown — `public/settings.html` — `POST /api/auth/change-password`
+- [ ] Change own password with incorrect current password — Error: current password is incorrect; no change — `public/settings.html` — `POST /api/auth/change-password`
+- [ ] Change own password with weak new password — Validation error; password not changed — `public/settings.html` — `POST /api/auth/change-password`
+- [ ] Request password reset email (forgot password) — Reset email sent; success response regardless of whether email exists (enumeration prevention) — `public/login.html` — `POST /api/auth/forgot-password`
+- [ ] Reset password via token link — Password updated; redirect to `/login.html?setup=complete` — `public/set-password.html` — `POST /api/auth/reset-password`
+- [ ] Reset password with expired token — Error: token invalid or expired; reset form shows error — `public/set-password.html` — `GET /api/auth/verify-reset-token`
+- [ ] Admin resets another user's password — New password set (or generated); success message returned — `public/settings.html` — `POST /api/auth/users/:id/reset-password`
 
 #### Locations & Square Connection Status
 
@@ -2617,13 +2617,13 @@ All routes in these files marked Y in Section 2. No gaps in any domain.
 
 #### User Administration
 
-- [ ] Load user list as admin — All users for active merchant listed with roles and status — `public/settings.html` — `GET /api/users`
-- [ ] Attempt to load user list as non-admin — 403 Insufficient permissions — no frontend (API direct) — `GET /api/users`
-- [ ] Create new user as admin — User created and linked to active merchant; confirmation shown — `public/settings.html` — `POST /api/users`
-- [ ] Create user with duplicate email — Error: email already in use — `public/settings.html` — `POST /api/users`
-- [ ] Update user role as admin — Role updated; user list refreshes — `public/settings.html` — `PUT /api/users/:id`
-- [ ] Deactivate a user as admin — `is_active = false`; user loses access — `public/settings.html` — `PUT /api/users/:id` (with `is_active: false`)
-- [ ] Unlock a locked-out user as admin — Account lockout cleared; user can log in again — `public/settings.html` — `POST /api/users/:id/unlock`
+- [ ] Load user list as admin — All users for active merchant listed with roles and status — `public/settings.html` — `GET /api/auth/users`
+- [ ] Attempt to load user list as non-admin — 403 Insufficient permissions — no frontend (API direct) — `GET /api/auth/users`
+- [ ] Create new user as admin — User created and linked to active merchant; confirmation shown — `public/settings.html` — `POST /api/auth/users`
+- [ ] Create user with duplicate email — Error: email already in use — `public/settings.html` — `POST /api/auth/users`
+- [ ] Update user role as admin — Role updated; user list refreshes — `public/settings.html` — `PUT /api/auth/users/:id`
+- [ ] Deactivate a user as admin — `is_active = false`; user loses access — `public/settings.html` — `PUT /api/auth/users/:id` (with `is_active: false`)
+- [ ] Unlock a locked-out user as admin — Account lockout cleared; user can log in again — `public/settings.html` — `POST /api/auth/users/:id/unlock`
 
 ### Journey 13 — Cancellation Flow
 
