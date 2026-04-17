@@ -208,8 +208,6 @@ async function updateCustomAttributeValues(catalogObjectId, customAttributeValue
         };
 
         // Build the update request
-        const idempotencyKey = generateIdempotencyKey('custom-attr-update');
-
         const updateObj = {
             type: objectType,
             id: catalogObjectId,
@@ -224,18 +222,16 @@ async function updateCustomAttributeValues(catalogObjectId, customAttributeValue
             updateObj.item_variation_data = currentObject.item_variation_data;
         }
 
-        const requestBody = {
-            idempotency_key: idempotencyKey,
-            object: updateObj
-        };
-
         const { result: data } = await withLocationRepair({
             merchantId,
             accessToken,
             variationIds: [catalogObjectId],
             fn: () => makeSquareRequest('/v2/catalog/object', {
                 method: 'POST',
-                body: JSON.stringify(requestBody),
+                body: JSON.stringify({
+                    idempotency_key: generateIdempotencyKey('custom-attr-update'),
+                    object: updateObj
+                }),
                 accessToken
             })
         });
@@ -358,8 +354,6 @@ async function batchUpdateCustomAttributeValues(updates, options = {}) {
             // from the Square error detail, repairs the parent item, then
             // retries once. Handles the case where Square rejects because
             // of a location other than the one the preflight would check.
-            const idempotencyKey = generateIdempotencyKey('custom-attr-batch');
-
             const { result: upsertData, repairedCount } = await withLocationRepair({
                 merchantId,
                 accessToken,
@@ -367,7 +361,7 @@ async function batchUpdateCustomAttributeValues(updates, options = {}) {
                 fn: () => makeSquareRequest('/v2/catalog/batch-upsert', {
                     method: 'POST',
                     body: JSON.stringify({
-                        idempotency_key: idempotencyKey,
+                        idempotency_key: generateIdempotencyKey('custom-attr-batch'),
                         batches: [{ objects: updateObjects }]
                     }),
                     accessToken

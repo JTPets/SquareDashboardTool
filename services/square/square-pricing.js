@@ -122,7 +122,6 @@ async function batchUpdateVariationPrices(priceUpdates, merchantId) {
 
             // Batch upsert — withLocationRepair catches INVALID_VALUE/item_id,
             // repairs parent-item location mismatches, and retries once.
-            const idempotencyKey = generateIdempotencyKey('price-batch');
             const updateVariationIds = updateObjects.map(o => o.id);
 
             const { result: upsertData } = await withLocationRepair({
@@ -133,7 +132,7 @@ async function batchUpdateVariationPrices(priceUpdates, merchantId) {
                     accessToken,
                     method: 'POST',
                     body: JSON.stringify({
-                        idempotency_key: idempotencyKey,
+                        idempotency_key: generateIdempotencyKey('price-batch'),
                         batches: [{ objects: updateObjects }]
                     })
                 })
