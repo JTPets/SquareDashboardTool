@@ -346,28 +346,22 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
             newOverrides.push(newOverride);
 
             // Build the update request - use unique key per attempt to avoid idempotency conflicts
-            const idempotencyKey = generateIdempotencyKey(`inv-alert-v2-${attempt}`);
+            const updateObject = {
+                type: 'ITEM_VARIATION',
+                id: catalogObjectId,
+                version: currentObject.version,
+                item_variation_data: {
+                    ...currentVariationData,
+                    location_overrides: newOverrides
+                }
+            };
 
-            logger.info('Generated idempotency key for alert threshold update', {
-                idempotencyKey,
+            logger.info('Sending alert threshold update', {
                 catalogObjectId,
                 locationId,
                 version: currentObject.version,
                 attempt
             });
-
-            const updateBody = {
-                idempotency_key: idempotencyKey,
-                object: {
-                    type: 'ITEM_VARIATION',
-                    id: catalogObjectId,
-                    version: currentObject.version,
-                    item_variation_data: {
-                        ...currentVariationData,
-                        location_overrides: newOverrides
-                    }
-                }
-            };
 
             // withLocationRepair catches INVALID_VALUE/item_id, repairs parent-item
             // location mismatches via repairParentLocationMismatches, and retries once.
@@ -377,7 +371,10 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
                 variationIds: [catalogObjectId],
                 fn: () => makeSquareRequest('/v2/catalog/object', {
                     method: 'POST',
-                    body: JSON.stringify(updateBody),
+                    body: JSON.stringify({
+                        idempotency_key: generateIdempotencyKey(`inv-alert-v2-${attempt}`),
+                        object: updateObject
+                    }),
                     accessToken
                 })
             });
