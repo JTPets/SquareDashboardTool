@@ -13,6 +13,11 @@
 
 const db = require('../utils/database');
 const logger = require('../utils/logger');
+const emailNotifier = require('../utils/email-notifier');
+
+function formatCents(cents) {
+    return `$${(cents / 100).toFixed(2)}`;
+}
 
 /**
  * Query subscribers whose promo has expired but subscription is still active.
@@ -63,6 +68,10 @@ async function revertSubscriberPromo(sub) {
             merchantId: sub.merchant_id,
             plan: sub.subscription_plan
         });
+        await emailNotifier.sendAlert(
+            'Promo Revert Failed — manual review required',
+            `Subscriber ID ${sub.id} (${sub.business_name}, merchant ${sub.merchant_id}) could not be reverted to base pricing.\nPlan: ${sub.subscription_plan}\nPromo expires: ${sub.promo_expires_at}\n\nManual review required.`
+        );
         return { reverted: false };
     }
 
@@ -99,6 +108,36 @@ async function revertSubscriberPromo(sub) {
 }
 
 /**
+ * Send promo expiry report email. Separate function to keep runPromoExpiryCheck under 100 lines.
+ * @param {Object} params
+ */
+async function _sendPromoExpiryReport({ reverted, revertedSubs, errors, errorIds }) {
+    if (reverted > 0) {
+        const lines = revertedSubs.map(s => {
+            const expiredDate = new Date(s.promoExpiredAt).toLocaleDateString('en-CA', {
+                year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Toronto'
+            });
+            return `- ${s.businessName}: ${formatCents(s.previousPriceCents)} → ${formatCents(s.newPriceCents)}, promo expired ${expiredDate}`;
+        }).join('\n');
+
+        let body = `REVERTED (${reverted}):\n${lines}`;
+        if (errors > 0) {
+            body += `\n\nERRORS (${errors}) — subscriber IDs: ${errorIds.join(', ')}`;
+        }
+
+        await emailNotifier.sendAlert(
+            `Promo Expiry Report — ${reverted} subscriber(s) reverted to base pricing`,
+            body
+        );
+    } else if (errors > 0) {
+        await emailNotifier.sendAlert(
+            `Promo Expiry Report — ${errors} revert error(s), manual review required`,
+            `ERRORS (${errors}) — subscriber IDs: ${errorIds.join(', ')}`
+        );
+    }
+}
+
+/**
  * Core expiry check logic — exported for direct invocation in tests.
  * @param {Object} [options]
  * @param {boolean} [options.dryRun=false] - If true, detect and log but do not revert
@@ -116,6 +155,8 @@ async function runPromoExpiryCheck({ dryRun = false } = {}) {
     let reverted = 0;
     let errors = 0;
     const details = [];
+    const revertedSubs = [];
+    const errorIds = [];
 
     for (const sub of expired) {
         logger.warn(`${mode}Promotional pricing expired`, {
@@ -136,6 +177,12 @@ async function runPromoExpiryCheck({ dryRun = false } = {}) {
             const result = await revertSubscriberPromo(sub);
             if (result.reverted) {
                 reverted++;
+                revertedSubs.push({
+                    businessName: sub.business_name,
+                    previousPriceCents: result.previousPriceCents,
+                    newPriceCents: result.basePriceCents,
+                    promoExpiredAt: sub.promo_expires_at
+                });
                 logger.info('Promo billing reverted to base price', {
                     subscriberId: sub.id,
                     merchantId: sub.merchant_id,
@@ -150,10 +197,12 @@ async function runPromoExpiryCheck({ dryRun = false } = {}) {
                 });
             } else {
                 errors++;
+                errorIds.push(sub.id);
                 details.push({ subscriberId: sub.id, action: 'skipped_no_plan' });
             }
         } catch (error) {
             errors++;
+            errorIds.push(sub.id);
             logger.error('Failed to revert promo for subscriber', {
                 subscriberId: sub.id,
                 merchantId: sub.merchant_id,
@@ -161,6 +210,10 @@ async function runPromoExpiryCheck({ dryRun = false } = {}) {
             });
             details.push({ subscriberId: sub.id, action: 'error', error: error.message });
         }
+    }
+
+    if (!dryRun && (reverted > 0 || errors > 0)) {
+        await _sendPromoExpiryReport({ reverted, revertedSubs, errors, errorIds });
     }
 
     logger.info(`${mode}Promo expiry check complete`, {

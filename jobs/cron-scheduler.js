@@ -247,8 +247,8 @@ function initializeCronJobs() {
     logger.info('Delivery retention cleanup cron job scheduled', { schedule: deliveryRetentionSchedule, timezone: 'America/Toronto' });
 
     // 22. Promo expiry check (B3 fix)
-    // Runs every Sunday at 7:00 AM — flag subscribers whose promo pricing period has elapsed
-    // Detection only; does not auto-cancel or revert billing. Manual review required.
+    // Runs every Sunday at 7:00 AM — auto-reverts eligible subscribers to base plan pricing
+    // and sends an email report. Alerts on any reversions that require manual review.
     const promoExpirySchedule = process.env.PROMO_EXPIRY_CRON || '0 7 * * 0';
     cronTasks.push(cron.schedule(promoExpirySchedule, runScheduledPromoExpiryCheck, {
         timezone: 'America/Toronto'

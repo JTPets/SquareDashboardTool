@@ -11,7 +11,6 @@
 
 | ID | Description | Effort |
 |----|-------------|--------|
-| B3 | **Promo duration_months not enforced** — `promo-expiry-job.js` detects expired promos but only logs warnings. Missing: auto-revert `discount_applied_cents = 0`, Square API call to update to full price, merchant notification. Direct revenue loss without fix. | M |
 
 ---
 
@@ -140,14 +139,14 @@
 
 | Priority | Count |
 |----------|-------|
-| CRITICAL | 4 |
+| CRITICAL | 0 |
 | HIGH | 8 |
 | MEDIUM | ~31 |
 | LOW | ~18 |
 | FUTURE | 7 initiatives |
-| **Total** | **~62 open items** |
+| **Total** | **~57 open items** |
 
-**Ship readiness**: Fix B3 + PRICING-UI + SUB-UI-1/2 (all S-M effort) to ship beta.
+**Ship readiness**: Fix PRICING-UI + SUB-UI-1/2 (all S effort) to ship beta.
 
 ---
 
