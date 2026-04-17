@@ -79,18 +79,11 @@ These endpoints intentionally omit `requireMerchant` because they operate at use
 | `GET /api/gmc/taxonomy` | Global reference data (not tenant-scoped) |
 | `GET /api/vendor-catalog/field-types` | Global reference data |
 
-### 2.2 CRITICAL: Hardcoded Merchant ID
+### 2.2 ~~CRITICAL~~: Hardcoded Merchant ID — ✅ RESOLVED 2026-04-17
 
-**File**: `routes/catalog-location-health.js:27`
+**File**: `routes/catalog-location-health.js` (and `routes/catalog-health.js`)
 
-```javascript
-const DEBUG_MERCHANT_ID = 3;
-```
-
-Both endpoints (`GET /api/admin/catalog-location-health` and `POST /api/admin/catalog-location-health/check`) use a hardcoded `merchant_id = 3` instead of deriving it from `req.merchantContext`. While gated by `requireAuth + requireAdmin`, this is a design flaw that:
-- Always returns merchant 3's data regardless of who is logged in
-- Would break in a true multi-tenant deployment
-- **Risk**: MEDIUM (admin-only access limits exposure)
+Both endpoints now use `req.merchantContext.id` via the `requireMerchant` middleware. The `DEBUG_MERCHANT_ID = 3` constant has been removed. The route file is also now mounted in `server.js`.
 
 ### 2.3 Missing requireWriteAccess on Write Endpoints
 
