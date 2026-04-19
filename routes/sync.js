@@ -3,7 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const squareApi = require('../services/square');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/sync');
 const asyncHandler = require('../middleware/async-handler');
@@ -11,7 +11,7 @@ const { sendSuccess } = require('../utils/response-helper');
 const logger = require('../utils/logger');
 const { runSmartSync, isSyncNeeded, getSyncHistory, getSyncStatus, loggedSync } = require('../services/square/sync-orchestrator');
 
-router.post('/sync', requireAuth, requireMerchant, validators.sync, asyncHandler(async (req, res) => {
+router.post('/sync', requireAuth, requireMerchant, requireWriteAccess, validators.sync, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Full sync requested', { merchantId });
     const summary = await squareApi.fullSync(merchantId);
@@ -46,14 +46,14 @@ router.post('/sync', requireAuth, requireMerchant, validators.sync, asyncHandler
     });
 }));
 
-router.post('/sync-sales', requireAuth, requireMerchant, validators.syncSales, asyncHandler(async (req, res) => {
+router.post('/sync-sales', requireAuth, requireMerchant, requireWriteAccess, validators.syncSales, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Sales velocity sync requested (optimized)', { merchantId });
     const results = await squareApi.syncSalesVelocityAllPeriods(merchantId);
     sendSuccess(res, { status: 'success', periods: [91, 182, 365], variations_updated: results, optimization: 'single_fetch' });
 }));
 
-router.post('/sync-smart', requireAuth, requireMerchant, validators.syncSmart, asyncHandler(async (req, res) => {
+router.post('/sync-smart', requireAuth, requireMerchant, requireWriteAccess, validators.syncSmart, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Smart sync requested', { merchantId });
     const result = await runSmartSync({ merchantId });
