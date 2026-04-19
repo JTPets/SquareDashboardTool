@@ -60,7 +60,7 @@ router.post('/vendor-catalog/import-mapped', requireAuth, requireMerchant, requi
     });
 }));
 
-router.get('/vendor-catalog/field-types', requireAuth, (req, res) => {
+router.get('/vendor-catalog/field-types', requireAuth, requireMerchant, (req, res) => {
     sendSuccess(res, { fieldTypes: vendorCatalog.FIELD_TYPES });
 });
 

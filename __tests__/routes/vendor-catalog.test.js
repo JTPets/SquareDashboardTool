@@ -488,9 +488,8 @@ describe('Vendor Catalog Routes', () => {
 
     describe('GET /api/vendor-catalog/field-types', () => {
 
-        it('returns field types (auth only, no merchant required)', async () => {
-            // field-types only requires auth, not merchant
-            app = createTestApp({ hasMerchant: false });
+        it('returns field types', async () => {
+            app = createTestApp();
 
             const res = await request(app).get('/api/vendor-catalog/field-types');
 

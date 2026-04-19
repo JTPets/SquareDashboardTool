@@ -67,7 +67,7 @@ router.get('/sync-history', requireAuth, requireMerchant, validators.syncHistory
     sendSuccess(res, data);
 }));
 
-router.get('/sync-intervals', requireAuth, validators.syncIntervals, asyncHandler(async (req, res) => {
+router.get('/sync-intervals', requireAuth, requireMerchant, validators.syncIntervals, asyncHandler(async (req, res) => {
     sendSuccess(res, {
         intervals: {
             catalog:    parseInt(process.env.SYNC_CATALOG_INTERVAL_HOURS    || '3'),

@@ -294,8 +294,7 @@ describe('GET /api/sync-intervals', () => {
     });
 
     it('returns interval defaults', async () => {
-        // sync-intervals does NOT use requireMerchant, only requireAuth
-        const app = createTestApp({ hasMerchant: false });
+        const app = createTestApp();
         const res = await request(app).get('/api/sync-intervals');
 
         expect(res.status).toBe(200);
