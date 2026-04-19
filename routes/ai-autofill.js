@@ -20,7 +20,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../utils/database');
 const logger = require('../utils/logger');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const { sendSuccess, sendError } = require('../utils/response-helper');
@@ -41,7 +41,7 @@ const { encryptToken, decryptToken } = require('../utils/token-encryption');
  * Save Claude API key encrypted per merchant
  * The key is never returned to the frontend after storage
  */
-router.post('/api-key', requireAuth, requireMerchant, aiRateLimit, asyncHandler(async (req, res) => {
+router.post('/api-key', requireAuth, requireMerchant, requireWriteAccess, aiRateLimit, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const { apiKey } = req.body;
 
@@ -87,7 +87,7 @@ router.get('/api-key/status', requireAuth, requireMerchant, aiRateLimit, asyncHa
  * DELETE /api/ai-autofill/api-key
  * Delete stored Claude API key
  */
-router.delete('/api-key', requireAuth, requireMerchant, aiRateLimit, asyncHandler(async (req, res) => {
+router.delete('/api-key', requireAuth, requireMerchant, requireWriteAccess, aiRateLimit, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
 
     await db.query(`
@@ -258,7 +258,7 @@ router.post('/generate', requireAuth, requireMerchant, aiRateLimit, validators.g
  *   updates: [{ itemId: string, fieldType: string, value: string }]
  * }
  */
-router.post('/apply', requireAuth, requireMerchant, aiRateLimit, validators.apply, asyncHandler(async (req, res) => {
+router.post('/apply', requireAuth, requireMerchant, requireWriteAccess, aiRateLimit, validators.apply, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const { updates } = req.body;
 

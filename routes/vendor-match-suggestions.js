@@ -15,7 +15,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/vendor-match-suggestions');
@@ -59,7 +59,7 @@ router.get('/', requireAuth, requireMerchant, validators.listSuggestions, asyncH
  * Approve multiple pending suggestions at once.
  * Body: { ids: [1, 2, 3] }
  */
-router.post('/bulk-approve', requireAuth, requireMerchant, validators.bulkApprove, asyncHandler(async (req, res) => {
+router.post('/bulk-approve', requireAuth, requireMerchant, requireWriteAccess, validators.bulkApprove, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const userId = req.session?.user?.id || null;
     const { ids } = req.body;
@@ -73,7 +73,7 @@ router.post('/bulk-approve', requireAuth, requireMerchant, validators.bulkApprov
  * Trigger a retroactive backfill scan for this merchant.
  * Generates pending suggestions for any UPC-matched variations missing vendor links.
  */
-router.post('/backfill', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+router.post('/backfill', requireAuth, requireMerchant, requireWriteAccess, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const result = await runBackfillScan(merchantId);
     sendSuccess(res, result);
@@ -83,7 +83,7 @@ router.post('/backfill', requireAuth, requireMerchant, asyncHandler(async (req, 
  * POST /api/vendor-match-suggestions/:id/approve
  * Approve a single suggestion: creates variation_vendors + pushes to Square.
  */
-router.post('/:id/approve', requireAuth, requireMerchant, validators.approveOrReject, asyncHandler(async (req, res) => {
+router.post('/:id/approve', requireAuth, requireMerchant, requireWriteAccess, validators.approveOrReject, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const userId = req.session?.user?.id || null;
     const suggestionId = parseInt(req.params.id, 10);
@@ -101,7 +101,7 @@ router.post('/:id/approve', requireAuth, requireMerchant, validators.approveOrRe
  * POST /api/vendor-match-suggestions/:id/reject
  * Reject a suggestion permanently.
  */
-router.post('/:id/reject', requireAuth, requireMerchant, validators.approveOrReject, asyncHandler(async (req, res) => {
+router.post('/:id/reject', requireAuth, requireMerchant, requireWriteAccess, validators.approveOrReject, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const userId = req.session?.user?.id || null;
     const suggestionId = parseInt(req.params.id, 10);

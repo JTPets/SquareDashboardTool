@@ -50,9 +50,14 @@ function getTodayLocal() {
  * Returns '' if no file is found.
  */
 async function readLogContent(logsDir, prefix, date) {
+    const resolvedLogsDir = path.resolve(logsDir);
     const today = getTodayLocal();
     if (date === today) {
-        const logFile = path.join(logsDir, `${prefix}-${date}.log`);
+        const logFile = path.resolve(logsDir, `${prefix}-${date}.log`);
+        if (!logFile.startsWith(resolvedLogsDir + path.sep)) {
+            logger.warn('Path traversal attempt in log read', { prefix, date });
+            return '';
+        }
         try {
             return await fs.readFile(logFile, 'utf-8');
         } catch {

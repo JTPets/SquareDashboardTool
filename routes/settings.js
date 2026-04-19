@@ -17,7 +17,7 @@ const router = express.Router();
 const db = require('../utils/database');
 const { getMerchantSettings, updateMerchantSettings, DEFAULT_MERCHANT_SETTINGS } = require('../services/merchant');
 const logger = require('../utils/logger');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/settings');
@@ -44,7 +44,7 @@ router.get('/settings/merchant', requireAuth, requireMerchant, validators.get, a
  * Update merchant-specific settings
  * Only allows updating known setting fields
  */
-router.put('/settings/merchant', requireAuth, requireMerchant, validators.update, asyncHandler(async (req, res) => {
+router.put('/settings/merchant', requireAuth, requireMerchant, requireWriteAccess, validators.update, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
 
     const settings = req.body;
@@ -93,7 +93,7 @@ router.put('/settings/merchant', requireAuth, requireMerchant, validators.update
  * Get default merchant settings (from env vars)
  * Useful for resetting to defaults
  */
-router.get('/settings/merchant/defaults', requireAuth, validators.defaults, async (req, res) => {
+router.get('/settings/merchant/defaults', requireAuth, requireMerchant, validators.defaults, async (req, res) => {
     sendSuccess(res, {
         defaults: DEFAULT_MERCHANT_SETTINGS
     });

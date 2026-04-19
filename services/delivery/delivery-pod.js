@@ -177,9 +177,16 @@ async function cleanupExpiredPods() {
     let deleted = 0;
     let errors = 0;
 
+    const expectedPrefix = path.resolve(process.cwd(), POD_STORAGE_DIR);
+
     for (const pod of expiredResult.rows) {
         try {
-            const fullPath = path.join(process.cwd(), POD_STORAGE_DIR, pod.photo_path);
+            const fullPath = path.resolve(process.cwd(), POD_STORAGE_DIR, pod.photo_path);
+            if (!fullPath.startsWith(expectedPrefix + path.sep) && fullPath !== expectedPrefix) {
+                logger.warn('Path traversal attempt in expired POD cleanup, skipping', { podId: pod.id });
+                errors++;
+                continue;
+            }
             await fs.unlink(fullPath);
             await db.query('DELETE FROM delivery_pod WHERE id = $1', [pod.id]);
             deleted++;

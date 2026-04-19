@@ -73,11 +73,10 @@ These endpoints intentionally omit `requireMerchant` because they operate at use
 | `GET /api/auth/users` | Admin user management (uses requireAdmin) |
 | `POST /api/auth/users` | Admin user management |
 | `PUT /api/auth/users/:id` | Admin user management |
-| `GET /api/settings/merchant/defaults` | Returns default settings template |
-| `GET /api/sync-intervals` | Returns sync interval config |
 | `GET /api/webhooks/event-types` | Returns webhook event type list |
 | `GET /api/gmc/taxonomy` | Global reference data (not tenant-scoped) |
-| `GET /api/vendor-catalog/field-types` | Global reference data |
+
+> **Note (2026-04-19):** `GET /api/settings/merchant/defaults`, `GET /api/sync-intervals`, and `GET /api/vendor-catalog/field-types` were listed here as intentional omissions but are now guarded by `requireMerchant` per the security audit (consistent with the project pattern for all authenticated merchant-scoped requests).
 
 ### 2.2 ~~CRITICAL~~: Hardcoded Merchant ID — ✅ RESOLVED 2026-04-17
 
@@ -87,15 +86,16 @@ Both endpoints now use `req.merchantContext.id` via the `requireMerchant` middle
 
 ### 2.3 Missing requireWriteAccess on Write Endpoints
 
-The following write endpoints lack `requireWriteAccess`, allowing read-only users to perform modifications:
+**Partially resolved 2026-04-19.** See `docs/QA-AUDIT.md` Section 5 Group 2.C for full tracking.
 
-**Vendor Catalog module** (15 endpoints):
+**Resolved (2026-04-19):** `requireWriteAccess` added to `/api/vendors/:id/settings` PATCH, all 4 vendor-match-suggestions write endpoints, all purchase-order write endpoints (5), all cycle-count write endpoints (7, including `requireAdmin` on reset), all sync write endpoints (3), all bundle write endpoints (3), `PUT /api/settings/merchant`, all ai-autofill write endpoints (3), and all labels write endpoints (3). Negative-path 403 tests in `__tests__/routes/audit-write-access.test.js`.
+
+**Still open (Vendor Catalog)** — 7 write endpoints in `routes/vendor-catalog/manage.js` and `import.js` remain unguarded:
+
 | Endpoint | Method |
 |----------|--------|
 | `/api/vendor-catalog/import` | POST |
-| `/api/vendor-catalog/preview` | POST |
 | `/api/vendor-catalog/import-mapped` | POST |
-| `/api/vendors/:id/settings` | PATCH |
 | `/api/vendor-catalog/push-price-changes` | POST |
 | `/api/vendor-catalog/confirm-links` | POST |
 | `/api/vendor-catalog/deduplicate` | POST |
@@ -103,10 +103,6 @@ The following write endpoints lack `requireWriteAccess`, allowing read-only user
 | `/api/vendor-catalog/batches/:batchId/archive` | POST |
 | `/api/vendor-catalog/batches/:batchId/unarchive` | POST |
 | `/api/vendor-catalog/batches/:batchId` | DELETE |
-| `/api/vendor-match-suggestions/bulk-approve` | POST |
-| `/api/vendor-match-suggestions/backfill` | POST |
-| `/api/vendor-match-suggestions/:id/approve` | POST |
-| `/api/vendor-match-suggestions/:id/reject` | POST |
 
 **Risk**: MEDIUM - Read-only users in the vendor/reorder feature can make modifications. The `requireFeature('reorder')` and `requirePermission('reorder', 'read')` gates at server.js level provide partial protection but do not prevent write operations by users with read access.
 
@@ -384,13 +380,13 @@ Implemented via Helmet (`middleware/security.js:28-122`):
 | ID | Finding | File | Risk |
 |----|---------|------|------|
 | C-1 | Password reset does not invalidate existing sessions | `services/auth/password-service.js:176-189` | Account takeover persists after password reset |
-| C-2 | Hardcoded `merchant_id = 3` in catalog-location-health | `routes/catalog-location-health.js:27` | Multi-tenant violation (admin-only mitigates) |
+| C-2 | ~~Hardcoded `merchant_id = 3` in catalog-location-health~~ ✅ RESOLVED 2026-04-17 | `routes/catalog-location-health.js` | — |
 
 ### HIGH
 
 | ID | Finding | File | Risk |
 |----|---------|------|------|
-| H-1 | 15 vendor-catalog write endpoints missing `requireWriteAccess` | `routes/vendor-catalog/*.js`, `routes/vendor-match-suggestions.js` | Read-only users can modify vendor data |
+| H-1 | ~~15 vendor-catalog write endpoints missing `requireWriteAccess`~~ → 9 remaining (vendor-match-suggestions + `PATCH /vendors/:id/settings` resolved 2026-04-19) | `routes/vendor-catalog/manage.js`, `import.js` | Read-only users can still import and bulk-modify vendor catalog |
 | H-2 | Staff invitation endpoints lack token-specific rate limiting | `routes/staff.js:89,101` | Token enumeration (mitigated by 256-bit token space) |
 | H-3 | Webhook event cleanup crosses tenant boundaries | `utils/webhook-retry.js:225-236` | Cross-tenant data deletion |
 | H-4 | Staff invite cleanup crosses tenant boundaries | `jobs/staff-invite-cleanup-job.js:24-28` | Cross-tenant data deletion |
@@ -426,12 +422,12 @@ Implemented via Helmet (`middleware/security.js:28-122`):
 
 **P0 (Immediate)**:
 1. **C-1**: Add session invalidation after password reset - destroy all sessions for the user
-2. **H-1**: Add `requireWriteAccess` to 15 vendor-catalog write endpoints
+2. **H-1**: ~~Add `requireWriteAccess` to 15 vendor-catalog write endpoints~~ → Partially resolved 2026-04-19; 9 vendor-catalog/manage.js + import.js write endpoints remain
 
 **P1 (This Sprint)**:
 3. **H-2**: Add token-specific rate limiting to staff invitation endpoints
 4. **H-3/H-4**: Add merchant_id scoping to background cleanup jobs (or document as intentional)
-5. **C-2**: Replace hardcoded merchant_id with `req.merchantContext.id` in catalog-location-health
+5. ~~**C-2**: Replace hardcoded merchant_id with `req.merchantContext.id` in catalog-location-health~~ — ✅ Resolved 2026-04-17
 
 **P2 (Next Sprint)**:
 6. **M-1**: Remove token state differentiation from staff invitation error logs
