@@ -21,7 +21,7 @@
 | **Vendor** | `services/vendor/`, `services/vendor-dashboard.js` | 5 | 3,142 | vendors, vendor_catalog_items, vendor_match_suggestions, variation_vendors | routes/vendor-catalog.js, routes/vendor-match-suggestions.js |
 | **Expiry Discounts** | `services/expiry/` | 2 | 2,134 | expiry_discount_tiers, expiry_discount_settings, expiry_discount_audit_log, variation_discount_status, variation_expiration | routes/expiry-discounts.js |
 | **GMC** | `services/gmc/` | 3 | 1,438 | gmc_settings, gmc_feed_history, gmc_location_settings, gmc_sync_logs, google_taxonomy, category_taxonomy_mapping | routes/gmc.js |
-| **Inventory** | `services/inventory/` | 3 | 1,013 | count_sessions, count_queue_daily, count_queue_priority, count_history, min_max_audit_log, min_stock_audit | routes/cycle-counts.js, routes/min-max-suppression-routes.js |
+| **Inventory** | `services/inventory/` | 3 | 1,013 | count_sessions, count_queue_daily, count_queue_priority, count_history, cycle_count_pinned_group, min_max_audit_log, min_stock_audit | routes/cycle-counts.js, routes/min-max-suppression-routes.js |
 | **Seniors Discount** | `services/seniors/` | 3 | 986 | seniors_discount_config, seniors_group_members, seniors_discount_audit_log | routes/seniors.js |
 | **Cart** | `services/cart/` | 2 | 485 | cart_activity | routes/cart-activity.js |
 | **Bundles** | `services/bundle-service.js`, `services/bundle-calculator.js` | 2 | 625 | bundle_definitions, bundle_components | routes/bundles.js |
