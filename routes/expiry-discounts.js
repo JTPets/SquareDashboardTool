@@ -70,7 +70,7 @@ router.get('/expiry-discounts/tiers', requireAuth, requireMerchant, asyncHandler
  * PATCH /api/expiry-discounts/tiers/:id
  * Update a discount tier configuration
  */
-router.patch('/expiry-discounts/tiers/:id', requireAuth, requireMerchant, validators.updateTier, asyncHandler(async (req, res) => {
+router.patch('/expiry-discounts/tiers/:id', requireAuth, requireMerchant, requireWriteAccess, validators.updateTier, asyncHandler(async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
     const merchantId = req.merchantContext.id;
@@ -249,7 +249,7 @@ router.post('/expiry-discounts/evaluate', requireAuth, requireMerchant, validato
  * POST /api/expiry-discounts/apply
  * Apply discounts based on current tier assignments
  */
-router.post('/expiry-discounts/apply', requireAuth, requireMerchant, validators.apply, asyncHandler(async (req, res) => {
+router.post('/expiry-discounts/apply', requireAuth, requireMerchant, requireWriteAccess, validators.apply, asyncHandler(async (req, res) => {
     const { dry_run = false } = req.body;
     const merchantId = req.merchantContext.id;
 
@@ -264,7 +264,7 @@ router.post('/expiry-discounts/apply', requireAuth, requireMerchant, validators.
  * POST /api/expiry-discounts/run
  * Run full expiry discount automation (evaluate + apply)
  */
-router.post('/expiry-discounts/run', requireAuth, requireMerchant, validators.run, asyncHandler(async (req, res) => {
+router.post('/expiry-discounts/run', requireAuth, requireMerchant, requireWriteAccess, validators.run, asyncHandler(async (req, res) => {
     const { dry_run = false } = req.body;
     const merchantId = req.merchantContext.id;
 
@@ -307,7 +307,7 @@ router.post('/expiry-discounts/run', requireAuth, requireMerchant, validators.ru
  * POST /api/expiry-discounts/init-square
  * Initialize Square discount objects for all tiers
  */
-router.post('/expiry-discounts/init-square', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+router.post('/expiry-discounts/init-square', requireAuth, requireMerchant, requireWriteAccess, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Square discount initialization requested', { merchantId });
 
@@ -360,7 +360,7 @@ router.get('/expiry-discounts/settings', requireAuth, requireMerchant, asyncHand
  * PATCH /api/expiry-discounts/settings
  * Update expiry discount system settings
  */
-router.patch('/expiry-discounts/settings', requireAuth, requireMerchant, validators.updateSettings, asyncHandler(async (req, res) => {
+router.patch('/expiry-discounts/settings', requireAuth, requireMerchant, requireWriteAccess, validators.updateSettings, asyncHandler(async (req, res) => {
     const updates = req.body;
     const merchantId = req.merchantContext.id;
 
