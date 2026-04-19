@@ -14,7 +14,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/bundles');
@@ -40,7 +40,7 @@ router.get('/availability', requireAuth, requireMerchant, validators.getAvailabi
 
 // ==================== CREATE BUNDLE ====================
 
-router.post('/', requireAuth, requireMerchant, validators.createBundle, asyncHandler(async (req, res) => {
+router.post('/', requireAuth, requireMerchant, requireWriteAccess, validators.createBundle, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const result = await bundleService.createBundle(merchantId, req.body);
     sendSuccess(res, { bundle: result }, 201);
@@ -48,7 +48,7 @@ router.post('/', requireAuth, requireMerchant, validators.createBundle, asyncHan
 
 // ==================== UPDATE BUNDLE ====================
 
-router.put('/:id', requireAuth, requireMerchant, validators.updateBundle, asyncHandler(async (req, res) => {
+router.put('/:id', requireAuth, requireMerchant, requireWriteAccess, validators.updateBundle, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const bundleId = parseInt(req.params.id);
     const result = await bundleService.updateBundle(merchantId, bundleId, req.body);
@@ -57,7 +57,7 @@ router.put('/:id', requireAuth, requireMerchant, validators.updateBundle, asyncH
 
 // ==================== DELETE (SOFT) BUNDLE ====================
 
-router.delete('/:id', requireAuth, requireMerchant, validators.deleteBundle, asyncHandler(async (req, res) => {
+router.delete('/:id', requireAuth, requireMerchant, requireWriteAccess, validators.deleteBundle, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const bundleId = parseInt(req.params.id);
     const result = await bundleService.deleteBundle(merchantId, bundleId);
