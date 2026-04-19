@@ -3,7 +3,7 @@
 > **Maintenance:** Add items when: audit surfaces gaps, security review finds issues, dogfooding identifies bugs. Close items by adding resolution note and date.
 > See also: [QA-AUDIT.md](./QA-AUDIT.md), [DOMAIN-MAP.md](./DOMAIN-MAP.md)
 
-> **Last Updated**: 2026-04-17 | Consolidated from WORK-ITEMS, PRIORITIES, TECHNICAL_DEBT, PRE-BETA-AUDIT, ROADMAP, QA-AUDIT S2, QA-AUDIT S5; BACKLOG-133/134/135 from delivery-square.js audit
+> **Last Updated**: 2026-04-19 | Consolidated from WORK-ITEMS, PRIORITIES, TECHNICAL_DEBT, PRE-BETA-AUDIT, ROADMAP, QA-AUDIT S2, QA-AUDIT S5; BACKLOG-133/134/135 from delivery-square.js audit; BACKLOG-PLAT-1/2/3/4/5 from platform owner / subscriber linkage research
 
 ---
 
@@ -25,6 +25,91 @@
 | BACKLOG-80 | Email alert infrastructure. Code built (`utils/alert-recipients.js`, 135 tests), sends from/to same email. Needs transactional sender (Resend/Mailgun) + Cloudflare Email Routing. | S |
 | BACKLOG-50 | Post-trial conversion — $1 first month. Capture payment method, prove intent. Decide Stripe vs Square for SaaS billing. | L |
 | BACKLOG-133 | **Delivery — `address_missing` tombstone status.** When `ingestSquareOrder` finds no address, it returns null and writes nothing — the Square order is invisible to operators and re-processed on every webhook/sync. Fix: insert a `delivery_orders` row with `status='address_missing'` before returning null (`delivery-square.js:109–117`) to block repeat processing and give operator visibility. Add retry mechanism (analogous to `needs_customer_refresh`) so that if the fulfillment is later updated with an address, the order is promoted to `pending`. Missed deliveries are possible without this. | M |
+
+---
+
+## PLATFORM & SUBSCRIPTION ARCHITECTURE
+
+> Research conducted 2026-04-19. Documents platform owner / subscriber linkage findings and design debt.
+
+### BACKLOG-PLAT-1 — Subscriber-merchant linkage fix
+**Priority: HIGH**
+
+**Problem:** A merchant who subscribes via `subscribe.html` before connecting OAuth ends up with `subscribers.merchant_id` pointing to the platform owner merchant ID instead of their own merchant. This causes them to be permanently stuck on trial with no cancel button, no paid features, and no way to re-subscribe (duplicate email guard blocks it).
+
+**Root cause:** `subscription-create-service.js` falls back to platform owner merchant ID when `merchantId` is null (public signup with no session). The OAuth callback never updates `subscribers.merchant_id`. `resolveMerchantId()` exists and works but is only called at cancel time, not at login or OAuth time.
+
+**Schema blocker:** `subscribers.merchant_id INTEGER NOT NULL` — the `NOT NULL` constraint must be dropped before null can be stored for pre-OAuth subscribers.
+
+**What needs to be built:**
+- Migration: `ALTER TABLE subscribers ALTER COLUMN merchant_id DROP NOT NULL`
+- Remove platform owner fallback in `subscription-create-service.js` — pass `null` when no merchant exists yet
+- Add `getSubscriberByEmail()` to `subscription-handler.js` if not present
+- Add email fallback to `getMerchantStatusSummary()` in `subscription-bridge.js` — when `getSubscriberByMerchantId()` returns null, fall back to email lookup and call `resolveMerchantId()` inline to permanently fix the linkage
+- Add login-time linkage in `services/auth/session-service.js` — after successful login, if subscriber exists for user email with wrong `merchant_id`, call `resolveMerchantId()` and `activateMerchantSubscription()`. Must be non-blocking (fire and forget, log errors silently)
+- Fix must be platform-agnostic — do NOT tie the fix to Square OAuth callback
+
+**Files to touch:** `database/migrations/XXX_nullable_subscriber_merchant.sql`, `services/subscriptions/subscription-create-service.js`, `services/subscriptions/subscription-handler.js`, `services/subscription-bridge.js`, `services/auth/session-service.js`
+
+**Note:** No affected merchants today — zero data migration needed. Safe to implement any time.
+
+---
+
+### BACKLOG-PLAT-2 — Platform owner string literal constant
+**Priority: MEDIUM**
+
+**Problem:** The string `'platform_owner'` is a repeated literal across 7 files with no central constant definition. This is a maintenance and typo risk.
+
+**Files containing the literal:**
+- `database/schema.sql` — CHECK constraint (leave as-is, DB literals can't use JS constants)
+- `middleware/merchant.js` — 3 occurrences
+- `server.js` — 1 occurrence (`isPlatformOwner`)
+- `services/subscriptions/subscription-bridge.js` — cancel/suspend guards
+- `routes/square-oauth.js` — auto-detection and UPDATE
+- `routes/subscriptions/plans.js` — platform owner fallback
+- `services/subscriptions/subscription-create-service.js` — public signup fallback
+
+**Fix:** Add `PLATFORM_OWNER_STATUS = 'platform_owner'` to `config/constants.js` and replace all JS occurrences. The `schema.sql` CHECK constraint stays as a string literal — that is correct and expected for SQL.
+
+---
+
+### BACKLOG-PLAT-3 — Platform owner detection: two mechanisms that must stay in sync
+**Priority: LOW** (document only, no immediate fix needed)
+
+**Finding:** Platform owner is detected via two independent mechanisms in `server.js`:
+- Mechanism 1 — Subscription enforcement bypass (line 373): reads `platform_owner_merchant_id` from `platform_settings` table (cached 5 min), compares to `req.merchantContext.id`
+- Mechanism 2 — Feature gate bypass (line 472): reads `merchants.subscription_status === 'platform_owner'` from `merchantContext`
+
+These must always agree. They are set together during the OAuth first-connect flow (`square-oauth.js:287–306`) and migration 062. If one is ever updated without the other (e.g. manual DB edit, future admin tool), platform owner access could partially break — features work but subscription gate fires, or vice versa.
+
+**Future recommendation:** Consolidate to a single source of truth. The `subscription_status` column is the more reliable source since it is enforced by a DB CHECK constraint. The `platform_settings` lookup could be removed in favor of always using `merchantContext.subscriptionStatus === 'platform_owner'`.
+
+---
+
+### BACKLOG-PLAT-4 — Platform owner assignment: not platform-agnostic
+**Priority: LOW** (design debt, no immediate fix)
+
+**Finding:** Platform owner is currently assigned by the first Square OAuth connect (`square-oauth.js:287–306`). For fresh installs with no merchants, this works. But as SqTools moves toward platform agnosticism (no required POS dependency), this trigger breaks — a merchant could use SqTools without ever connecting Square and never become platform owner.
+
+**Options evaluated:**
+- First merchant row created (simple, platform agnostic)
+- `PLATFORM_OWNER_EMAIL` env var (explicit, auditable)
+- Setup wizard with manual flag (most robust, most build)
+
+**Current recommendation:** Do not change yet. The Square OAuth trigger works for JT Pets today. Revisit when platform agnostic work begins in earnest. Document as a known dependency.
+
+**Related:** `'platform_owner'` is a formal DB CHECK constraint value (BACKLOG-PLAT-2). Any change to how platform owner is assigned must preserve the constraint.
+
+---
+
+### BACKLOG-PLAT-5 — subscribers.merchant_id linkage: design intent vs implementation
+**Priority: LOW** (context only)
+
+**Finding from migration 062 comment:** "For existing installations: uses ENV or merchant ID 3 (JT Pets)". The migration selected the lowest active merchant ID and set it as platform owner. Merchants 1 and 2 were cleaned up by migration 061.
+
+The `subscription-create-service.js` comment says "merchant created later via OAuth" — this was the intended design. The login-time resolution (BACKLOG-PLAT-1) was always the intended completion of this design but was never implemented.
+
+The `resolveMerchantId()` function in `subscription-bridge.js` exists precisely for this purpose and works correctly — it just needs to be called at login time.
 
 ---
 
@@ -142,11 +227,11 @@
 | Priority | Count |
 |----------|-------|
 | CRITICAL | 0 |
-| HIGH | 9 |
-| MEDIUM | ~32 |
-| LOW | ~18 |
+| HIGH | 10 |
+| MEDIUM | ~33 |
+| LOW | ~21 |
 | FUTURE | 7 initiatives |
-| **Total** | **~60 open items** |
+| **Total** | **~64 open items** |
 
 **Ship readiness**: Fix PRICING-UI + SUB-UI-1/2 (all S effort) to ship beta.
 
