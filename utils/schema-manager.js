@@ -565,6 +565,22 @@ async function ensureSchema() {
             ]
         },
         {
+            name: 'cycle_count_pinned_group',
+            sql: `CREATE TABLE IF NOT EXISTS cycle_count_pinned_group (
+                id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                variation_id VARCHAR(255) NOT NULL,
+                variation_name VARCHAR(255),
+                item_name VARCHAR(255),
+                sku VARCHAR(255),
+                added_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(merchant_id, variation_id)
+            )`,
+            indexes: [
+                'CREATE INDEX IF NOT EXISTS idx_cycle_count_pinned_group_merchant ON cycle_count_pinned_group(merchant_id)'
+            ]
+        },
+        {
             name: 'delivery_orders',
             sql: `CREATE TABLE IF NOT EXISTS delivery_orders (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

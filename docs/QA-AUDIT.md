@@ -289,13 +289,21 @@ Pages covered: `public/vendor-dashboard.html`, `public/vendor-catalog.html`, `pu
 |---|---|---|---|
 | 1 | `<a href="/dashboard.html">` | Static page load | ✅ |
 | 2 | `<button data-action="showSendNowModal">` | Client modal (no HTTP) | N/A |
-| 3 | `<button data-action="generateBatch">` | `POST /api/cycle-counts/generate-batch` | ✅ `routes/cycle-counts.js:423` |
-| 4 | `<button data-action="loadPendingItems">` | `GET /api/cycle-counts/pending` | ✅ `routes/cycle-counts.js:42` |
-| 5 | `<a href="/cycle-count-history.html">` | Static page load | ✅ |
-| 6 | `<button data-action="closeSendNowModal">` | Client close (no HTTP) | N/A |
-| 7 | `<button data-action="submitSendNow">` | `POST /api/cycle-counts/send-now` | ✅ `routes/cycle-counts.js:291` |
-| 8 | `<button data-action="closeCountModal">` | Client close (no HTTP) | N/A |
-| 9 | `<button data-action="submitCount">` | `POST /api/cycle-counts/:id/complete` then `POST /api/cycle-counts/:id/sync-to-square` | ✅ `routes/cycle-counts.js:139`, `:208` |
+| 3 | `<button data-action="toggleGenerateDropdown">` | Client dropdown toggle (no HTTP) | N/A |
+| 4 | `<button data-action="generateBatchOption">` | `POST /api/cycle-counts/generate-batch` | ✅ `routes/cycle-counts.js:436` |
+| 5 | `<button data-action="showCategoryBatchModalOption">` | Client modal (no HTTP) | N/A |
+| 6 | `<button data-action="showVendorBatchModalOption">` | Client modal (no HTTP) | N/A |
+| 7 | `<button data-action="sendPinnedGroupOption">` | `POST /api/cycle-counts/pinned/send` | ✅ `routes/cycle-counts.js:505` |
+| 8 | `<button data-action="loadPendingItems">` | `GET /api/cycle-counts/pending` | ✅ `routes/cycle-counts.js:42` |
+| 9 | `<a href="/cycle-count-history.html">` | Static page load | ✅ |
+| 10 | `<button data-action="switchTab">` | Client tab switch (no HTTP) | N/A |
+| 11 | `<button data-action="closeSendNowModal">` | Client close (no HTTP) | N/A |
+| 12 | `<button data-action="submitSendNow">` | `POST /api/cycle-counts/send-now` | ✅ `routes/cycle-counts.js:303` |
+| 13 | `<button data-action="closeCountModal">` | Client close (no HTTP) | N/A |
+| 14 | `<button data-action="submitCount">` | `POST /api/cycle-counts/:id/complete` then `POST /api/cycle-counts/:id/sync-to-square` | ✅ `routes/cycle-counts.js:151`, `:220` |
+| 15 | `<button data-action="addPinnedVariation">` (pinned tab search results) | `POST /api/cycle-counts/pinned` | ✅ `routes/cycle-counts.js:494` |
+| 16 | `<button data-action="removePinnedVariation">` (pinned tab list) | `DELETE /api/cycle-counts/pinned/:variationId` | ✅ `routes/cycle-counts.js:516` |
+| 17 | `<button data-action="sendPinnedGroupFromTab">` | `POST /api/cycle-counts/pinned/send` | ✅ `routes/cycle-counts.js:505` |
 
 ---
 
@@ -1039,6 +1047,10 @@ Mount points: `routes/purchase-orders.js` → `/api/purchase-orders` (with `requ
 | POST | `/api/cycle-counts/generate-batch` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.generateBatch` | `generateDailyBatch` | Y | — |
 | POST | `/api/cycle-counts/generate-category-batch` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.generateCategoryBatch` | `generateDailyBatch` + category filter | Y | — |
 | POST | `/api/cycle-counts/reset` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `requireAdmin`, `validators.reset` | inline DB delete + insert (can wipe all count history) | Y | — |
+| GET | `/api/cycle-counts/pinned` | `requireAuth`, `requireMerchant`, `validators.getPinned` | `getPinnedGroup` | Y | — |
+| POST | `/api/cycle-counts/pinned` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.addPinned` | `addPinnedVariations` (upsert) | Y | — |
+| POST | `/api/cycle-counts/pinned/send` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.sendPinned` | `sendPinnedGroupToQueue` | Y | — |
+| DELETE | `/api/cycle-counts/pinned/:variationId` | `requireAuth`, `requireMerchant`, `requireWriteAccess`, `validators.deletePinned` | `deletePinnedVariation` | Y | — |
 
 ---
 

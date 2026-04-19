@@ -90,6 +90,8 @@ jest.mock('../../services/gmc/feed-service', () => ({
 
 jest.mock('../../services/inventory', () => ({
     generateDailyBatch: jest.fn(), sendCycleCountReport: jest.fn(),
+    getPinnedGroup: jest.fn(), addPinnedVariations: jest.fn(),
+    deletePinnedVariation: jest.fn(), sendPinnedGroupToQueue: jest.fn(),
 }));
 jest.mock('../../services/catalog/location-service', () => ({
     getFirstActiveLocation: jest.fn(),
@@ -203,13 +205,16 @@ describe('purchase-orders.js — requireWriteAccess (readonly → 403)', () => {
 
 describe('cycle-counts.js — requireWriteAccess (readonly → 403)', () => {
     const endpoints = [
-        { method: 'post', path: '/api/cycle-counts/1/complete',               body: { counted_qty: 5 } },
-        { method: 'post', path: '/api/cycle-counts/1/sync-to-square',         body: {} },
-        { method: 'post', path: '/api/cycle-counts/send-now',                 body: { variation_ids: [] } },
-        { method: 'post', path: '/api/cycle-counts/email-report',             body: {} },
-        { method: 'post', path: '/api/cycle-counts/generate-batch',           body: {} },
-        { method: 'post', path: '/api/cycle-counts/reset',                    body: {} },
-        { method: 'post', path: '/api/cycle-counts/generate-category-batch',  body: {} },
+        { method: 'post',   path: '/api/cycle-counts/1/complete',               body: { counted_qty: 5 } },
+        { method: 'post',   path: '/api/cycle-counts/1/sync-to-square',         body: {} },
+        { method: 'post',   path: '/api/cycle-counts/send-now',                 body: { variation_ids: [] } },
+        { method: 'post',   path: '/api/cycle-counts/email-report',             body: {} },
+        { method: 'post',   path: '/api/cycle-counts/generate-batch',           body: {} },
+        { method: 'post',   path: '/api/cycle-counts/reset',                    body: {} },
+        { method: 'post',   path: '/api/cycle-counts/generate-category-batch',  body: {} },
+        { method: 'post',   path: '/api/cycle-counts/pinned',                   body: { variations: [] } },
+        { method: 'delete', path: '/api/cycle-counts/pinned/var-123',           body: {} },
+        { method: 'post',   path: '/api/cycle-counts/pinned/send',              body: {} },
     ];
 
     it('blocks readonly user on all write endpoints', async () => {

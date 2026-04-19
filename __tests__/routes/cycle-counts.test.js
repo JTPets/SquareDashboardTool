@@ -18,6 +18,10 @@ jest.mock('../../utils/image-utils', () => ({
 jest.mock('../../services/inventory', () => ({
     generateDailyBatch: jest.fn(),
     sendCycleCountReport: jest.fn(),
+    getPinnedGroup: jest.fn(),
+    addPinnedVariations: jest.fn(),
+    deletePinnedVariation: jest.fn(),
+    sendPinnedGroupToQueue: jest.fn(),
 }));
 jest.mock('../../middleware/validators/cycle-counts', () => ({
     complete: [(req, res, next) => next()],
@@ -30,6 +34,10 @@ jest.mock('../../middleware/validators/cycle-counts', () => ({
     reset: [(req, res, next) => next()],
     generateCategoryBatch: [(req, res, next) => next()],
     previewCategoryBatch: [(req, res, next) => next()],
+    getPinned: [(req, res, next) => next()],
+    addPinned: [(req, res, next) => next()],
+    deletePinned: [(req, res, next) => next()],
+    sendPinned: [(req, res, next) => next()],
 }));
 
 const request = require('supertest');

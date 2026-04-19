@@ -340,6 +340,56 @@ body {
 .btn-danger:disabled  { background: #9ca3af; cursor: not-allowed; }
 
 /* =============================================================
+   Dropdown button (.btn-dropdown-wrap)
+   A trigger button paired with a floating menu.
+   Toggle .open on the wrapper to show/hide the menu.
+   ============================================================= */
+
+.btn-dropdown-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.btn-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  list-style: none;
+  padding: 4px 0;
+  margin: 0;
+  z-index: 200;
+  white-space: nowrap;
+}
+
+.btn-dropdown-wrap.open .btn-dropdown-menu {
+  display: block;
+}
+
+.btn-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 500;
+  color: #111827;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-dropdown-item:hover {
+  background: #f3f4f6;
+}
+
+/* =============================================================
    Controls bar buttons (.controls button)
    Mode: green action buttons used on catalog/inventory pages.
    Pages with outline-style controls buttons override bg/color inline.
@@ -752,6 +802,58 @@ tr:hover {
 
 .tab-content.active {
   display: block;
+}
+
+/* =============================================================
+   Variation Picker List
+   Used by pinned count group (and loyalty modal via shared extraction
+   TODO when used a third time — see public/js/utils/variation-picker.js).
+   ============================================================= */
+
+.var-pick-result-list {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  margin-top: 6px;
+}
+
+.var-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.var-pick-row:last-child { border-bottom: none; }
+
+.var-pick-row:hover { background: #f9fafb; }
+
+.var-pick-info { flex: 1; min-width: 0; }
+
+.var-pick-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.var-pick-sub {
+  font-size: 12px;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.var-pick-empty {
+  padding: 16px 12px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 13px;
 }
 
 /* =============================================================
