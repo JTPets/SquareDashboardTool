@@ -88,23 +88,16 @@ Both endpoints now use `req.merchantContext.id` via the `requireMerchant` middle
 
 **Partially resolved 2026-04-19.** See `docs/QA-AUDIT.md` Section 5 Group 2.C for full tracking.
 
-**Resolved (2026-04-19):** `requireWriteAccess` added to `/api/vendors/:id/settings` PATCH, all 4 vendor-match-suggestions write endpoints, all purchase-order write endpoints (5), all cycle-count write endpoints (7, including `requireAdmin` on reset), all sync write endpoints (3), all bundle write endpoints (3), `PUT /api/settings/merchant`, all ai-autofill write endpoints (3), and all labels write endpoints (3). Negative-path 403 tests in `__tests__/routes/audit-write-access.test.js`.
+**Resolved (2026-04-19):** `requireWriteAccess` added to `/api/vendors/:id/settings` PATCH, all 4 vendor-match-suggestions write endpoints, all purchase-order write endpoints (5), all cycle-count write endpoints (7, including `requireAdmin` on reset), all sync write endpoints (3), all bundle write endpoints (3), `PUT /api/settings/merchant`, all ai-autofill write endpoints (3), all labels write endpoints (3), all square-attributes.js write endpoints (8), and all vendor-catalog/manage.js write endpoints (7). Negative-path 403 tests in `__tests__/routes/audit-write-access.test.js`.
 
-**Still open (Vendor Catalog)** — 7 write endpoints in `routes/vendor-catalog/manage.js` and `import.js` remain unguarded:
+**Still open (Vendor Catalog)** — 2 write endpoints in `routes/vendor-catalog/import.js` remain unguarded:
 
 | Endpoint | Method |
 |----------|--------|
 | `/api/vendor-catalog/import` | POST |
 | `/api/vendor-catalog/import-mapped` | POST |
-| `/api/vendor-catalog/push-price-changes` | POST |
-| `/api/vendor-catalog/confirm-links` | POST |
-| `/api/vendor-catalog/deduplicate` | POST |
-| `/api/vendor-catalog/create-items` | POST |
-| `/api/vendor-catalog/batches/:batchId/archive` | POST |
-| `/api/vendor-catalog/batches/:batchId/unarchive` | POST |
-| `/api/vendor-catalog/batches/:batchId` | DELETE |
 
-**Risk**: MEDIUM - Read-only users in the vendor/reorder feature can make modifications. The `requireFeature('reorder')` and `requirePermission('reorder', 'read')` gates at server.js level provide partial protection but do not prevent write operations by users with read access.
+**Risk**: MEDIUM - Read-only users in the vendor/reorder feature can still trigger catalog imports. The `requireFeature('reorder')` and `requirePermission('reorder', 'read')` gates at server.js level provide partial protection but do not prevent import operations by users with read access.
 
 ### 2.4 Missing Rate Limiting on Staff Invitation Endpoints
 
@@ -386,7 +379,7 @@ Implemented via Helmet (`middleware/security.js:28-122`):
 
 | ID | Finding | File | Risk |
 |----|---------|------|------|
-| H-1 | ~~15 vendor-catalog write endpoints missing `requireWriteAccess`~~ → 9 remaining (vendor-match-suggestions + `PATCH /vendors/:id/settings` resolved 2026-04-19) | `routes/vendor-catalog/manage.js`, `import.js` | Read-only users can still import and bulk-modify vendor catalog |
+| H-1 | ~~15 vendor-catalog write endpoints missing `requireWriteAccess`~~ → 2 remaining (`manage.js` fully resolved 2026-04-19) | `routes/vendor-catalog/import.js` | Read-only users can still import vendor catalog |
 | H-2 | Staff invitation endpoints lack token-specific rate limiting | `routes/staff.js:89,101` | Token enumeration (mitigated by 256-bit token space) |
 | H-3 | Webhook event cleanup crosses tenant boundaries | `utils/webhook-retry.js:225-236` | Cross-tenant data deletion |
 | H-4 | Staff invite cleanup crosses tenant boundaries | `jobs/staff-invite-cleanup-job.js:24-28` | Cross-tenant data deletion |
@@ -401,7 +394,7 @@ Implemented via Helmet (`middleware/security.js:28-122`):
 | M-3 | Password reset token prefix logged in rate limit handler | `middleware/security.js:325` | Token prefix exposure in logs |
 | M-4 | No explicit CSRF tokens (no csurf middleware) | Application-wide | Mitigated by `sameSite: lax` but lacks defense-in-depth |
 | M-5 | Reset token comparison uses SQL equality, not `crypto.timingSafeEqual()` | `services/auth/password-service.js:136-144` | Theoretical timing attack on hashed token lookup (very low practical risk due to SHA-256) |
-| M-6 | Forgot-password endpoint lacks dedicated rate limiter | `routes/auth/password.js:28` | Relies on global 100/15min limit; reset-password has 5/15min per token but forgot-password does not |
+| M-6 | ~~Forgot-password endpoint lacks dedicated rate limiter~~ ✅ RESOLVED 2026-04-19 | `routes/auth/password.js:28` | `passwordResetRateLimit` now applied to `POST /api/auth/forgot-password` |
 
 ### Architecture Strengths
 
@@ -422,7 +415,7 @@ Implemented via Helmet (`middleware/security.js:28-122`):
 
 **P0 (Immediate)**:
 1. **C-1**: Add session invalidation after password reset - destroy all sessions for the user
-2. **H-1**: ~~Add `requireWriteAccess` to 15 vendor-catalog write endpoints~~ → Partially resolved 2026-04-19; 9 vendor-catalog/manage.js + import.js write endpoints remain
+2. **H-1**: ~~Add `requireWriteAccess` to 15 vendor-catalog write endpoints~~ → 2 remaining (import.js only); `manage.js` fully resolved 2026-04-19
 
 **P1 (This Sprint)**:
 3. **H-2**: Add token-specific rate limiting to staff invitation endpoints
@@ -438,4 +431,4 @@ Implemented via Helmet (`middleware/security.js:28-122`):
 **P3 (Backlog)**:
 10. **M-4**: Evaluate adding explicit CSRF token middleware for defense-in-depth
 11. **M-5**: Use `crypto.timingSafeEqual()` for token hash comparisons (low practical risk but best practice)
-12. **M-6**: Add dedicated rate limiter to forgot-password endpoint (e.g., 5/hour per IP)
+12. ~~**M-6**: Add dedicated rate limiter to forgot-password endpoint~~ — ✅ Resolved 2026-04-19
