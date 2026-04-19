@@ -14,7 +14,7 @@
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/labels');
 const asyncHandler = require('../middleware/async-handler');
@@ -25,7 +25,7 @@ const { sendSuccess, sendError } = require('../utils/response-helper');
  * POST /api/labels/generate
  * Generate ZPL for a list of variation IDs using current DB prices
  */
-router.post('/labels/generate', requireAuth, requireMerchant, validators.generateLabels, asyncHandler(async (req, res) => {
+router.post('/labels/generate', requireAuth, requireMerchant, requireWriteAccess, validators.generateLabels, asyncHandler(async (req, res) => {
     const { variationIds, templateId, copies } = req.body;
     const merchantId = req.merchantContext.id;
 
@@ -47,7 +47,7 @@ router.post('/labels/generate', requireAuth, requireMerchant, validators.generat
  * POST /api/labels/generate-with-prices
  * Generate ZPL using override prices (for freshly pushed price changes)
  */
-router.post('/labels/generate-with-prices', requireAuth, requireMerchant, validators.generateWithPrices, asyncHandler(async (req, res) => {
+router.post('/labels/generate-with-prices', requireAuth, requireMerchant, requireWriteAccess, validators.generateWithPrices, asyncHandler(async (req, res) => {
     const { priceChanges, templateId, copies } = req.body;
     const merchantId = req.merchantContext.id;
 
@@ -83,7 +83,7 @@ router.get('/labels/templates', requireAuth, requireMerchant, validators.getTemp
  * PUT /api/labels/templates/:id/default
  * Set a template as the default for this merchant
  */
-router.put('/labels/templates/:id/default', requireAuth, requireMerchant, validators.setDefault, asyncHandler(async (req, res) => {
+router.put('/labels/templates/:id/default', requireAuth, requireMerchant, requireWriteAccess, validators.setDefault, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const templateId = parseInt(req.params.id);
 
