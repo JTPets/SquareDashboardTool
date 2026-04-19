@@ -255,10 +255,41 @@
     </a>
   </div>
 
-  <div class="items-container" id="items-container">
-    <div class="loading">
-      <div class="loading-spinner"></div>
-      <p>Loading cycle count items...</p>
+  <div class="tabs" id="main-tabs">
+    <button class="tab active" data-action="switchTab" data-action-param="count-queue">Count Queue</button>
+    <button class="tab" data-action="switchTab" data-action-param="pinned-group">Pinned Group <span class="badge" id="pinned-count-badge">0</span></button>
+  </div>
+
+  <div class="tab-content active" id="tab-count-queue">
+    <div class="items-container" id="items-container">
+      <div class="loading">
+        <div class="loading-spinner"></div>
+        <p>Loading cycle count items...</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="tab-pinned-group">
+    <div class="items-container">
+      <div class="form-group">
+        <input type="text" class="form-input" id="pinned-variation-search"
+          placeholder="Search by item name, variation, or SKU..."
+          data-input="onPinnedSearchInput" style="width:100%;box-sizing:border-box;">
+        <div id="pinned-search-results" class="var-pick-result-list" style="display:none;"></div>
+      </div>
+
+      <div style="margin-top:16px;">
+        <strong>Pinned Variations (<span id="pinned-list-count">0</span>):</strong>
+        <div id="pinned-variation-list" class="var-pick-result-list" style="margin-top:6px;">
+          <div class="var-pick-empty">No variations pinned. Search above to add items to your pinned count group.</div>
+        </div>
+      </div>
+
+      <div style="margin-top:14px;">
+        <button class="btn btn-primary" data-action="sendPinnedGroupFromTab" id="send-pinned-tab-btn" style="width:100%;">
+          📌 Send to Queue
+        </button>
+      </div>
     </div>
   </div>
 

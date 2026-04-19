@@ -805,6 +805,58 @@ tr:hover {
 }
 
 /* =============================================================
+   Variation Picker List
+   Used by pinned count group (and loyalty modal via shared extraction
+   TODO when used a third time — see public/js/utils/variation-picker.js).
+   ============================================================= */
+
+.var-pick-result-list {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  margin-top: 6px;
+}
+
+.var-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.var-pick-row:last-child { border-bottom: none; }
+
+.var-pick-row:hover { background: #f9fafb; }
+
+.var-pick-info { flex: 1; min-width: 0; }
+
+.var-pick-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.var-pick-sub {
+  font-size: 12px;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.var-pick-empty {
+  padding: 16px 12px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 13px;
+}
+
+/* =============================================================
    Empty State
    Canonical: dark text, generous padding. Pages with smaller
    padding or h2 instead of h3 override locally.

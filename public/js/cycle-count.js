@@ -507,6 +507,8 @@ function getLastCountedBadge(item) {
 document.addEventListener('DOMContentLoaded', () => {
   lastLoadTime = Date.now();
   loadPendingItems();
+  // Load pinned count for badge (tab label)
+  loadPinnedVariations().catch(() => {});
 
   // Handle image errors via delegation for cycle count images
   document.addEventListener('error', function(event) {
@@ -678,6 +680,177 @@ async function submitCategoryBatch() {
   }
 }
 
+// ── Tab switching ────────────────────────────────────────────────────────────
+
+function switchTab(element, event, tabId) {
+  document.querySelectorAll('#main-tabs .tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  element.classList.add('active');
+  document.getElementById('tab-' + tabId).classList.add('active');
+
+  if (tabId === 'pinned-group') {
+    loadPinnedVariations();
+  }
+}
+
+// ── Pinned Group tab ─────────────────────────────────────────────────────────
+// TODO: extract to public/js/utils/variation-picker.js when used a third time
+
+let pinnedVariations = [];
+let pinnedSearchTimeout = null;
+
+async function loadPinnedVariations() {
+  try {
+    const res = await fetch('/api/cycle-counts/pinned');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to load pinned group');
+    pinnedVariations = data.variations || [];
+    renderPinnedList();
+    updatePinnedBadge();
+  } catch (err) {
+    console.error('Failed to load pinned variations:', err);
+  }
+}
+
+function updatePinnedBadge() {
+  const badge = document.getElementById('pinned-count-badge');
+  if (badge) badge.textContent = pinnedVariations.length;
+  const countEl = document.getElementById('pinned-list-count');
+  if (countEl) countEl.textContent = pinnedVariations.length;
+}
+
+function renderPinnedList() {
+  const container = document.getElementById('pinned-variation-list');
+  if (!container) return;
+  if (pinnedVariations.length === 0) {
+    container.innerHTML = '<div class="var-pick-empty">No variations pinned. Search above to add items to your pinned count group.</div>';
+    return;
+  }
+  container.innerHTML = pinnedVariations.map(v => `
+    <div class="var-pick-row">
+      <div class="var-pick-info">
+        <div class="var-pick-name">${escapeHtml(v.item_name || 'Unknown Item')}</div>
+        <div class="var-pick-sub">${escapeHtml(v.variation_name || '')}${v.sku ? ' &bull; SKU: ' + escapeHtml(v.sku) : ''}</div>
+      </div>
+      <button class="btn btn-danger" style="padding:4px 10px;font-size:12px;"
+        data-action="removePinnedVariation" data-action-param="${escapeAttr(v.variation_id)}">&#10005;</button>
+    </div>
+  `).join('');
+}
+
+function onPinnedSearchInput(element) {
+  clearTimeout(pinnedSearchTimeout);
+  const query = element.value.trim();
+  const resultsEl = document.getElementById('pinned-search-results');
+  if (query.length < 2) {
+    resultsEl.style.display = 'none';
+    resultsEl.innerHTML = '';
+    return;
+  }
+  pinnedSearchTimeout = setTimeout(() => searchPinnedVariations(query), 300);
+}
+
+async function searchPinnedVariations(query) {
+  const resultsEl = document.getElementById('pinned-search-results');
+  resultsEl.style.display = 'block';
+  resultsEl.innerHTML = '<div class="var-pick-empty">Searching...</div>';
+
+  try {
+    const res = await fetch(`/api/variations?search=${encodeURIComponent(query)}&limit=20`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Search failed');
+
+    const items = data.variations || data.items || [];
+    if (items.length === 0) {
+      resultsEl.innerHTML = '<div class="var-pick-empty">No results found.</div>';
+      return;
+    }
+
+    resultsEl.innerHTML = items.map(v => {
+      const alreadyPinned = pinnedVariations.some(p => p.variation_id === v.id);
+      return `
+        <div class="var-pick-row">
+          <div class="var-pick-info">
+            <div class="var-pick-name">${escapeHtml(v.item_name || v.name || 'Unknown')}</div>
+            <div class="var-pick-sub">${escapeHtml(v.variation_name || v.name || '')}${v.sku ? ' &bull; SKU: ' + escapeHtml(v.sku) : ''}</div>
+          </div>
+          ${alreadyPinned
+            ? '<span style="font-size:12px;color:#059669;">&#10003; Pinned</span>'
+            : `<button class="btn btn-primary" style="padding:4px 10px;font-size:12px;"
+                data-action="addPinnedVariation"
+                data-action-param="${escapeAttr(JSON.stringify({ id: v.id, variation_name: v.variation_name || v.name, item_name: v.item_name, sku: v.sku || '' }))}">+ Add</button>`
+          }
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    resultsEl.innerHTML = `<div class="var-pick-empty">Error: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function addPinnedVariation(element, event, paramJson) {
+  let v;
+  try { v = JSON.parse(paramJson); } catch { return; }
+
+  try {
+    const res = await fetch('/api/cycle-counts/pinned', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ variations: [{ variation_id: v.id, variation_name: v.variation_name, item_name: v.item_name, sku: v.sku }] })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to add variation');
+
+    await loadPinnedVariations();
+    // Refresh search results to update button state
+    const query = document.getElementById('pinned-variation-search').value.trim();
+    if (query.length >= 2) searchPinnedVariations(query);
+    showToast('Added to pinned group', 'success');
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
+}
+
+async function removePinnedVariation(element, event, variationId) {
+  try {
+    const res = await fetch(`/api/cycle-counts/pinned/${encodeURIComponent(variationId)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to remove variation');
+
+    pinnedVariations = pinnedVariations.filter(v => v.variation_id !== variationId);
+    renderPinnedList();
+    updatePinnedBadge();
+    // Refresh search results to clear "Pinned" label
+    const query = document.getElementById('pinned-variation-search').value.trim();
+    if (query.length >= 2) searchPinnedVariations(query);
+    showToast('Removed from pinned group', 'success');
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
+}
+
+async function sendPinnedGroupFromTab() {
+  const btn = document.getElementById('send-pinned-tab-btn');
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+  try {
+    const res = await fetch('/api/cycle-counts/pinned/send', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to send pinned group');
+
+    if (data.pushed === 0 && data.message) {
+      showToast(data.message, 'info');
+    } else {
+      showToast(`${data.pushed} pinned item${data.pushed !== 1 ? 's' : ''} added to priority queue`, 'success');
+    }
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📌 Send to Queue';
+  }
+}
+
 // ── Generate Count Batch dropdown ────────────────────────────────────────────
 
 function toggleGenerateDropdown() {
@@ -744,3 +917,8 @@ window.generateBatchOption = generateBatchOption;
 window.showCategoryBatchModalOption = showCategoryBatchModalOption;
 window.showVendorBatchModalOption = showVendorBatchModalOption;
 window.sendPinnedGroupOption = sendPinnedGroupOption;
+window.switchTab = switchTab;
+window.onPinnedSearchInput = onPinnedSearchInput;
+window.addPinnedVariation = addPinnedVariation;
+window.removePinnedVariation = removePinnedVariation;
+window.sendPinnedGroupFromTab = sendPinnedGroupFromTab;
