@@ -28,7 +28,7 @@ const logger = require('../utils/logger');
 const squareApi = require('../services/square');
 const { batchResolveImageUrls } = require('../utils/image-utils');
 const { generateDailyBatch, sendCycleCountReport } = require('../services/inventory');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requireAuth, requireAdmin, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/cycle-counts');
@@ -136,7 +136,7 @@ router.get('/cycle-counts/pending', requireAuth, requireMerchant, asyncHandler(a
  * POST /api/cycle-counts/:id/complete
  * Mark an item as counted with accuracy tracking
  */
-router.post('/cycle-counts/:id/complete', requireAuth, requireMerchant, validators.complete, asyncHandler(async (req, res) => {
+router.post('/cycle-counts/:id/complete', requireAuth, requireMerchant, requireWriteAccess, validators.complete, asyncHandler(async (req, res) => {
     const { id } = req.params;
     const { counted_by, is_accurate, actual_quantity, expected_quantity, notes } = req.body;
     const merchantId = req.merchantContext.id;
@@ -205,7 +205,7 @@ router.post('/cycle-counts/:id/complete', requireAuth, requireMerchant, validato
  * POST /api/cycle-counts/:id/sync-to-square
  * Push the cycle count adjustment to Square
  */
-router.post('/cycle-counts/:id/sync-to-square', requireAuth, requireMerchant, validators.syncToSquare, asyncHandler(async (req, res) => {
+router.post('/cycle-counts/:id/sync-to-square', requireAuth, requireMerchant, requireWriteAccess, validators.syncToSquare, asyncHandler(async (req, res) => {
     const { id } = req.params;
     const { actual_quantity, location_id } = req.body;
     const merchantId = req.merchantContext.id;
@@ -288,7 +288,7 @@ router.post('/cycle-counts/:id/sync-to-square', requireAuth, requireMerchant, va
  * POST /api/cycle-counts/send-now
  * Add item(s) to priority queue
  */
-router.post('/cycle-counts/send-now', requireAuth, requireMerchant, validators.sendNow, asyncHandler(async (req, res) => {
+router.post('/cycle-counts/send-now', requireAuth, requireMerchant, requireWriteAccess, validators.sendNow, asyncHandler(async (req, res) => {
     const { skus, added_by, notes } = req.body;
     const merchantId = req.merchantContext.id;
 
@@ -405,7 +405,7 @@ router.get('/cycle-counts/history', requireAuth, requireMerchant, validators.get
  * POST /api/cycle-counts/email-report
  * Send completion report email
  */
-router.post('/cycle-counts/email-report', requireAuth, requireMerchant, validators.emailReport, asyncHandler(async (req, res) => {
+router.post('/cycle-counts/email-report', requireAuth, requireMerchant, requireWriteAccess, validators.emailReport, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const result = await sendCycleCountReport(merchantId);
 
@@ -420,7 +420,7 @@ router.post('/cycle-counts/email-report', requireAuth, requireMerchant, validato
  * POST /api/cycle-counts/generate-batch
  * Manually trigger daily batch generation
  */
-router.post('/cycle-counts/generate-batch', requireAuth, requireMerchant, validators.generateBatch, asyncHandler(async (req, res) => {
+router.post('/cycle-counts/generate-batch', requireAuth, requireMerchant, requireWriteAccess, validators.generateBatch, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Manual batch generation requested', { merchantId });
     const result = await generateDailyBatch(merchantId);
@@ -432,7 +432,7 @@ router.post('/cycle-counts/generate-batch', requireAuth, requireMerchant, valida
  * POST /api/cycle-counts/reset
  * Admin function to rebuild count history from current catalog
  */
-router.post('/cycle-counts/reset', requireAuth, requireMerchant, requireAdmin, validators.reset, asyncHandler(async (req, res) => {
+router.post('/cycle-counts/reset', requireAuth, requireMerchant, requireWriteAccess, requireAdmin, validators.reset, asyncHandler(async (req, res) => {
     const { preserve_history } = req.body;
     const merchantId = req.merchantContext.id;
 
@@ -534,7 +534,7 @@ router.get('/cycle-counts/preview-category-batch', requireAuth, requireMerchant,
  * POST /api/cycle-counts/generate-category-batch
  * Add all tracked variations in a category or vendor to the priority count queue.
  */
-router.post('/cycle-counts/generate-category-batch', requireAuth, requireMerchant, validators.generateCategoryBatch, asyncHandler(async (req, res) => {
+router.post('/cycle-counts/generate-category-batch', requireAuth, requireMerchant, requireWriteAccess, validators.generateCategoryBatch, asyncHandler(async (req, res) => {
     const { type, id, added_by, notes } = req.body;
     const merchantId = req.merchantContext.id;
     const { rows, name } = await queryCategoryBatchItems(type, id, merchantId);
