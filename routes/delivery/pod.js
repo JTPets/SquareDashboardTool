@@ -38,8 +38,10 @@ router.post('/orders/:id/pod', deliveryRateLimit, requireWriteAccess, podUpload.
 router.get('/pod/:id', validators.getPod, asyncHandler(async (req, res) => {
     const pod = await deliveryApi.getPodPhoto(req.merchantContext.id, req.params.id);
     if (!pod) return sendError(res, 'POD not found', 404);
+    const rawName = pod.original_filename || 'pod.jpg';
+    const safeFilename = rawName.replace(/[^a-zA-Z0-9._-]/g, '_');
     res.setHeader('Content-Type', pod.mime_type || 'image/jpeg');
-    res.setHeader('Content-Disposition', `inline; filename="${pod.original_filename || 'pod.jpg'}"`);
+    res.setHeader('Content-Disposition', `inline; filename="${safeFilename}"`);
     res.sendFile(pod.full_path);
 }));
 
