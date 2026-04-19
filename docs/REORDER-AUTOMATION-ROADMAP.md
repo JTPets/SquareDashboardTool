@@ -406,3 +406,48 @@ Reorder page (`public/reorder.html` / associated JS):
 | `final_suggested_qty` in response | ✓ Already computed |
 | `active_discount_tier` in response | ✗ One JOIN needed (Step 1) |
 | `services/reorder/` directory | ✗ Create (Step 2) |
+
+---
+
+## Section 7: Vendor Add-on Order Window (Data Foundation for Tier 2)
+
+### 7.1 What Was Built
+
+Three columns added to the `vendors` table as pre-automation groundwork:
+
+| Column | Type | Default | Purpose |
+|--------|------|---------|---------|
+| `addon_cutoff_enabled` | `BOOLEAN` | `FALSE` | Master toggle for the add-on window |
+| `addon_cutoff_day` | `VARCHAR(10)` | `NULL` | Day of week for the cutoff (lowercase, e.g. `'tuesday'`) |
+| `addon_cutoff_time` | `TIME` | `NULL` | Time of day for the cutoff (e.g. `14:00:00`) |
+
+**API surface:**
+- `PATCH /api/vendors/:id/settings` — accepts and validates the three fields. Enforces: when `addon_cutoff_enabled: true`, both `addon_cutoff_day` and `addon_cutoff_time` must be present (in request or already in DB). When `addon_cutoff_enabled: false`, day and time are automatically cleared to `NULL`.
+- `GET /api/vendor-dashboard` — returns all three fields per vendor.
+
+**UI:** The vendor settings inline edit form (vendor-dashboard.html) includes an "Enable add-on order window" checkbox. When checked, a day dropdown and native time picker appear. Client-side validation prevents saving with the checkbox checked but a day or time missing.
+
+### 7.2 What the Cron Will Need (Tier 2)
+
+When Tier 2 add-on automation is built, the job will query:
+
+```sql
+SELECT id, name, contact_email, order_method,
+       addon_cutoff_day, addon_cutoff_time
+FROM vendors
+WHERE merchant_id = $1
+  AND status = 'ACTIVE'
+  AND addon_cutoff_enabled = TRUE
+  AND addon_cutoff_day IS NOT NULL
+  AND addon_cutoff_time IS NOT NULL
+```
+
+The cron logic will:
+1. Determine the current day of week (America/Toronto timezone)
+2. Compare against `addon_cutoff_day` to find vendors whose cutoff is today
+3. Compare current time against `addon_cutoff_time` — trigger the window at that time
+4. Call the existing `getReorderSuggestions()` for each matching vendor
+5. Apply Tier 1 smart checkbox defaults
+6. Auto-generate DRAFT POs for items with `default_checked: true`
+
+No schema changes needed when the cron is built — this data foundation is sufficient.
