@@ -530,6 +530,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target.id === 'category-batch-modal') closeCategoryBatchModal();
   });
 
+  // Close generate dropdown on outside click
+  document.addEventListener('click', (e) => {
+    const wrap = document.getElementById('generate-dropdown-wrap');
+    if (wrap && !wrap.contains(e.target)) {
+      wrap.classList.remove('open');
+    }
+  });
+
   // Reload dropdown when switching between category/vendor
   document.querySelectorAll('input[name="batch-type"]').forEach(radio => {
     radio.addEventListener('change', loadCategoryBatchDropdown);
@@ -670,6 +678,54 @@ async function submitCategoryBatch() {
   }
 }
 
+// ── Generate Count Batch dropdown ────────────────────────────────────────────
+
+function toggleGenerateDropdown() {
+  const wrap = document.getElementById('generate-dropdown-wrap');
+  wrap.classList.toggle('open');
+}
+
+function closeGenerateDropdown() {
+  const wrap = document.getElementById('generate-dropdown-wrap');
+  wrap.classList.remove('open');
+}
+
+async function generateBatchOption() {
+  closeGenerateDropdown();
+  await generateBatch();
+}
+
+async function showCategoryBatchModalOption() {
+  closeGenerateDropdown();
+  document.getElementById('batch-type-category').checked = true;
+  await showCategoryBatchModal();
+}
+
+async function showVendorBatchModalOption() {
+  closeGenerateDropdown();
+  document.getElementById('batch-type-vendor').checked = true;
+  await showCategoryBatchModal();
+}
+
+async function sendPinnedGroupOption() {
+  closeGenerateDropdown();
+  try {
+    const res = await fetch('/api/cycle-counts/pinned/send', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to send pinned group');
+    }
+    if (data.pushed === 0 && data.message) {
+      showToast(data.message, 'info');
+    } else {
+      showToast(`${data.pushed} pinned item${data.pushed !== 1 ? 's' : ''} added to priority queue`, 'success');
+      setTimeout(() => loadPendingItems(), 500);
+    }
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
+}
+
 // Expose functions to global scope for event delegation
 window.showSendNowModal = showSendNowModal;
 window.generateBatch = generateBatch;
@@ -683,3 +739,8 @@ window.showCategoryBatchModal = showCategoryBatchModal;
 window.closeCategoryBatchModal = closeCategoryBatchModal;
 window.previewCategoryBatch = previewCategoryBatch;
 window.submitCategoryBatch = submitCategoryBatch;
+window.toggleGenerateDropdown = toggleGenerateDropdown;
+window.generateBatchOption = generateBatchOption;
+window.showCategoryBatchModalOption = showCategoryBatchModalOption;
+window.showVendorBatchModalOption = showVendorBatchModalOption;
+window.sendPinnedGroupOption = sendPinnedGroupOption;

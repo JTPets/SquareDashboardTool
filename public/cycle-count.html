@@ -236,12 +236,17 @@
     <button class="btn btn-secondary" data-action="showSendNowModal">
       📌 Send Now
     </button>
-    <button class="btn btn-primary" data-action="generateBatch" id="generate-batch-btn">
-      ⚡ Generate Batch
-    </button>
-    <button class="btn btn-secondary" data-action="showCategoryBatchModal">
-      📦 By Category/Vendor
-    </button>
+    <div class="btn-dropdown-wrap" id="generate-dropdown-wrap">
+      <button class="btn btn-primary" data-action="toggleGenerateDropdown" id="generate-batch-btn">
+        ⚡ Generate Count Batch ▾
+      </button>
+      <ul class="btn-dropdown-menu" id="generate-dropdown-menu">
+        <li><button class="btn-dropdown-item" data-action="generateBatchOption">⚡ Daily Batch</button></li>
+        <li><button class="btn-dropdown-item" data-action="showCategoryBatchModalOption">📦 By Category</button></li>
+        <li><button class="btn-dropdown-item" data-action="showVendorBatchModalOption">🏭 By Vendor</button></li>
+        <li><button class="btn-dropdown-item" data-action="sendPinnedGroupOption">📌 Pinned Group</button></li>
+      </ul>
+    </div>
     <button class="btn btn-primary" data-action="loadPendingItems">
       🔄 Refresh
     </button>

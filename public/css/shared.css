@@ -340,6 +340,56 @@ body {
 .btn-danger:disabled  { background: #9ca3af; cursor: not-allowed; }
 
 /* =============================================================
+   Dropdown button (.btn-dropdown-wrap)
+   A trigger button paired with a floating menu.
+   Toggle .open on the wrapper to show/hide the menu.
+   ============================================================= */
+
+.btn-dropdown-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.btn-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  list-style: none;
+  padding: 4px 0;
+  margin: 0;
+  z-index: 200;
+  white-space: nowrap;
+}
+
+.btn-dropdown-wrap.open .btn-dropdown-menu {
+  display: block;
+}
+
+.btn-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 500;
+  color: #111827;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-dropdown-item:hover {
+  background: #f3f4f6;
+}
+
+/* =============================================================
    Controls bar buttons (.controls button)
    Mode: green action buttons used on catalog/inventory pages.
    Pages with outline-style controls buttons override bg/color inline.
