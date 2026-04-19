@@ -93,7 +93,7 @@ router.put('/settings/merchant', requireAuth, requireMerchant, requireWriteAcces
  * Get default merchant settings (from env vars)
  * Useful for resetting to defaults
  */
-router.get('/settings/merchant/defaults', requireAuth, validators.defaults, async (req, res) => {
+router.get('/settings/merchant/defaults', requireAuth, requireMerchant, validators.defaults, async (req, res) => {
     sendSuccess(res, {
         defaults: DEFAULT_MERCHANT_SETTINGS
     });
