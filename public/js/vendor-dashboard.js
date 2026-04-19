@@ -248,6 +248,10 @@
                 : detailRow('Lead Time', v.lead_time_days != null ? v.lead_time_days + ' days' : null)) +
               detailRow('Minimum Order', v.minimum_order_amount ? formatCurrency(v.minimum_order_amount) : 'None') +
               detailRow('Supply Days', v.default_supply_days || 'Default') +
+              detailRow('Add-on Cutoff', v.addon_cutoff_enabled
+                ? (v.addon_cutoff_day ? v.addon_cutoff_day.charAt(0).toUpperCase() + v.addon_cutoff_day.slice(1) : '') +
+                  (v.addon_cutoff_time ? ' at ' + v.addon_cutoff_time : '')
+                : 'Disabled') +
             '</div>' +
             '<div class="detail-section">' +
               '<h4>Notes</h4>' +
@@ -302,6 +306,7 @@
               '<label>Notes</label>' +
               '<textarea id="field-notes-' + vid + '">' + escapeHtml(v.notes || '') + '</textarea>' +
             '</div>' +
+            renderAddonCutoffFormGroup(v, vid) +
           '</div>' +
           '<div class="form-actions">' +
             '<button class="btn btn-green" data-action="saveVendorSettings" data-action-param="' + vid + '">Save</button>' +
@@ -326,6 +331,40 @@
       days.map(function(d) {
         return '<option value="' + d + '"' + (selected === d ? ' selected' : '') + '>' + d + '</option>';
       }).join('');
+  }
+
+  function renderAddonCutoffFormGroup(v, vid) {
+    var enabled = v.addon_cutoff_enabled || false;
+    var days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    var dayOptions = '<option value="">-- Select --</option>' +
+      days.map(function(d) {
+        var label = d.charAt(0).toUpperCase() + d.slice(1);
+        return '<option value="' + d + '"' + (v.addon_cutoff_day === d ? ' selected' : '') + '>' + label + '</option>';
+      }).join('');
+    var timeVal = v.addon_cutoff_time ? escapeAttr(v.addon_cutoff_time.slice(0, 5)) : '';
+    var disabledAttr = enabled ? '' : ' disabled';
+    var fieldsOpacity = enabled ? '1' : '0.4';
+    return '<div class="form-group" style="grid-column: 1 / -1">' +
+      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:600;color:#374151">' +
+        '<input type="checkbox" id="field-addon_cutoff_enabled-' + vid + '"' +
+          (enabled ? ' checked' : '') +
+          ' data-change="toggleAddonCutoff" data-action-param="' + vid + '">' +
+        ' Enable add-on order window' +
+      '</label>' +
+      '<div id="fg-addon_cutoff_fields-' + vid + '" style="display:flex;gap:12px;align-items:flex-end;margin-top:6px;opacity:' + fieldsOpacity + '">' +
+        '<div class="form-group" style="margin-bottom:0">' +
+          '<label>Cutoff day</label>' +
+          '<select id="field-addon_cutoff_day-' + vid + '"' + disabledAttr + '>' + dayOptions + '</select>' +
+        '</div>' +
+        '<div class="form-group" style="margin-bottom:0">' +
+          '<label>Cutoff time</label>' +
+          '<input type="time" id="field-addon_cutoff_time-' + vid + '" value="' + timeVal + '"' + disabledAttr + '>' +
+        '</div>' +
+      '</div>' +
+      '<div id="addon-cutoff-error-' + vid + '" style="color:#ef4444;font-size:12px;display:none;margin-top:4px">' +
+        'Please select a day and time when enabling the add-on order window.' +
+      '</div>' +
+    '</div>';
   }
 
   // ==================== EXPAND / COLLAPSE ====================
@@ -365,6 +404,16 @@
     document.getElementById('view-' + id).classList.remove('hidden');
   }
 
+  function toggleAddonCutoff(el, event, id) {
+    var enabled = document.getElementById('field-addon_cutoff_enabled-' + id).checked;
+    document.getElementById('field-addon_cutoff_day-' + id).disabled = !enabled;
+    document.getElementById('field-addon_cutoff_time-' + id).disabled = !enabled;
+    document.getElementById('fg-addon_cutoff_fields-' + id).style.opacity = enabled ? '1' : '0.4';
+    if (!enabled) {
+      document.getElementById('addon-cutoff-error-' + id).style.display = 'none';
+    }
+  }
+
   function toggleScheduleFields(el, event, id) {
     var type = document.getElementById('field-schedule_type-' + id).value;
     var isFixed = type === 'fixed';
@@ -382,6 +431,20 @@
     }
 
     var scheduleType = getVal('schedule_type');
+
+    var addonEnabledEl = document.getElementById('field-addon_cutoff_enabled-' + id);
+    var addonEnabled = addonEnabledEl ? addonEnabledEl.checked : false;
+    var addonDay = getVal('addon_cutoff_day') || null;
+    var addonTime = getVal('addon_cutoff_time') || null;
+
+    if (addonEnabled && (!addonDay || !addonTime)) {
+      var errorEl = document.getElementById('addon-cutoff-error-' + id);
+      if (errorEl) errorEl.style.display = '';
+      return;
+    }
+    var errorEl = document.getElementById('addon-cutoff-error-' + id);
+    if (errorEl) errorEl.style.display = 'none';
+
     var body = {
       schedule_type: scheduleType,
       order_day: scheduleType === 'fixed' ? (getVal('order_day') || null) : null,
@@ -393,7 +456,10 @@
       contact_email: getVal('contact_email') || null,
       order_method: getVal('order_method') || null,
       default_supply_days: getVal('default_supply_days') !== '' ? parseInt(getVal('default_supply_days')) : null,
-      notes: getVal('notes') || null
+      notes: getVal('notes') || null,
+      addon_cutoff_enabled: addonEnabled,
+      addon_cutoff_day: addonEnabled ? addonDay : null,
+      addon_cutoff_time: addonEnabled ? addonTime : null
     };
 
     try {
@@ -430,6 +496,7 @@
     cancelEdit: cancelEdit,
     saveVendorSettings: saveVendorSettings,
     toggleScheduleFields: toggleScheduleFields,
+    toggleAddonCutoff: toggleAddonCutoff,
     setFilterAll: function() { setFilter('all'); },
     setFilterAction: function() { setFilter('action'); },
     sortVendors: function() { renderTable(); }
