@@ -172,6 +172,9 @@ async function ensureSchema() {
                 receive_day VARCHAR(10),
                 payment_method VARCHAR(20),
                 order_method VARCHAR(50),
+                addon_cutoff_enabled BOOLEAN DEFAULT FALSE,
+                addon_cutoff_day VARCHAR(10) DEFAULT NULL,
+                addon_cutoff_time TIME DEFAULT NULL,
                 merchant_id INTEGER NOT NULL REFERENCES merchants(id),
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -1113,6 +1116,10 @@ async function ensureSchema() {
         { table: 'variation_location_settings', column: 'last_received_at', sql: 'ALTER TABLE variation_location_settings ADD COLUMN IF NOT EXISTS last_received_at TIMESTAMPTZ' },
         // Migration 018: high-water mark for delta receive sync — NULL = full history pull
         { table: 'merchants', column: 'last_received_sync_at', sql: 'ALTER TABLE merchants ADD COLUMN IF NOT EXISTS last_received_sync_at TIMESTAMPTZ' },
+        // Migration 019: vendor add-on order window cutoff configuration
+        { table: 'vendors', column: 'addon_cutoff_enabled', sql: 'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS addon_cutoff_enabled BOOLEAN DEFAULT FALSE' },
+        { table: 'vendors', column: 'addon_cutoff_day', sql: 'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS addon_cutoff_day VARCHAR(10) DEFAULT NULL' },
+        { table: 'vendors', column: 'addon_cutoff_time', sql: 'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS addon_cutoff_time TIME DEFAULT NULL' },
     ];
 
     // Migration 019: enforce stock_alert_min < stock_alert_max on both tables.

@@ -211,6 +211,9 @@ CREATE TABLE vendors (
     receive_day VARCHAR(10),
     payment_method VARCHAR(20),
     order_method VARCHAR(50),
+    addon_cutoff_enabled BOOLEAN DEFAULT FALSE,
+    addon_cutoff_day VARCHAR(10) DEFAULT NULL,
+    addon_cutoff_time TIME DEFAULT NULL,
     merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
