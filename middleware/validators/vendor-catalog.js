@@ -189,6 +189,7 @@ const batchAction = [
  * PATCH /api/vendors/:id/settings
  */
 const VALID_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const VALID_ADDON_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const VALID_PAYMENT_METHODS = ['Credit Card', 'Invoice', 'E-Transfer', 'COD', 'N/A'];
 
 const updateVendorSettings = [
@@ -247,6 +248,18 @@ const updateVendorSettings = [
         .trim()
         .isLength({ max: 2000 })
         .withMessage('notes cannot exceed 2000 characters'),
+    body('addon_cutoff_enabled')
+        .optional()
+        .isBoolean()
+        .withMessage('addon_cutoff_enabled must be a boolean'),
+    body('addon_cutoff_day')
+        .optional({ values: 'null' })
+        .isIn(VALID_ADDON_DAYS)
+        .withMessage(`addon_cutoff_day must be one of: ${VALID_ADDON_DAYS.join(', ')}`),
+    body('addon_cutoff_time')
+        .optional({ values: 'null' })
+        .matches(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/)
+        .withMessage('addon_cutoff_time must be in HH:MM or HH:MM:SS format'),
     // Cross-field validation: if schedule_type = 'fixed', order_day and receive_day are required
     body().custom((value) => {
         if (value.schedule_type === 'fixed') {
