@@ -201,6 +201,63 @@ const previewCategoryBatch = [
     handleValidationErrors
 ];
 
+/**
+ * GET /api/cycle-counts/pinned
+ * No query params — uses merchant context
+ */
+const getPinned = [
+    handleValidationErrors
+];
+
+/**
+ * POST /api/cycle-counts/pinned
+ * Add one or more variations to the pinned group (upsert)
+ */
+const addPinned = [
+    body('variations')
+        .isArray({ min: 1 })
+        .withMessage('variations must be a non-empty array'),
+    body('variations.*.variation_id')
+        .trim()
+        .notEmpty()
+        .withMessage('Each variation must have a variation_id'),
+    body('variations.*.variation_name')
+        .optional()
+        .trim()
+        .isLength({ max: 255 })
+        .withMessage('variation_name cannot exceed 255 characters'),
+    body('variations.*.item_name')
+        .optional()
+        .trim()
+        .isLength({ max: 255 })
+        .withMessage('item_name cannot exceed 255 characters'),
+    body('variations.*.sku')
+        .optional()
+        .trim()
+        .isLength({ max: 255 })
+        .withMessage('sku cannot exceed 255 characters'),
+    handleValidationErrors
+];
+
+/**
+ * DELETE /api/cycle-counts/pinned/:variationId
+ */
+const deletePinned = [
+    param('variationId')
+        .trim()
+        .notEmpty()
+        .withMessage('variationId is required'),
+    handleValidationErrors
+];
+
+/**
+ * POST /api/cycle-counts/pinned/send
+ * Push all pinned variations to count_queue_priority
+ */
+const sendPinned = [
+    handleValidationErrors
+];
+
 module.exports = {
     complete,
     syncToSquare,
@@ -211,5 +268,9 @@ module.exports = {
     emailReport,
     generateBatch,
     generateCategoryBatch,
-    previewCategoryBatch
+    previewCategoryBatch,
+    getPinned,
+    addPinned,
+    deletePinned,
+    sendPinned
 };

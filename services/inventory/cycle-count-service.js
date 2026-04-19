@@ -358,7 +358,89 @@ function buildCycleCountEmailBody(sessionData, items, accurateCount, inaccurateC
     `;
 }
 
+/**
+ * Get all pinned variations for a merchant
+ * @param {number} merchantId
+ */
+async function getPinnedGroup(merchantId) {
+    const result = await db.query(
+        `SELECT variation_id, variation_name, item_name, sku, added_at
+         FROM cycle_count_pinned_group
+         WHERE merchant_id = $1
+         ORDER BY item_name ASC, variation_name ASC`,
+        [merchantId]
+    );
+    return result.rows;
+}
+
+/**
+ * Add one or more variations to the pinned group (upsert, ignore duplicates)
+ * @param {number} merchantId
+ * @param {Array<{variation_id, variation_name, item_name, sku}>} variations
+ */
+async function addPinnedVariations(merchantId, variations) {
+    const inserts = variations.map(v =>
+        db.query(
+            `INSERT INTO cycle_count_pinned_group (merchant_id, variation_id, variation_name, item_name, sku)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (merchant_id, variation_id) DO NOTHING`,
+            [merchantId, v.variation_id, v.variation_name || null, v.item_name || null, v.sku || null]
+        )
+    );
+    const results = await Promise.all(inserts);
+    return { added: results.filter(r => r.rowCount > 0).length };
+}
+
+/**
+ * Remove one variation from the pinned group
+ * @param {number} merchantId
+ * @param {string} variationId
+ * @returns {boolean} true if deleted, false if not found
+ */
+async function deletePinnedVariation(merchantId, variationId) {
+    const result = await db.query(
+        `DELETE FROM cycle_count_pinned_group WHERE merchant_id = $1 AND variation_id = $2`,
+        [merchantId, variationId]
+    );
+    return result.rowCount > 0;
+}
+
+/**
+ * Push all pinned variations to count_queue_priority
+ * @param {number} merchantId
+ * @returns {{ pushed: number }}
+ */
+async function sendPinnedGroupToQueue(merchantId) {
+    const pinned = await db.query(
+        `SELECT variation_id FROM cycle_count_pinned_group WHERE merchant_id = $1`,
+        [merchantId]
+    );
+
+    if (pinned.rows.length === 0) {
+        return { pushed: 0 };
+    }
+
+    const inserts = pinned.rows.map(row =>
+        db.query(
+            `INSERT INTO count_queue_priority (catalog_object_id, added_by, notes, merchant_id)
+             SELECT $1, 'System', 'Pinned count group', $2
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM count_queue_priority
+                 WHERE catalog_object_id = $1 AND completed = FALSE AND merchant_id = $2
+             )`,
+            [row.variation_id, merchantId]
+        )
+    );
+
+    const results = await Promise.all(inserts);
+    return { pushed: results.filter(r => r.rowCount > 0).length };
+}
+
 module.exports = {
     generateDailyBatch,
-    sendCycleCountReport
+    sendCycleCountReport,
+    getPinnedGroup,
+    addPinnedVariations,
+    deletePinnedVariation,
+    sendPinnedGroupToQueue
 };

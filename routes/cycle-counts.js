@@ -19,6 +19,10 @@
  * - POST   /api/cycle-counts/email-report     - Send completion report
  * - POST   /api/cycle-counts/generate-batch   - Manually generate daily batch
  * - POST   /api/cycle-counts/reset            - Reset count history
+ * - GET    /api/cycle-counts/pinned           - List pinned group variations
+ * - POST   /api/cycle-counts/pinned           - Add variation(s) to pinned group
+ * - DELETE /api/cycle-counts/pinned/:variationId - Remove variation from pinned group
+ * - POST   /api/cycle-counts/pinned/send      - Push pinned group to priority queue
  */
 
 const express = require('express');
@@ -27,7 +31,10 @@ const db = require('../utils/database');
 const logger = require('../utils/logger');
 const squareApi = require('../services/square');
 const { batchResolveImageUrls } = require('../utils/image-utils');
-const { generateDailyBatch, sendCycleCountReport } = require('../services/inventory');
+const {
+    generateDailyBatch, sendCycleCountReport,
+    getPinnedGroup, addPinnedVariations, deletePinnedVariation, sendPinnedGroupToQueue
+} = require('../services/inventory');
 const { requireAuth, requireAdmin, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
@@ -468,6 +475,59 @@ router.post('/cycle-counts/reset', requireAuth, requireMerchant, requireWriteAcc
             total_items: totalItems
         }
     });
+}));
+
+/**
+ * GET /api/cycle-counts/pinned
+ * List all pinned variations for the merchant
+ */
+router.get('/cycle-counts/pinned', requireAuth, requireMerchant, validators.getPinned, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const rows = await getPinnedGroup(merchantId);
+    sendSuccess(res, { count: rows.length, variations: rows });
+}));
+
+/**
+ * POST /api/cycle-counts/pinned
+ * Add one or more variations to the pinned group (upsert, ignores duplicates)
+ */
+router.post('/cycle-counts/pinned', requireAuth, requireMerchant, requireWriteAccess, validators.addPinned, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const { variations } = req.body;
+    const result = await addPinnedVariations(merchantId, variations);
+    sendSuccess(res, result);
+}));
+
+/**
+ * POST /api/cycle-counts/pinned/send
+ * Push all pinned variations to count_queue_priority
+ * Must be defined before DELETE /:variationId to avoid route conflict
+ */
+router.post('/cycle-counts/pinned/send', requireAuth, requireMerchant, requireWriteAccess, validators.sendPinned, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const result = await sendPinnedGroupToQueue(merchantId);
+    if (result.pushed === 0) {
+        const pinned = await getPinnedGroup(merchantId);
+        if (pinned.length === 0) {
+            return sendError(res, 'Pinned group is empty. Add variations to your pinned group first.', 400, 'PINNED_GROUP_EMPTY');
+        }
+        return sendSuccess(res, { pushed: 0, message: 'All pinned variations are already in the count queue.' });
+    }
+    sendSuccess(res, { pushed: result.pushed });
+}));
+
+/**
+ * DELETE /api/cycle-counts/pinned/:variationId
+ * Remove one variation from the pinned group
+ */
+router.delete('/cycle-counts/pinned/:variationId', requireAuth, requireMerchant, requireWriteAccess, validators.deletePinned, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const { variationId } = req.params;
+    const deleted = await deletePinnedVariation(merchantId, variationId);
+    if (!deleted) {
+        return sendError(res, 'Variation not found in pinned group', 404);
+    }
+    sendSuccess(res, { deleted: true });
 }));
 
 /**
