@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const vendorDashboard = require('../../services/vendor/vendor-dashboard');
 const vendorQuery = require('../../services/vendor/vendor-query-service');
-const { requireAuth } = require('../../middleware/auth');
+const { requireAuth, requireWriteAccess } = require('../../middleware/auth');
 const { requireMerchant } = require('../../middleware/merchant');
 const validators = require('../../middleware/validators/vendor-catalog');
 const asyncHandler = require('../../middleware/async-handler');
@@ -19,7 +19,7 @@ router.get('/vendor-dashboard', requireAuth, requireMerchant, asyncHandler(async
     sendSuccess(res, { vendors: result.vendors, global_oos_count: result.global_oos_count });
 }));
 
-router.patch('/vendors/:id/settings', requireAuth, requireMerchant, validators.updateVendorSettings, asyncHandler(async (req, res) => {
+router.patch('/vendors/:id/settings', requireAuth, requireMerchant, requireWriteAccess, validators.updateVendorSettings, asyncHandler(async (req, res) => {
     const updated = await vendorDashboard.updateVendorSettings(
         req.params.id, req.merchantContext.id, req.body
     );
