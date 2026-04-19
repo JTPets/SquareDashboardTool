@@ -76,6 +76,9 @@ function formatVendorRow(row, defaultSupplyDays) {
         order_method: row.order_method,
         notes: row.notes,
         default_supply_days: row.default_supply_days != null ? parseInt(row.default_supply_days) : defaultSupplyDays,
+        addon_cutoff_enabled: row.addon_cutoff_enabled || false,
+        addon_cutoff_day: row.addon_cutoff_day || null,
+        addon_cutoff_time: row.addon_cutoff_time || null,
         total_items: parseInt(row.total_items) || 0,
         oos_count: parseInt(row.oos_count) || 0,
         reorder_count: parseInt(row.reorder_count) || 0,
@@ -241,6 +244,9 @@ async function getVendorDashboard(merchantId) {
             ve.order_method,
             ve.notes,
             ve.default_supply_days,
+            ve.addon_cutoff_enabled,
+            ve.addon_cutoff_day,
+            ve.addon_cutoff_time,
             -- Total items linked to this vendor
             COALESCE(item_stats.total_items, 0) AS total_items,
             -- OOS: quantity = 0, aligned to main dashboard (no velocity filter)
@@ -462,19 +468,36 @@ async function getVendorDashboard(merchantId) {
  * @returns {Promise<object>} updated vendor row
  */
 async function updateVendorSettings(vendorId, merchantId, settings) {
-    // Verify vendor belongs to this merchant
+    // Verify vendor belongs to this merchant and fetch current addon fields
     const vendorCheck = await db.query(
-        'SELECT id FROM vendors WHERE id = $1 AND merchant_id = $2',
+        'SELECT id, addon_cutoff_day, addon_cutoff_time FROM vendors WHERE id = $1 AND merchant_id = $2',
         [vendorId, merchantId]
     );
     if (vendorCheck.rows.length === 0) {
         return null;
     }
 
+    const existing = vendorCheck.rows[0];
+
+    if (settings.addon_cutoff_enabled === true) {
+        const day = settings.addon_cutoff_day !== undefined ? settings.addon_cutoff_day : existing.addon_cutoff_day;
+        const time = settings.addon_cutoff_time !== undefined ? settings.addon_cutoff_time : existing.addon_cutoff_time;
+        if (!day || !time) {
+            const err = new Error('addon_cutoff_day and addon_cutoff_time are required when enabling the add-on order window');
+            err.statusCode = 400;
+            throw err;
+        }
+    }
+
+    if (settings.addon_cutoff_enabled === false) {
+        settings = { ...settings, addon_cutoff_day: null, addon_cutoff_time: null };
+    }
+
     const allowedFields = [
         'schedule_type', 'order_day', 'receive_day', 'lead_time_days',
         'minimum_order_amount', 'payment_method', 'payment_terms',
-        'contact_email', 'order_method', 'default_supply_days', 'notes'
+        'contact_email', 'order_method', 'default_supply_days', 'notes',
+        'addon_cutoff_enabled', 'addon_cutoff_day', 'addon_cutoff_time'
     ];
 
     const setClauses = [];

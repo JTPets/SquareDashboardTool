@@ -162,6 +162,9 @@ Pages covered: `public/vendor-dashboard.html`, `public/vendor-catalog.html`, `pu
 | 5 | `<button data-action="setFilterAction">` | Client filter (no HTTP) | N/A |
 | 6 | Page load | `GET /api/vendor-dashboard` | ✅ `routes/vendor-catalog/vendors.js:17` |
 | 7 | Vendor settings save (dynamic) | `PATCH /api/vendors/:id/settings` | ✅ `routes/vendor-catalog/vendors.js:22` |
+| 8 | `<input type="checkbox" data-change="toggleAddonCutoff">` (dynamic, in edit form) | Enables/disables day dropdown and time input client-side | N/A |
+| 9 | `<select id="field-addon_cutoff_day-{id}">` (dynamic, in edit form) | Day value included in `PATCH /api/vendors/:id/settings` | ✅ same as #7 |
+| 10 | `<input type="time" id="field-addon_cutoff_time-{id}">` (dynamic, in edit form) | Time value included in `PATCH /api/vendors/:id/settings` | ✅ same as #7 |
 
 ---
 

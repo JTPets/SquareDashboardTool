@@ -18,7 +18,7 @@
 | **Catalog** | `services/catalog/` | 10 | 4,125 | items, variations, categories, images, variation_location_settings, inventory_counts, committed_inventory, catalog_location_health | routes/catalog.js, routes/catalog-health.js, routes/catalog-location-health.js, routes/analytics.js |
 | **Webhook Handlers** | `services/webhook-handlers/` | 12 | 4,085 | webhook_events | routes/webhooks.js, routes/webhooks/square.js |
 | **Delivery** | `services/delivery/` | 13 | 2,748 | delivery_orders, delivery_routes, delivery_route_tokens, delivery_pod, delivery_settings, delivery_audit_log | routes/delivery.js, routes/driver-api.js |
-| **Vendor** | `services/vendor/`, `services/vendor-dashboard.js` | 5 | 3,142 | vendors, vendor_catalog_items, vendor_match_suggestions, variation_vendors | routes/vendor-catalog.js, routes/vendor-match-suggestions.js |
+| **Vendor** | `services/vendor/`, `services/vendor-dashboard.js` | 5 | 3,142 | vendors (incl. addon_cutoff_enabled, addon_cutoff_day, addon_cutoff_time), vendor_catalog_items, vendor_match_suggestions, variation_vendors | routes/vendor-catalog.js, routes/vendor-match-suggestions.js |
 | **Expiry Discounts** | `services/expiry/` | 2 | 2,134 | expiry_discount_tiers, expiry_discount_settings, expiry_discount_audit_log, variation_discount_status, variation_expiration | routes/expiry-discounts.js |
 | **GMC** | `services/gmc/` | 3 | 1,438 | gmc_settings, gmc_feed_history, gmc_location_settings, gmc_sync_logs, google_taxonomy, category_taxonomy_mapping | routes/gmc.js |
 | **Inventory** | `services/inventory/` | 3 | 1,013 | count_sessions, count_queue_daily, count_queue_priority, count_history, cycle_count_pinned_group, min_max_audit_log, min_stock_audit | routes/cycle-counts.js, routes/min-max-suppression-routes.js |

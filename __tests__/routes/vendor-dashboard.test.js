@@ -295,5 +295,105 @@ describe('Vendor Dashboard Routes', () => {
                 expect(updateCall[1]).toContain('test <script>alert(1)</script>');
             });
         });
+
+        describe('addon_cutoff business rules', () => {
+
+            test('throws 400 when enabling cutoff but addon_cutoff_day missing from request and DB', async () => {
+                db.query.mockResolvedValueOnce({
+                    rows: [{ id: 'V1', addon_cutoff_day: null, addon_cutoff_time: null }]
+                });
+
+                const { updateVendorSettings } = require('../../services/vendor/vendor-dashboard');
+                await expect(
+                    updateVendorSettings('V1', 1, { addon_cutoff_enabled: true, addon_cutoff_time: '09:00' })
+                ).rejects.toMatchObject({ statusCode: 400 });
+            });
+
+            test('throws 400 when enabling cutoff but addon_cutoff_time missing from request and DB', async () => {
+                db.query.mockResolvedValueOnce({
+                    rows: [{ id: 'V1', addon_cutoff_day: null, addon_cutoff_time: null }]
+                });
+
+                const { updateVendorSettings } = require('../../services/vendor/vendor-dashboard');
+                await expect(
+                    updateVendorSettings('V1', 1, { addon_cutoff_enabled: true, addon_cutoff_day: 'monday' })
+                ).rejects.toMatchObject({ statusCode: 400 });
+            });
+
+            test('succeeds when enabling cutoff and day/time already in DB', async () => {
+                db.query.mockResolvedValueOnce({
+                    rows: [{ id: 'V1', addon_cutoff_day: 'monday', addon_cutoff_time: '09:00:00' }]
+                });
+                db.query.mockResolvedValueOnce({ rows: [{ id: 'V1', addon_cutoff_enabled: true }] });
+
+                const { updateVendorSettings } = require('../../services/vendor/vendor-dashboard');
+                const result = await updateVendorSettings('V1', 1, { addon_cutoff_enabled: true });
+
+                expect(result).toBeTruthy();
+            });
+
+            test('forces addon_cutoff_day and addon_cutoff_time to null when disabling', async () => {
+                db.query.mockResolvedValueOnce({
+                    rows: [{ id: 'V1', addon_cutoff_day: 'tuesday', addon_cutoff_time: '14:00:00' }]
+                });
+                db.query.mockResolvedValueOnce({ rows: [{ id: 'V1', addon_cutoff_enabled: false }] });
+
+                const { updateVendorSettings } = require('../../services/vendor/vendor-dashboard');
+                await updateVendorSettings('V1', 1, { addon_cutoff_enabled: false });
+
+                const updateCall = db.query.mock.calls[1];
+                expect(updateCall[0]).toContain('addon_cutoff_enabled');
+                expect(updateCall[0]).toContain('addon_cutoff_day');
+                expect(updateCall[0]).toContain('addon_cutoff_time');
+                expect(updateCall[1]).toContain(null);
+            });
+        });
+    });
+
+    describe('addon_cutoff fields in GET /api/vendor-dashboard', () => {
+
+        test('formatVendorRow includes addon_cutoff_enabled, addon_cutoff_day, addon_cutoff_time', async () => {
+            getMerchantSettings.mockResolvedValue({ default_supply_days: 45, reorder_safety_days: 7 });
+            mockDashboardQueries([{
+                id: 'V1', name: 'Test', schedule_type: 'anytime',
+                order_day: null, receive_day: null, lead_time_days: 7,
+                minimum_order_amount: 0, payment_method: null,
+                payment_terms: null, contact_email: null,
+                order_method: null, notes: null, default_supply_days: 45,
+                addon_cutoff_enabled: true, addon_cutoff_day: 'wednesday', addon_cutoff_time: '11:00:00',
+                total_items: 5, oos_count: 0, reorder_count: 0,
+                pending_po_value: 0, last_ordered_at: null,
+            }], [], null, 0);
+
+            const { getVendorDashboard } = require('../../services/vendor/vendor-dashboard');
+            const result = await getVendorDashboard(1);
+
+            const vendor = result.vendors[0];
+            expect(vendor).toHaveProperty('addon_cutoff_enabled', true);
+            expect(vendor).toHaveProperty('addon_cutoff_day', 'wednesday');
+            expect(vendor).toHaveProperty('addon_cutoff_time', '11:00:00');
+        });
+
+        test('addon_cutoff fields default to false/null when not set on vendor row', async () => {
+            getMerchantSettings.mockResolvedValue({});
+            mockDashboardQueries([{
+                id: 'V1', name: 'Test', schedule_type: 'anytime',
+                order_day: null, receive_day: null, lead_time_days: null,
+                minimum_order_amount: null, payment_method: null,
+                payment_terms: null, contact_email: null,
+                order_method: null, notes: null, default_supply_days: null,
+                addon_cutoff_enabled: false, addon_cutoff_day: null, addon_cutoff_time: null,
+                total_items: 0, oos_count: 0, reorder_count: 0,
+                pending_po_value: 0, last_ordered_at: null,
+            }], [], null, 0);
+
+            const { getVendorDashboard } = require('../../services/vendor/vendor-dashboard');
+            const result = await getVendorDashboard(1);
+
+            const vendor = result.vendors[0];
+            expect(vendor.addon_cutoff_enabled).toBe(false);
+            expect(vendor.addon_cutoff_day).toBeNull();
+            expect(vendor.addon_cutoff_time).toBeNull();
+        });
     });
 });
