@@ -10,7 +10,7 @@
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/purchase-orders');
@@ -20,7 +20,7 @@ const poReceiveService = require('../services/purchase-orders/po-receive-service
 const poExportService = require('../services/purchase-orders/po-export-service');
 
 // POST /api/purchase-orders — Create PO
-router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, asyncHandler(async (req, res) => {
+router.post('/', requireAuth, requireMerchant, requireWriteAccess, validators.createPurchaseOrder, asyncHandler(async (req, res) => {
     const { vendor_id, location_id, supply_days_override, items, notes, created_by, force } = req.body;
     let result;
     try {
@@ -69,7 +69,7 @@ router.get('/:id', requireAuth, requireMerchant, validators.getPurchaseOrder, as
 }));
 
 // PATCH /api/purchase-orders/:id — Update DRAFT PO
-router.patch('/:id', requireAuth, requireMerchant, validators.updatePurchaseOrder, asyncHandler(async (req, res) => {
+router.patch('/:id', requireAuth, requireMerchant, requireWriteAccess, validators.updatePurchaseOrder, asyncHandler(async (req, res) => {
     const { supply_days_override, items, notes } = req.body;
     let updatedPo;
     try {
@@ -82,7 +82,7 @@ router.patch('/:id', requireAuth, requireMerchant, validators.updatePurchaseOrde
 }));
 
 // POST /api/purchase-orders/:id/submit — DRAFT → SUBMITTED
-router.post('/:id/submit', requireAuth, requireMerchant, validators.submitPurchaseOrder, asyncHandler(async (req, res) => {
+router.post('/:id/submit', requireAuth, requireMerchant, requireWriteAccess, validators.submitPurchaseOrder, asyncHandler(async (req, res) => {
     let po;
     try {
         po = await poService.submitPurchaseOrder(req.merchantContext.id, req.params.id);
@@ -93,7 +93,7 @@ router.post('/:id/submit', requireAuth, requireMerchant, validators.submitPurcha
 }));
 
 // POST /api/purchase-orders/:id/receive — Record received quantities
-router.post('/:id/receive', requireAuth, requireMerchant, validators.receivePurchaseOrder, asyncHandler(async (req, res) => {
+router.post('/:id/receive', requireAuth, requireMerchant, requireWriteAccess, validators.receivePurchaseOrder, asyncHandler(async (req, res) => {
     let po;
     try {
         po = await poReceiveService.receiveItems(req.merchantContext.id, req.params.id, req.body.items);
@@ -104,7 +104,7 @@ router.post('/:id/receive', requireAuth, requireMerchant, validators.receivePurc
 }));
 
 // DELETE /api/purchase-orders/:id — Delete DRAFT PO
-router.delete('/:id', requireAuth, requireMerchant, validators.deletePurchaseOrder, asyncHandler(async (req, res) => {
+router.delete('/:id', requireAuth, requireMerchant, requireWriteAccess, validators.deletePurchaseOrder, asyncHandler(async (req, res) => {
     let deleted;
     try {
         deleted = await poService.deletePurchaseOrder(req.merchantContext.id, req.params.id);
